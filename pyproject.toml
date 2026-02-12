@@ -1,0 +1,93 @@
+[project]
+name = "mnemo-mcp"
+version = "0.1.0-beta.1"
+description = "Open-source MCP Server for persistent AI memory with embedded sync"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "n24q02m", email = "quangminh2422004@gmail.com" }]
+keywords = ["mcp", "memory", "ai-memory", "sqlite", "embeddings"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = "==3.13.*"
+dependencies = [
+    # MCP Server
+    "mcp[cli]",
+    # HTTP Client (for embedding API calls)
+    "httpx",
+    # Config
+    "pydantic",
+    "pydantic-settings",
+    # Logging
+    "loguru",
+    # LLM (for auto-detecting providers + embedding)
+    "litellm",
+    # SQLite vector search
+    "sqlite-vec",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-timeout",
+    "ruff",
+    "ty",
+    "pre-commit",
+]
+
+[project.scripts]
+mnemo-mcp = "mnemo_mcp:main"
+
+[project.urls]
+Homepage = "https://github.com/n24q02m/mnemo-mcp"
+Repository = "https://github.com/n24q02m/mnemo-mcp.git"
+Issues = "https://github.com/n24q02m/mnemo-mcp/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mnemo_mcp"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/mnemo_mcp/**/*.py",
+    "src/mnemo_mcp/**/*.md",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+timeout = 30
+markers = [
+    "integration: integration tests (require network/services)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ty]
+rules = { unresolved-import = "ignore", unresolved-attribute = "ignore", possibly-missing-attribute = "ignore" }
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
