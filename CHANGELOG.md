@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.0...v0.1.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* **cd:** add git config identity for sync-dev step ([a795851](https://github.com/n24q02m/mnemo-mcp/commit/a7958510fcb6de58621dd5d6bd93dd5b1a58ff55))
+
 ## 0.1.0 (2026-02-12)
 
 
