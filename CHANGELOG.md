@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2-beta](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.1...v0.1.2-beta) (2026-02-12)
+
+
+### Documentation
+
+* add CODEOWNERS and README badges ([2e07417](https://github.com/n24q02m/mnemo-mcp/commit/2e074174da014912bea19b13696167de7b87edc9))
+
 ## [0.1.1](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.0...v0.1.1) (2026-02-12)
 
 
