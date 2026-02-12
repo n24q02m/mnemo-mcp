@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-beta.10](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.0-beta.9...v0.1.0-beta.10) (2026-02-12)
+
+
+### Bug Fixes
+
+* **cd:** auto-resolve merge conflicts in promote workflow ([05a5d4f](https://github.com/n24q02m/mnemo-mcp/commit/05a5d4f764d9aea7456cf19db6c3d67645170977))
+
 ## [0.1.0-beta.9](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.0-beta.8...v0.1.0-beta.9) (2026-02-12)
 
 
