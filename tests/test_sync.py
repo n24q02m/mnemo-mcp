@@ -279,6 +279,7 @@ class TestSetupSync:
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
 
+
 class TestDownloadRclone:
     async def test_uses_configured_version(self):
         """_download_rclone uses the version from settings."""
@@ -289,15 +290,17 @@ class TestDownloadRclone:
         with (
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
-            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch(
+                "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+            ),
             patch("mnemo_mcp.sync.Path.mkdir"),  # prevent actual mkdir
             patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile"),  # prevent temp file
             patch("mnemo_mcp.sync.zipfile.ZipFile"),  # prevent zip file
             patch("pathlib.Path.exists", return_value=False),  # pretend not installed
-            patch("mnemo_mcp.sync.Path.write_bytes"), # prevent writing
-            patch("mnemo_mcp.sync.Path.chmod"), # prevent chmod
-            patch("mnemo_mcp.sync.Path.stat"), # prevent stat
-            patch("mnemo_mcp.sync.Path.unlink"), # prevent unlink
+            patch("mnemo_mcp.sync.Path.write_bytes"),  # prevent writing
+            patch("mnemo_mcp.sync.Path.chmod"),  # prevent chmod
+            patch("mnemo_mcp.sync.Path.stat"),  # prevent stat
+            patch("mnemo_mcp.sync.Path.unlink"),  # prevent unlink
         ):
             mock_settings.get_data_dir.return_value = Path("/tmp/data")
             mock_settings.rclone_version = "v9.9.9"
