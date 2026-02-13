@@ -2,6 +2,8 @@
 
 import base64
 import json
+import io
+import zipfile
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +11,7 @@ from mnemo_mcp.sync import (
     _extract_token,
     _get_platform_info,
     _prepare_rclone_env,
+    _download_rclone,
     setup_sync,
     sync_full,
 )
@@ -268,3 +271,117 @@ class TestSetupSync:
             assert expected_b64 in captured.out
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
+
+class TestDownloadRclone:
+    async def test_download_success(self, tmp_path):
+        """rclone binary is downloaded and extracted."""
+        # 1. Prepare Zip Content
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            # Add binary file (simulate structure inside zip)
+            # The code searches for file ending in 'rclone'/'rclone.exe'
+            zf.writestr("rclone-v1.68.2-linux-amd64/rclone", b"dummy binary content")
+        zip_content = zip_buffer.getvalue()
+
+        # 2. Mock dependencies
+        with (
+            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        ):
+            # Mock settings.get_data_dir to return tmp_path
+            mock_settings.get_data_dir.return_value = tmp_path
+
+            # Mock httpx response
+            mock_response = AsyncMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.content = zip_content
+
+            # Mock client context manager
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # 3. Run
+            result = await _download_rclone()
+
+            # 4. Verify
+            expected_path = tmp_path / "bin" / "rclone"
+            assert result == expected_path
+            assert expected_path.exists()
+            assert expected_path.read_bytes() == b"dummy binary content"
+
+            # Verify chmod (executable permission)
+            if os.name != "nt":
+                assert os.access(expected_path, os.X_OK)
+
+    async def test_already_exists(self, tmp_path):
+        """Returns early if rclone binary already exists."""
+        # 1. Setup
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(parents=True)
+        rclone_path = bin_dir / "rclone"
+        rclone_path.write_bytes(b"existing binary")
+
+        # 2. Mock
+        with (
+            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings.get_data_dir.return_value = tmp_path
+
+            # 3. Run
+            result = await _download_rclone()
+
+            # 4. Verify
+            assert result == rclone_path
+            mock_client_cls.assert_not_called()
+
+    async def test_download_failure(self, tmp_path):
+        """Returns None if download fails."""
+        with (
+            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings.get_data_dir.return_value = tmp_path
+
+            # Mock exception
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = Exception("Download error")
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await _download_rclone()
+
+            assert result is None
+
+    async def test_extraction_failure(self, tmp_path):
+        """Returns None if zip does not contain rclone binary."""
+        # 1. Prepare Zip Content (no binary)
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("readme.txt", b"instructions")
+        zip_content = zip_buffer.getvalue()
+
+        # 2. Mock
+        with (
+            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings.get_data_dir.return_value = tmp_path
+
+            mock_response = AsyncMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.content = zip_content
+
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # 3. Run
+            result = await _download_rclone()
+
+            # 4. Verify
+            assert result is None
