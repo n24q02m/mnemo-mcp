@@ -8,7 +8,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from mnemo_mcp.db import MemoryDB
-from mnemo_mcp.server import config, help, memory, recall_context, save_summary, stats_resource
+from mnemo_mcp.server import (
+    config,
+    help,
+    memory,
+    recall_context,
+    save_summary,
+    stats_resource,
+)
 
 
 @pytest.fixture
