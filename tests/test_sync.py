@@ -3,12 +3,14 @@
 import base64
 import json
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.sync import (
     _extract_token,
     _get_platform_info,
     _prepare_rclone_env,
+    check_remote_configured,
     setup_sync,
     sync_full,
 )
@@ -63,6 +65,49 @@ class TestPlatformInfo:
         mock_plat.machine.return_value = "i686"
         _, arch, _ = _get_platform_info()
         assert arch == "386"
+
+
+class TestCheckRemoteConfigured:
+    def _mock_result(self, returncode=0, stdout=""):
+        return MagicMock(returncode=returncode, stdout=stdout)
+
+    async def test_remote_configured(self):
+        """Returns True when remote is in list."""
+        with patch("mnemo_mcp.sync._run_rclone") as mock_run:
+            mock_run.return_value = self._mock_result(
+                stdout="gdrive:\nother_remote:\n"
+            )
+            result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
+            assert result is True
+
+    async def test_remote_not_configured(self):
+        """Returns False when remote is not in list."""
+        with patch("mnemo_mcp.sync._run_rclone") as mock_run:
+            mock_run.return_value = self._mock_result(stdout="other_remote:\n")
+            result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
+            assert result is False
+
+    async def test_rclone_error(self):
+        """Returns False when rclone command fails."""
+        with patch("mnemo_mcp.sync._run_rclone") as mock_run:
+            mock_run.return_value = self._mock_result(returncode=1)
+            result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
+            assert result is False
+
+    async def test_empty_output(self):
+        """Returns False when rclone output is empty."""
+        with patch("mnemo_mcp.sync._run_rclone") as mock_run:
+            mock_run.return_value = self._mock_result(stdout="")
+            result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
+            assert result is False
+
+    async def test_whitespace_handling(self):
+        """Handles whitespace in rclone output correctly."""
+        with patch("mnemo_mcp.sync._run_rclone") as mock_run:
+            # Output with extra spaces/newlines
+            mock_run.return_value = self._mock_result(stdout="\n  gdrive:  \n")
+            result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
+            assert result is True
 
 
 class TestSyncFull:
