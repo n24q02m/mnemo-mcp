@@ -148,8 +148,8 @@ def _json(obj: object) -> str:
 def _format_memory(mem: dict) -> dict:
     """Format a raw memory dict for tool output.
 
-    - Parse ``tags`` from JSON string to list
-    - Round ``score`` to 3 decimal places
+    - Parse tags from JSON string to list
+    - Round score to 3 decimal places
     """
     if isinstance(mem.get("tags"), str):
         try:
@@ -179,6 +179,124 @@ async def _embed(text: str, model: str | None, dims: int) -> list[float] | None:
 
 
 # --- Tools ---
+
+
+async def _handle_add(db: MemoryDB, embedding_model: str | None, embedding_dims: int, content: str | None, category: str | None, tags: list[str] | None) -> str:
+    if not content:
+        return _json({"error": "content is required for add"})
+
+    embedding = await _embed(content, embedding_model, embedding_dims)
+    memory_id = db.add(
+        content=content,
+        category=category or "general",
+        tags=tags,
+        embedding=embedding,
+    )
+    return _json(
+        {
+            "id": memory_id,
+            "status": "saved",
+            "category": category or "general",
+            "semantic": embedding is not None,
+        }
+    )
+
+
+async def _handle_search(db: MemoryDB, embedding_model: str | None, embedding_dims: int, query: str | None, category: str | None, tags: list[str] | None, limit: int) -> str:
+    if not query:
+        return _json({"error": "query is required for search"})
+
+    embedding = await _embed(query, embedding_model, embedding_dims)
+    results = db.search(
+        query=query,
+        embedding=embedding,
+        category=category,
+        tags=tags,
+        limit=limit,
+    )
+    return _json(
+        {
+            "count": len(results),
+            "results": [_format_memory(r) for r in results],
+            "semantic": embedding is not None,
+        }
+    )
+
+
+async def _handle_list(db: MemoryDB, category: str | None, limit: int) -> str:
+    results = db.list_memories(
+        category=category,
+        limit=limit,
+    )
+    return _json(
+        {
+            "count": len(results),
+            "results": [_format_memory(r) for r in results],
+        }
+    )
+
+
+async def _handle_update(db: MemoryDB, embedding_model: str | None, embedding_dims: int, memory_id: str | None, content: str | None, category: str | None, tags: list[str] | None) -> str:
+    if not memory_id:
+        return _json({"error": "memory_id is required for update"})
+
+    embedding = None
+    if content:
+        embedding = await _embed(content, embedding_model, embedding_dims)
+
+    ok = db.update(
+        memory_id=memory_id,
+        content=content,
+        category=category,
+        tags=tags,
+        embedding=embedding,
+    )
+    if ok:
+        return _json({"status": "updated", "id": memory_id})
+    return _json({"error": f"Memory {memory_id} not found"})
+
+
+async def _handle_delete(db: MemoryDB, memory_id: str | None) -> str:
+    if not memory_id:
+        return _json({"error": "memory_id is required for delete"})
+
+    ok = db.delete(memory_id)
+    if ok:
+        return _json({"status": "deleted", "id": memory_id})
+    return _json({"error": f"Memory {memory_id} not found"})
+
+
+async def _handle_export(db: MemoryDB) -> str:
+    jsonl = db.export_jsonl()
+    return _json(
+        {
+            "format": "jsonl",
+            "data": jsonl,
+            "count": len(jsonl.strip().split("\n")) if jsonl.strip() else 0,
+        }
+    )
+
+
+async def _handle_import(db: MemoryDB, data: str | None, mode: str) -> str:
+    if not data:
+        return _json({"error": "data (JSONL string) is required for import"})
+
+    result = db.import_jsonl(data, mode=mode)
+    return _json(
+        {
+            "status": "imported",
+            **result,
+        }
+    )
+
+
+async def _handle_stats(db: MemoryDB, embedding_model: str | None, embedding_dims: int) -> str:
+    s = db.stats()
+    s["embedding_model"] = embedding_model
+    s["embedding_dims"] = embedding_dims
+    s["sync_enabled"] = settings.sync_enabled
+    s["sync_remote"] = settings.sync_remote
+    return _json(s)
 
 
 @mcp.tool(
@@ -216,114 +334,28 @@ async def memory(
 
     match action:
         case "add":
-            if not content:
-                return _json({"error": "content is required for add"})
-
-            embedding = await _embed(content, embedding_model, embedding_dims)
-            memory_id = db.add(
-                content=content,
-                category=category or "general",
-                tags=tags,
-                embedding=embedding,
-            )
-            return _json(
-                {
-                    "id": memory_id,
-                    "status": "saved",
-                    "category": category or "general",
-                    "semantic": embedding is not None,
-                }
-            )
+            return await _handle_add(db, embedding_model, embedding_dims, content, category, tags)
 
         case "search":
-            if not query:
-                return _json({"error": "query is required for search"})
-
-            embedding = await _embed(query, embedding_model, embedding_dims)
-            results = db.search(
-                query=query,
-                embedding=embedding,
-                category=category,
-                tags=tags,
-                limit=limit,
-            )
-            return _json(
-                {
-                    "count": len(results),
-                    "results": [_format_memory(r) for r in results],
-                    "semantic": embedding is not None,
-                }
-            )
+            return await _handle_search(db, embedding_model, embedding_dims, query, category, tags, limit)
 
         case "list":
-            results = db.list_memories(
-                category=category,
-                limit=limit,
-            )
-            return _json(
-                {
-                    "count": len(results),
-                    "results": [_format_memory(r) for r in results],
-                }
-            )
+            return await _handle_list(db, category, limit)
 
         case "update":
-            if not memory_id:
-                return _json({"error": "memory_id is required for update"})
-
-            embedding = None
-            if content:
-                embedding = await _embed(content, embedding_model, embedding_dims)
-
-            ok = db.update(
-                memory_id=memory_id,
-                content=content,
-                category=category,
-                tags=tags,
-                embedding=embedding,
-            )
-            if ok:
-                return _json({"status": "updated", "id": memory_id})
-            return _json({"error": f"Memory {memory_id} not found"})
+            return await _handle_update(db, embedding_model, embedding_dims, memory_id, content, category, tags)
 
         case "delete":
-            if not memory_id:
-                return _json({"error": "memory_id is required for delete"})
-
-            ok = db.delete(memory_id)
-            if ok:
-                return _json({"status": "deleted", "id": memory_id})
-            return _json({"error": f"Memory {memory_id} not found"})
+            return await _handle_delete(db, memory_id)
 
         case "export":
-            jsonl = db.export_jsonl()
-            return _json(
-                {
-                    "format": "jsonl",
-                    "data": jsonl,
-                    "count": len(jsonl.strip().split("\n")) if jsonl.strip() else 0,
-                }
-            )
+            return await _handle_export(db)
 
         case "import":
-            if not data:
-                return _json({"error": "data (JSONL string) is required for import"})
-
-            result = db.import_jsonl(data, mode=mode)
-            return _json(
-                {
-                    "status": "imported",
-                    **result,
-                }
-            )
+            return await _handle_import(db, data, mode)
 
         case "stats":
-            s = db.stats()
-            s["embedding_model"] = embedding_model
-            s["embedding_dims"] = embedding_dims
-            s["sync_enabled"] = settings.sync_enabled
-            s["sync_remote"] = settings.sync_remote
-            return _json(s)
+            return await _handle_stats(db, embedding_model, embedding_dims)
 
         case _:
             return _json(
