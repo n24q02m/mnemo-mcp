@@ -57,6 +57,15 @@ class Settings(BaseSettings):
         return self.get_db_path().parent
 
     # LiteLLM uses different env vars for embeddings vs completions
+    # Known dimensions for common models
+    _MODEL_DIMENSIONS: dict[str, int] = {
+        "gemini/text-embedding-004": 768,
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072,
+        "text-embedding-ada-002": 1536,
+        "mistral/mistral-embed": 1024,
+    }
+
     _ENV_ALIASES: dict[str, str] = {
         "GOOGLE_API_KEY": "GEMINI_API_KEY",
     }
@@ -116,6 +125,10 @@ class Settings(BaseSettings):
     def resolve_embedding_dims(self) -> int:
         """Return explicit EMBEDDING_DIMS or 0 for auto-detect."""
         return self.embedding_dims
+
+    def get_model_dims(self, model: str) -> int:
+        """Get known dimensions for a model, or default to 768."""
+        return self._MODEL_DIMENSIONS.get(model, 768)
 
 
 settings = Settings()
