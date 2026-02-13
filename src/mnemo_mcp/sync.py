@@ -104,6 +104,23 @@ def _get_platform_info() -> tuple[str, str, str]:
     return os_name, arch, ext
 
 
+def _extract_rclone_zip(zip_path: Path, target_path: Path, binary_name: str) -> None:
+    """Extract rclone binary from zip archive to target path.
+
+    This function performs blocking I/O and should be run in a thread.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        found = False
+        for info in zf.infolist():
+            if info.filename.endswith(binary_name) and not info.is_dir():
+                with zf.open(info) as src:
+                    target_path.write_bytes(src.read())
+                found = True
+                break
+
+        if not found:
+            raise FileNotFoundError(f"Binary '{binary_name}' not found in archive")
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
@@ -132,19 +149,13 @@ async def _download_rclone() -> Path | None:
                 tmp.write(response.content)
                 tmp_path = Path(tmp.name)
 
-        # Extract rclone binary from zip
-        with zipfile.ZipFile(tmp_path, "r") as zf:
-            # Find rclone binary in archive
-            binary_name = f"rclone{ext}"
-            for info in zf.infolist():
-                if info.filename.endswith(binary_name) and not info.is_dir():
-                    # Extract to temp, then move
-                    with zf.open(info) as src:
-                        target_path.write_bytes(src.read())
-                    break
-            else:
-                logger.error("rclone binary not found in archive")
-                return None
+        # Extract rclone binary from zip (in thread pool)
+        binary_name = f"rclone{ext}"
+        try:
+            await asyncio.to_thread(_extract_rclone_zip, tmp_path, target_path, binary_name)
+        except Exception as e:
+            logger.error(f"Failed to extract rclone binary: {e}")
+            return None
 
         # Make executable on Unix
         if ext == "":
