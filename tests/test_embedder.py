@@ -1,6 +1,6 @@
 """Tests for mnemo_mcp.embedder — LiteLLM embedding wrapper (all mocked)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,7 +12,7 @@ from mnemo_mcp.embedder import (
 
 
 class TestEmbedTexts:
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_returns_embeddings(self, mock_embed):
         mock_embed.return_value = MagicMock(
             data=[
@@ -25,13 +25,13 @@ class TestEmbedTexts:
         assert result[0] == [0.1, 0.2, 0.3]
         assert result[1] == [0.4, 0.5, 0.6]
 
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_empty_input(self, mock_embed):
         result = await embed_texts([], "test-model")
         assert result == []
         mock_embed.assert_not_called()
 
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_preserves_order(self, mock_embed):
         """Results sorted by index even if API returns out of order."""
         mock_embed.return_value = MagicMock(
@@ -44,7 +44,7 @@ class TestEmbedTexts:
         assert result[0] == [0.1, 0.2]
         assert result[1] == [0.4, 0.5]
 
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_passes_dimensions(self, mock_embed):
         mock_embed.return_value = MagicMock(data=[{"index": 0, "embedding": [0.1]}])
         await embed_texts(["test"], "model", dimensions=512)
@@ -52,13 +52,13 @@ class TestEmbedTexts:
             model="model", input=["test"], dimensions=512
         )
 
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_omits_dimensions_when_none(self, mock_embed):
         mock_embed.return_value = MagicMock(data=[{"index": 0, "embedding": [0.1]}])
         await embed_texts(["test"], "model", dimensions=None)
         mock_embed.assert_called_once_with(model="model", input=["test"])
 
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_raises_on_api_error(self, mock_embed):
         mock_embed.side_effect = Exception("API rate limit exceeded")
         with pytest.raises(Exception, match="API rate limit exceeded"):
@@ -66,7 +66,7 @@ class TestEmbedTexts:
 
 
 class TestEmbedSingle:
-    @patch("mnemo_mcp.embedder.litellm_embedding")
+    @patch("mnemo_mcp.embedder.litellm_aembedding", new_callable=AsyncMock)
     async def test_returns_single_vector(self, mock_embed):
         mock_embed.return_value = MagicMock(
             data=[{"index": 0, "embedding": [0.1, 0.2, 0.3]}]
