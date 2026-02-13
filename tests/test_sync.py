@@ -283,6 +283,7 @@ class TestDownloadRclone:
     async def test_uses_configured_version(self):
         """_download_rclone uses the version from settings."""
         from pathlib import Path
+
         from mnemo_mcp.sync import _download_rclone
 
         with (
