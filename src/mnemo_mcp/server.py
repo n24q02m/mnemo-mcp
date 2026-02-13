@@ -181,7 +181,14 @@ async def _embed(text: str, model: str | None, dims: int) -> list[float] | None:
 # --- Tools ---
 
 
-async def _handle_add(db: MemoryDB, embedding_model: str | None, embedding_dims: int, content: str | None, category: str | None, tags: list[str] | None) -> str:
+async def _handle_add(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+    content: str | None,
+    category: str | None,
+    tags: list[str] | None,
+) -> str:
     if not content:
         return _json({"error": "content is required for add"})
 
@@ -202,7 +209,15 @@ async def _handle_add(db: MemoryDB, embedding_model: str | None, embedding_dims:
     )
 
 
-async def _handle_search(db: MemoryDB, embedding_model: str | None, embedding_dims: int, query: str | None, category: str | None, tags: list[str] | None, limit: int) -> str:
+async def _handle_search(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+    query: str | None,
+    category: str | None,
+    tags: list[str] | None,
+    limit: int,
+) -> str:
     if not query:
         return _json({"error": "query is required for search"})
 
@@ -236,7 +251,15 @@ async def _handle_list(db: MemoryDB, category: str | None, limit: int) -> str:
     )
 
 
-async def _handle_update(db: MemoryDB, embedding_model: str | None, embedding_dims: int, memory_id: str | None, content: str | None, category: str | None, tags: list[str] | None) -> str:
+async def _handle_update(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+    memory_id: str | None,
+    content: str | None,
+    category: str | None,
+    tags: list[str] | None,
+) -> str:
     if not memory_id:
         return _json({"error": "memory_id is required for update"})
 
@@ -290,7 +313,9 @@ async def _handle_import(db: MemoryDB, data: str | None, mode: str) -> str:
     )
 
 
-async def _handle_stats(db: MemoryDB, embedding_model: str | None, embedding_dims: int) -> str:
+async def _handle_stats(
+    db: MemoryDB, embedding_model: str | None, embedding_dims: int
+) -> str:
     s = db.stats()
     s["embedding_model"] = embedding_model
     s["embedding_dims"] = embedding_dims
@@ -334,16 +359,22 @@ async def memory(
 
     match action:
         case "add":
-            return await _handle_add(db, embedding_model, embedding_dims, content, category, tags)
+            return await _handle_add(
+                db, embedding_model, embedding_dims, content, category, tags
+            )
 
         case "search":
-            return await _handle_search(db, embedding_model, embedding_dims, query, category, tags, limit)
+            return await _handle_search(
+                db, embedding_model, embedding_dims, query, category, tags, limit
+            )
 
         case "list":
             return await _handle_list(db, category, limit)
 
         case "update":
-            return await _handle_update(db, embedding_model, embedding_dims, memory_id, content, category, tags)
+            return await _handle_update(
+                db, embedding_model, embedding_dims, memory_id, content, category, tags
+            )
 
         case "delete":
             return await _handle_delete(db, memory_id)
