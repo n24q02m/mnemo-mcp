@@ -1,4 +1,3 @@
-
 import base64
 import json
 import os
@@ -17,9 +16,11 @@ def test_environment_sanitization():
         sensitive_var: sensitive_value,
         "PATH": "/usr/bin:/bin",
         "RCLONE_CONFIG_MYREMOTE_TYPE": "drive",
-        "RCLONE_CONFIG_MYREMOTE_TOKEN": base64.b64encode(json.dumps({"token": "abc"}).encode()).decode(),
+        "RCLONE_CONFIG_MYREMOTE_TOKEN": base64.b64encode(
+            json.dumps({"token": "abc"}).encode()
+        ).decode(),
         "HOME": "/home/user",
-        "UNKOWN_VAR": "should_be_removed"
+        "UNKOWN_VAR": "should_be_removed",
     }
 
     with patch.dict(os.environ, test_env, clear=True):
@@ -42,6 +43,7 @@ def test_environment_sanitization():
         assert "RCLONE_CONFIG_MYREMOTE_TOKEN" in env
         # Should be decoded JSON string
         assert env["RCLONE_CONFIG_MYREMOTE_TOKEN"] == '{"token": "abc"}'
+
 
 def test_environment_allowlist_case_insensitivity():
     """Verify that allowlist matching handles case correctly (if applicable)."""
