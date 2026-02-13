@@ -32,7 +32,6 @@ _EMBEDDING_CANDIDATES = [
 # Fixed embedding dimensions for sqlite-vec.
 # All embeddings are truncated to this size so switching models never
 # breaks the vector table. Override via EMBEDDING_DIMS env var.
-_DEFAULT_EMBEDDING_DIMS = 768
 
 # --- Lifespan ---
 
@@ -56,7 +55,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         native_dims = check_embedding_available(embedding_model)
         if native_dims > 0:
             if embedding_dims == 0:
-                embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                embedding_dims = settings.get_model_dims(embedding_model)
             logger.info(
                 f"Embedding: {embedding_model} "
                 f"(native={native_dims}, stored={embedding_dims})"
@@ -75,7 +74,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
             if native_dims > 0:
                 embedding_model = candidate
                 if embedding_dims == 0:
-                    embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                    embedding_dims = settings.get_model_dims(embedding_model)
                 logger.info(
                     f"Embedding: {embedding_model} "
                     f"(native={native_dims}, stored={embedding_dims})"
