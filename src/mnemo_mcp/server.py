@@ -9,6 +9,7 @@ MCP Interface:
 """
 
 import json
+import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -426,6 +427,19 @@ async def config(
                     sys.stderr,
                     level=settings.log_level,
                 )
+            elif key == "sync_folder":
+                # Security check: prevent path traversal
+                if (
+                    os.path.isabs(value)
+                    or value.startswith("/")
+                    or ".." in value.replace("\\", "/").split("/")
+                ):
+                    return _json(
+                        {
+                            "error": "Invalid sync_folder: Must be a relative path and cannot contain .. (parent directory traversal)"
+                        }
+                    )
+                settings.sync_folder = value
             else:
                 setattr(settings, key, value)
 

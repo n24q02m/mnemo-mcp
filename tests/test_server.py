@@ -246,6 +246,46 @@ class TestConfigTool:
         )
         assert result["status"] == "updated"
 
+    async def test_set_invalid_sync_folder(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        # Test traversal
+        result = json.loads(
+            await config(
+                action="set",
+                key="sync_folder",
+                value="../../etc",
+                ctx=ctx,
+            )
+        )
+        assert "error" in result
+        assert "Invalid sync_folder" in result["error"]
+
+        # Test absolute path
+        result = json.loads(
+            await config(
+                action="set",
+                key="sync_folder",
+                value="/absolute/path",
+                ctx=ctx,
+            )
+        )
+        assert "error" in result
+        assert "Invalid sync_folder" in result["error"]
+
+    async def test_set_valid_sync_folder_complex(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        # Valid relative path with subfolders
+        result = json.loads(
+            await config(
+                action="set",
+                key="sync_folder",
+                value="backups/mnemo",
+                ctx=ctx,
+            )
+        )
+        assert result["status"] == "updated"
+        assert result["value"] == "backups/mnemo"
+
     async def test_set_invalid_key(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
