@@ -243,6 +243,9 @@ class MemoryDB:
                     (_serialize_f32(embedding), limit * 2),
                 ).fetchall()
 
+                vec_scores = {}
+                ids_to_fetch = []
+
                 for row in vec_rows:
                     mid = row["id"]
                     # Distance is cosine distance (0 = identical), convert to similarity
@@ -250,16 +253,23 @@ class MemoryDB:
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        vec_scores[mid] = vec_score
+                        ids_to_fetch.append(mid)
+
+                if ids_to_fetch:
+                    placeholders = ",".join("?" for _ in ids_to_fetch)
+                    fetched = self._conn.execute(
+                        f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                        ids_to_fetch,
+                    ).fetchall()
+
+                    for row in fetched:
+                        mid = row["id"]
+                        results[mid] = {
+                            **dict(row),
+                            "fts_score": 0.0,
+                            "vec_score": vec_scores[mid],
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
