@@ -186,7 +186,12 @@ async def _embed(text: str, model: str | None, dims: int) -> list[float] | None:
         "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats. "
         "PROACTIVE: save user preferences, decisions, corrections, project conventions. "
         "Search before recommending. Use help tool for full docs."
-    )
+    ),
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+    },
 )
 async def memory(
     action: str,
@@ -347,7 +352,12 @@ async def memory(
     description=(
         "Server config and sync. Actions: status|sync|set. "
         "status: show config. sync: manual sync. set: change setting."
-    )
+    ),
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+    },
 )
 async def config(
     action: str,
@@ -447,7 +457,12 @@ async def config(
 
 
 @mcp.tool(
-    description="Full documentation for memory and config tools. topic: 'memory' | 'config'"
+    description="Full documentation for memory and config tools. topic: 'memory' | 'config'",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+    },
 )
 async def help(topic: str = "memory") -> str:
     """Load full documentation for a tool."""

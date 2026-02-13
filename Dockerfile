@@ -7,7 +7,7 @@ FROM python:3.13-slim-bookworm AS builder
 WORKDIR /app
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /bin/uv
 
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
@@ -29,13 +29,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
+# Create user and setup permissions
+RUN useradd -m appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /data /app
+
 # Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=builder --chown=appuser:appuser /app/src /app/src
 
 # Activate venv
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app/src
+
+# Switch to non-root user
+USER appuser
 
 # Default data directory
 ENV DB_PATH=/data/memories.db
