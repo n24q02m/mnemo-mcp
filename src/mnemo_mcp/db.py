@@ -262,7 +262,8 @@ class MemoryDB:
                         chunk = missing_ids[i : i + chunk_size]
                         placeholders = ",".join("?" for _ in chunk)
                         rows = self._conn.execute(
-                            f"SELECT * FROM memories WHERE id IN ({placeholders})", chunk
+                            f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                            chunk,
                         ).fetchall()
                         for r in rows:
                             mid = r["id"]
