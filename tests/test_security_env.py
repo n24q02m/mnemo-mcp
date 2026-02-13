@@ -1,9 +1,11 @@
 
-import os
 import base64
 import json
+import os
 from unittest.mock import patch
+
 from mnemo_mcp.sync import _prepare_rclone_env
+
 
 def test_environment_sanitization():
     """Verify that sensitive environment variables are filtered out and allowed ones are kept."""
