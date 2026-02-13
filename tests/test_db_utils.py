@@ -1,6 +1,7 @@
 """Tests for internal DB utilities."""
 
 import struct
+
 from mnemo_mcp.db import _serialize_f32
 
 
@@ -49,5 +50,5 @@ class TestSerializeF32:
         result = _serialize_f32(vec)
         unpacked = list(struct.unpack(f"{len(vec)}f", result))
         # Use approx for float comparison
-        for v1, v2 in zip(vec, unpacked):
+        for v1, v2 in zip(vec, unpacked, strict=True):
             assert abs(v1 - v2) < 1e-6
