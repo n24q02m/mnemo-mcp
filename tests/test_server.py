@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mnemo_mcp.db import MemoryDB
-from mnemo_mcp.server import config, help, memory, recall_context, save_summary
+from mnemo_mcp.server import config, help, memory, recall_context, save_summary, stats_resource
 
 
 @pytest.fixture
@@ -297,3 +297,25 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+class TestResources:
+    async def test_stats_resource(self, ctx_with_db):
+        ctx, db = ctx_with_db
+        db.add("resource test")
+
+        # Invoke resource handler directly
+        result = json.loads(await stats_resource(ctx=ctx))
+
+        # Verify structure
+        assert result["total_memories"] == 1
+        assert "categories" in result
+        assert "last_updated" in result
+        assert "vec_enabled" in result
+        assert "db_path" in result
+        assert "embedding_model" in result
+        assert "sync_enabled" in result
+
+        # Verify values from context
+        assert result["embedding_model"] is None
+        # Verify sync_enabled reflects settings (default or env)
+        # We don't assert specific value as it depends on env, but key presence is critical
