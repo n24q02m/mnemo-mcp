@@ -409,7 +409,9 @@ class MemoryDB:
 
             # Update embedding if provided
             if embedding and self._vec_enabled:
-                self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
+                self._conn.execute(
+                    "DELETE FROM memories_vec WHERE id = ?", (memory_id,)
+                )
                 self._conn.execute(
                     "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
                     (memory_id, _serialize_f32(embedding)),
@@ -428,7 +430,9 @@ class MemoryDB:
             self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
 
             if self._vec_enabled:
-                self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
+                self._conn.execute(
+                    "DELETE FROM memories_vec WHERE id = ?", (memory_id,)
+                )
 
             self._conn.commit()
             return True
