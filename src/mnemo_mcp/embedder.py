@@ -25,6 +25,14 @@ from litellm import embedding as litellm_embedding  # noqa: E402
 from loguru import logger  # noqa: E402
 
 
+def _run_litellm_embedding(**kwargs) -> list[list[float]]:
+    """Helper to run LiteLLM embedding and return sorted embeddings."""
+    response = litellm_embedding(**kwargs)
+    # Sort by index to ensure correct order
+    data = sorted(response.data, key=lambda x: x["index"])
+    return [d["embedding"] for d in data]
+
+
 async def embed_texts(
     texts: list[str],
     model: str,
@@ -51,10 +59,7 @@ async def embed_texts(
         kwargs["dimensions"] = dimensions
 
     try:
-        response = litellm_embedding(**kwargs)
-        # Sort by index to ensure correct order
-        data = sorted(response.data, key=lambda x: x["index"])
-        return [d["embedding"] for d in data]
+        return _run_litellm_embedding(**kwargs)
     except Exception as e:
         logger.error(f"Embedding failed ({model}): {e}")
         raise
@@ -79,9 +84,9 @@ def check_embedding_available(model: str) -> int:
         Embedding dimensions if available, 0 if not.
     """
     try:
-        response = litellm_embedding(model=model, input=["test"])
-        if response.data:
-            dim = len(response.data[0]["embedding"])
+        embeddings = _run_litellm_embedding(model=model, input=["test"])
+        if embeddings:
+            dim = len(embeddings[0])
             logger.info(f"Embedding model {model} available (dims={dim})")
             return dim
         return 0

@@ -78,7 +78,7 @@ class TestEmbedSingle:
 class TestCheckAvailable:
     @patch("mnemo_mcp.embedder.litellm_embedding")
     def test_available_returns_dims(self, mock_embed):
-        mock_embed.return_value = MagicMock(data=[{"embedding": [0.1, 0.2]}])
+        mock_embed.return_value = MagicMock(data=[{"index": 0, "embedding": [0.1, 0.2]}])
         assert check_embedding_available("model") == 2
 
     @patch("mnemo_mcp.embedder.litellm_embedding")
