@@ -243,22 +243,33 @@ class MemoryDB:
                     (_serialize_f32(embedding), limit * 2),
                 ).fetchall()
 
+                # Batch fetch missing memories to avoid N+1 queries
+                missing_ids = []
+                missing_scores = {}
+
                 for row in vec_rows:
                     mid = row["id"]
-                    # Distance is cosine distance (0 = identical), convert to similarity
-                    vec_score = 1.0 - row["distance"]
+                    score = 1.0 - row["distance"]
                     if mid in results:
-                        results[mid]["vec_score"] = vec_score
+                        results[mid]["vec_score"] = score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
+                        missing_ids.append(mid)
+                        missing_scores[mid] = score
+
+                if missing_ids:
+                    chunk_size = 900
+                    for i in range(0, len(missing_ids), chunk_size):
+                        chunk = missing_ids[i : i + chunk_size]
+                        placeholders = ",".join("?" for _ in chunk)
+                        rows = self._conn.execute(
+                            f"SELECT * FROM memories WHERE id IN ({placeholders})", chunk
+                        ).fetchall()
+                        for r in rows:
+                            mid = r["id"]
                             results[mid] = {
-                                **dict(mem),
+                                **dict(r),
                                 "fts_score": 0.0,
-                                "vec_score": vec_score,
+                                "vec_score": missing_scores[mid],
                             }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
