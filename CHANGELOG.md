@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3-beta.2](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.3-beta.1...v0.1.3-beta.2) (2026-02-13)
+
+
+### Bug Fixes
+
+* resolve ruff f-string format issues in db.py ([ee05d15](https://github.com/n24q02m/mnemo-mcp/commit/ee05d1538efb6136e43964a5c477be0b3af230fc))
+
 ## [0.1.3-beta.1](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.3-beta...v0.1.3-beta.1) (2026-02-13)
 
 
