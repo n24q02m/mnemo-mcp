@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mnemo_mcp.db import MemoryDB
-from mnemo_mcp.server import config, help, memory, recall_context, save_summary
+from mnemo_mcp.server import config, help, memory, recall_context, save_summary, recent_resource
 
 
 @pytest.fixture
@@ -297,3 +297,19 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+class TestResources:
+    async def test_recent_resource(self, ctx_with_db):
+        ctx, db = ctx_with_db
+        # Add 12 memories to test the limit
+        for i in range(12):
+            db.add(f"memory {i}")
+
+        result = json.loads(await recent_resource(ctx=ctx))
+        assert len(result) == 10
+
+        # Verify content - the most recent ones should be returned
+        # Since DB usually returns most recently updated first, "memory 11" should be present
+        contents = {r["content"] for r in result}
+        assert "memory 11" in contents
+        assert "memory 0" not in contents
