@@ -343,7 +343,6 @@ async def memory(
             )
 
 
-
 def _handle_config_status(
     db: MemoryDB,
     embedding_model: str | None,
@@ -424,7 +423,6 @@ def _handle_config_set(key: str | None, value: str | None) -> str:
             "value": getattr(settings, key),
         }
     )
-
 
 
 @mcp.tool(
