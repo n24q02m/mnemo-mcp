@@ -74,9 +74,7 @@ class TestCheckRemoteConfigured:
     async def test_remote_configured(self):
         """Returns True when remote is in list."""
         with patch("mnemo_mcp.sync._run_rclone") as mock_run:
-            mock_run.return_value = self._mock_result(
-                stdout="gdrive:\nother_remote:\n"
-            )
+            mock_run.return_value = self._mock_result(stdout="gdrive:\nother_remote:\n")
             result = await check_remote_configured(Path("/bin/rclone"), "gdrive")
             assert result is True
 
