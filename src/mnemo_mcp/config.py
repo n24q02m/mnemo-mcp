@@ -61,17 +61,8 @@ class Settings(BaseSettings):
         "GOOGLE_API_KEY": "GEMINI_API_KEY",
     }
 
-    def setup_api_keys(self) -> dict[str, list[str]]:
-        """Parse API_KEYS and set env vars for LiteLLM.
-
-        Format: "GOOGLE_API_KEY:AIza...,OPENAI_API_KEY:sk-..."
-
-        Also sets aliases (e.g., GOOGLE_API_KEY → GEMINI_API_KEY)
-        because LiteLLM embedding uses GEMINI_API_KEY for gemini/ models.
-
-        Returns:
-            Dict mapping env var name to list of API keys.
-        """
+    def _parse_api_keys(self) -> dict[str, list[str]]:
+        """Parse API_KEYS string into a dictionary."""
         if not self.api_keys:
             return {}
 
@@ -90,6 +81,21 @@ class Settings(BaseSettings):
                 continue
 
             keys_by_env.setdefault(env_var, []).append(key)
+
+        return keys_by_env
+
+    def setup_api_keys(self) -> dict[str, list[str]]:
+        """Parse API_KEYS and set env vars for LiteLLM.
+
+        Format: "GOOGLE_API_KEY:AIza...,OPENAI_API_KEY:sk-..."
+
+        Also sets aliases (e.g., GOOGLE_API_KEY → GEMINI_API_KEY)
+        because LiteLLM embedding uses GEMINI_API_KEY for gemini/ models.
+
+        Returns:
+            Dict mapping env var name to list of API keys.
+        """
+        keys_by_env = self._parse_api_keys()
 
         # Set first key of each env var (LiteLLM reads from env)
         for env_var, keys in keys_by_env.items():
@@ -111,6 +117,11 @@ class Settings(BaseSettings):
         """
         if self.embedding_model:
             return self.embedding_model
+
+        # Check if keys are available for auto-detection
+        if not self._parse_api_keys():
+            return None
+
         return None
 
     def resolve_embedding_dims(self) -> int:
