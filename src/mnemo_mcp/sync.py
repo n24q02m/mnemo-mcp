@@ -104,14 +104,58 @@ def _get_platform_info() -> tuple[str, str, str]:
     return os_name, arch, ext
 
 
+def _get_download_url(version: str, os_name: str, arch: str) -> str:
+    """Generate rclone download URL."""
+    archive_name = f"rclone-{version}-{os_name}-{arch}.zip"
+    return (
+        f"https://github.com/rclone/rclone/releases/download/{version}/{archive_name}"
+    )
+
+
+async def _download_file(url: str, timeout: float = 120.0) -> Path:
+    """Download file from URL to a temporary file.
+
+    Returns path to temporary file. Caller must cleanup.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.get(url, timeout=timeout)
+        response.raise_for_status()
+
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(response.content)
+            return Path(tmp.name)
+
+
+def _extract_binary_from_zip(
+    zip_path: Path, binary_name: str, target_path: Path
+) -> bool:
+    """Extract a specific binary from a zip archive.
+
+    Returns True if found and extracted, False otherwise.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            # Find rclone binary in archive
+            for info in zf.infolist():
+                if info.filename.endswith(binary_name) and not info.is_dir():
+                    # Extract to temp, then move
+                    with zf.open(info) as src:
+                        target_path.write_bytes(src.read())
+                    return True
+        return False
+    except Exception as e:
+        logger.error(f"Extraction failed: {e}")
+        return False
+
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
     Returns path to binary on success, None on failure.
     """
     os_name, arch, ext = _get_platform_info()
-    archive_name = f"rclone-{_RCLONE_VERSION}-{os_name}-{arch}.zip"
-    url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/{archive_name}"
+    url = _get_download_url(_RCLONE_VERSION, os_name, arch)
 
     install_dir = _get_rclone_dir()
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -122,36 +166,19 @@ async def _download_rclone() -> Path | None:
 
     logger.info(f"Downloading rclone {_RCLONE_VERSION} for {os_name}-{arch}...")
 
+    tmp_path: Path | None = None
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(url, timeout=120.0)
-            response.raise_for_status()
-
-            # Write to temp file
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
+        tmp_path = await _download_file(url)
 
         # Extract rclone binary from zip
-        with zipfile.ZipFile(tmp_path, "r") as zf:
-            # Find rclone binary in archive
-            binary_name = f"rclone{ext}"
-            for info in zf.infolist():
-                if info.filename.endswith(binary_name) and not info.is_dir():
-                    # Extract to temp, then move
-                    with zf.open(info) as src:
-                        target_path.write_bytes(src.read())
-                    break
-            else:
-                logger.error("rclone binary not found in archive")
-                return None
+        binary_name = f"rclone{ext}"
+        if not _extract_binary_from_zip(tmp_path, binary_name, target_path):
+            logger.error("rclone binary not found in archive")
+            return None
 
         # Make executable on Unix
         if ext == "":
             target_path.chmod(target_path.stat().st_mode | stat.S_IEXEC)
-
-        # Cleanup temp zip
-        tmp_path.unlink(missing_ok=True)
 
         logger.info(f"rclone installed: {target_path}")
         return target_path
@@ -159,6 +186,10 @@ async def _download_rclone() -> Path | None:
     except Exception as e:
         logger.error(f"Failed to download rclone: {e}")
         return None
+    finally:
+        # Cleanup temp zip
+        if tmp_path:
+            tmp_path.unlink(missing_ok=True)
 
 
 async def ensure_rclone() -> Path | None:

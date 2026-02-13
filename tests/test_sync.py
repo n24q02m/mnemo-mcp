@@ -1,5 +1,7 @@
 """Tests for mnemo_mcp.sync — rclone management and sync operations."""
 
+import pytest
+import zipfile
 import base64
 import json
 import os
@@ -268,3 +270,61 @@ class TestSetupSync:
             assert expected_b64 in captured.out
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
+
+
+class TestDownloadHelpers:
+    def test_get_download_url(self):
+        from mnemo_mcp.sync import _get_download_url
+
+        url = _get_download_url("v1.0.0", "linux", "amd64")
+        assert (
+            url
+            == "https://github.com/rclone/rclone/releases/download/v1.0.0/rclone-v1.0.0-linux-amd64.zip"
+        )
+
+    @pytest.mark.asyncio
+    async def test_download_file_success(self, tmp_path):
+        from mnemo_mcp.sync import _download_file
+
+        # Mock httpx.AsyncClient
+        with patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.content = b"fake-zip-content"
+            mock_response.raise_for_status = MagicMock()
+            mock_client.get.return_value = mock_response
+
+            path = await _download_file("http://example.com/file.zip")
+
+            assert path.exists()
+            assert path.read_bytes() == b"fake-zip-content"
+            path.unlink()
+
+    def test_extract_binary_success(self, tmp_path):
+        from mnemo_mcp.sync import _extract_binary_from_zip
+
+        zip_path = tmp_path / "test.zip"
+        target_path = tmp_path / "extracted_binary"
+
+        # Create a valid zip file
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("folder/binary", b"binary-content")
+
+        assert _extract_binary_from_zip(zip_path, "binary", target_path)
+        assert target_path.exists()
+        assert target_path.read_bytes() == b"binary-content"
+
+    def test_extract_binary_not_found(self, tmp_path):
+        from mnemo_mcp.sync import _extract_binary_from_zip
+
+        zip_path = tmp_path / "test.zip"
+        target_path = tmp_path / "extracted_binary"
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("folder/other", b"content")
+
+        assert not _extract_binary_from_zip(zip_path, "binary", target_path)
+        assert not target_path.exists()
