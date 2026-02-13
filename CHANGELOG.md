@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.1...v0.1.2) (2026-02-13)
+
+
+### Features
+
+* add automated cleanup for stale release-please PRs ([930716e](https://github.com/n24q02m/mnemo-mcp/commit/930716e29522b509799dae50d3a121781ae36623))
+
+
+### Documentation
+
+* add CODEOWNERS and README badges ([ea971d4](https://github.com/n24q02m/mnemo-mcp/commit/ea971d47a90896149c39444bd0af8461bc761953))
+
 ## [0.1.1](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.0...v0.1.1) (2026-02-12)
 
 
