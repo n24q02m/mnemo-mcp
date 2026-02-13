@@ -11,6 +11,7 @@ import json
 import math
 import sqlite3
 import struct
+import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,7 +47,8 @@ class MemoryDB:
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Open connection
-        self._conn = sqlite3.connect(str(db_path))
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA synchronous = NORMAL")
@@ -163,21 +165,22 @@ class MemoryDB:
         now = _now_iso()
         tags_json = json.dumps(tags or [])
 
-        self._conn.execute(
-            """INSERT INTO memories (id, content, category, tags, source,
-               created_at, updated_at, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            (memory_id, content, category, tags_json, source, now, now, now),
-        )
-
-        # Store embedding if provided
-        if embedding and self._vec_enabled:
+        with self._lock:
             self._conn.execute(
-                "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding)),
+                """INSERT INTO memories (id, content, category, tags, source,
+                   created_at, updated_at, access_count, last_accessed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                (memory_id, content, category, tags_json, source, now, now, now),
             )
 
-        self._conn.commit()
+            # Store embedding if provided
+            if embedding and self._vec_enabled:
+                self._conn.execute(
+                    "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
+                    (memory_id, _serialize_f32(embedding)),
+                )
+
+            self._conn.commit()
         logger.debug(f"Added memory {memory_id}: {content[:50]}...")
         return memory_id
 
@@ -196,141 +199,142 @@ class MemoryDB:
         Returns:
             List of memory dicts sorted by relevance.
         """
-        results: dict[str, dict] = {}
+        with self._lock:
+            results: dict[str, dict] = {}
 
-        # 1. FTS5 text search
-        # Convert natural language query to FTS5 OR query with prefix matching
-        # "which dataframe library" → "which* OR dataframe* OR library*"
-        words = [w.strip() for w in query.split() if w.strip()]
-        if words:
-            safe_words = [w.replace('"', '""') for w in words]
-            fts_query = " OR ".join(f'"{w}"*' for w in safe_words)
-        else:
-            fts_query = query.replace('"', '""')
-        try:
-            rows = self._conn.execute(
-                """SELECT m.*, rank
-                   FROM memories_fts f
-                   JOIN memories m ON f.id = m.id
-                   WHERE memories_fts MATCH ?
-                   ORDER BY rank
-                   LIMIT ?""",
-                (fts_query, limit * 2),
-            ).fetchall()
-
-            for row in rows:
-                mid = row["id"]
-                # FTS5 rank is negative (lower = better), normalize to 0-1
-                fts_score = 1.0 / (1.0 + abs(row["rank"]))
-                results[mid] = {
-                    **dict(row),
-                    "fts_score": fts_score,
-                    "vec_score": 0.0,
-                }
-        except Exception:
-            # FTS5 can fail on complex queries, silently skip
-            pass
-
-        # 2. Semantic search (if embedding provided)
-        if embedding and self._vec_enabled:
+            # 1. FTS5 text search
+            # Convert natural language query to FTS5 OR query with prefix matching
+            # "which dataframe library" → "which* OR dataframe* OR library*"
+            words = [w.strip() for w in query.split() if w.strip()]
+            if words:
+                safe_words = [w.replace('"', '""') for w in words]
+                fts_query = " OR ".join(f'"{w}"*' for w in safe_words)
+            else:
+                fts_query = query.replace('"', '""')
             try:
-                vec_rows = self._conn.execute(
-                    """SELECT id, distance
-                       FROM memories_vec
-                       WHERE embedding MATCH ?
-                       ORDER BY distance
+                rows = self._conn.execute(
+                    """SELECT m.*, rank
+                       FROM memories_fts f
+                       JOIN memories m ON f.id = m.id
+                       WHERE memories_fts MATCH ?
+                       ORDER BY rank
                        LIMIT ?""",
-                    (_serialize_f32(embedding), limit * 2),
+                    (fts_query, limit * 2),
                 ).fetchall()
 
-                for row in vec_rows:
+                for row in rows:
                     mid = row["id"]
-                    # Distance is cosine distance (0 = identical), convert to similarity
-                    vec_score = 1.0 - row["distance"]
-                    if mid in results:
-                        results[mid]["vec_score"] = vec_score
-                    else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
-            except Exception as e:
-                logger.debug(f"Vector search error: {e}")
+                    # FTS5 rank is negative (lower = better), normalize to 0-1
+                    fts_score = 1.0 / (1.0 + abs(row["rank"]))
+                    results[mid] = {
+                        **dict(row),
+                        "fts_score": fts_score,
+                        "vec_score": 0.0,
+                    }
+            except Exception:
+                # FTS5 can fail on complex queries, silently skip
+                pass
 
-        if not results:
-            return []
+            # 2. Semantic search (if embedding provided)
+            if embedding and self._vec_enabled:
+                try:
+                    vec_rows = self._conn.execute(
+                        """SELECT id, distance
+                           FROM memories_vec
+                           WHERE embedding MATCH ?
+                           ORDER BY distance
+                           LIMIT ?""",
+                        (_serialize_f32(embedding), limit * 2),
+                    ).fetchall()
 
-        # 3. Apply category/tag filters
-        if category:
-            results = {
-                k: v for k, v in results.items() if v.get("category") == category
-            }
-        if tags:
+                    for row in vec_rows:
+                        mid = row["id"]
+                        # Distance is cosine distance (0 = identical), convert to similarity
+                        vec_score = 1.0 - row["distance"]
+                        if mid in results:
+                            results[mid]["vec_score"] = vec_score
+                        else:
+                            # Fetch full memory
+                            mem = self._conn.execute(
+                                "SELECT * FROM memories WHERE id = ?", (mid,)
+                            ).fetchone()
+                            if mem:
+                                results[mid] = {
+                                    **dict(mem),
+                                    "fts_score": 0.0,
+                                    "vec_score": vec_score,
+                                }
+                except Exception as e:
+                    logger.debug(f"Vector search error: {e}")
 
-            def _has_tags(mem: dict) -> bool:
-                mem_tags = json.loads(mem.get("tags", "[]"))
-                return any(t in mem_tags for t in tags)
+            if not results:
+                return []
 
-            results = {k: v for k, v in results.items() if _has_tags(v)}
+            # 3. Apply category/tag filters
+            if category:
+                results = {
+                    k: v for k, v in results.items() if v.get("category") == category
+                }
+            if tags:
 
-        # 4. Compute hybrid score
-        now = datetime.now(UTC)
-        scored = []
-        for mem in results.values():
-            fts = mem.get("fts_score", 0.0)
-            vec = mem.get("vec_score", 0.0)
+                def _has_tags(mem: dict) -> bool:
+                    mem_tags = json.loads(mem.get("tags", "[]"))
+                    return any(t in mem_tags for t in tags)
 
-            # Recency boost (exponential decay, half-life = 7 days)
-            try:
-                updated = datetime.fromisoformat(mem["updated_at"])
-                days_old = (now - updated).total_seconds() / 86400
-                recency = 2.0 ** (-days_old / 7.0)
-            except (ValueError, KeyError):
-                recency = 0.0
+                results = {k: v for k, v in results.items() if _has_tags(v)}
 
-            # Frequency boost (logarithmic)
-            freq = math.log1p(mem.get("access_count", 0)) / 10.0
-            freq = min(freq, 1.0)
+            # 4. Compute hybrid score
+            now = datetime.now(UTC)
+            scored = []
+            for mem in results.values():
+                fts = mem.get("fts_score", 0.0)
+                vec = mem.get("vec_score", 0.0)
 
-            # Weighted combination
-            if vec > 0:
-                score = fts * 0.35 + vec * 0.35 + recency * 0.2 + freq * 0.1
-            else:
-                score = fts * 0.6 + recency * 0.3 + freq * 0.1
+                # Recency boost (exponential decay, half-life = 7 days)
+                try:
+                    updated = datetime.fromisoformat(mem["updated_at"])
+                    days_old = (now - updated).total_seconds() / 86400
+                    recency = 2.0 ** (-days_old / 7.0)
+                except (ValueError, KeyError):
+                    recency = 0.0
 
-            mem["score"] = score
-            scored.append(mem)
+                # Frequency boost (logarithmic)
+                freq = math.log1p(mem.get("access_count", 0)) / 10.0
+                freq = min(freq, 1.0)
 
-        # Sort by score descending
-        scored.sort(key=lambda m: m["score"], reverse=True)
+                # Weighted combination
+                if vec > 0:
+                    score = fts * 0.35 + vec * 0.35 + recency * 0.2 + freq * 0.1
+                else:
+                    score = fts * 0.6 + recency * 0.3 + freq * 0.1
 
-        # Update access counts for returned results
-        top = scored[:limit]
-        if top:
-            ids = [m["id"] for m in top]
-            placeholders = ",".join("?" for _ in ids)
-            self._conn.execute(
-                f"""UPDATE memories
-                    SET access_count = access_count + 1,
-                        last_accessed = ?
-                    WHERE id IN ({placeholders})""",
-                [_now_iso(), *ids],
-            )
-            self._conn.commit()
+                mem["score"] = score
+                scored.append(mem)
 
-        # Clean up internal scores from output
-        for m in top:
-            m.pop("fts_score", None)
-            m.pop("vec_score", None)
-            m.pop("rank", None)
+            # Sort by score descending
+            scored.sort(key=lambda m: m["score"], reverse=True)
 
-        return top
+            # Update access counts for returned results
+            top = scored[:limit]
+            if top:
+                ids = [m["id"] for m in top]
+                placeholders = ",".join("?" for _ in ids)
+                self._conn.execute(
+                    f"""UPDATE memories
+                        SET access_count = access_count + 1,
+                            last_accessed = ?
+                        WHERE id IN ({placeholders})""",
+                    [_now_iso(), *ids],
+                )
+                self._conn.commit()
+
+            # Clean up internal scores from output
+            for m in top:
+                m.pop("fts_score", None)
+                m.pop("vec_score", None)
+                m.pop("rank", None)
+
+            return top
 
     def list_memories(
         self,
@@ -339,30 +343,32 @@ class MemoryDB:
         offset: int = 0,
     ) -> list[dict]:
         """List memories with optional category filter."""
-        if category:
-            rows = self._conn.execute(
-                """SELECT * FROM memories
-                   WHERE category = ?
-                   ORDER BY updated_at DESC
-                   LIMIT ? OFFSET ?""",
-                (category, limit, offset),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                """SELECT * FROM memories
-                   ORDER BY updated_at DESC
-                   LIMIT ? OFFSET ?""",
-                (limit, offset),
-            ).fetchall()
+        with self._lock:
+            if category:
+                rows = self._conn.execute(
+                    """SELECT * FROM memories
+                       WHERE category = ?
+                       ORDER BY updated_at DESC
+                       LIMIT ? OFFSET ?""",
+                    (category, limit, offset),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT * FROM memories
+                       ORDER BY updated_at DESC
+                       LIMIT ? OFFSET ?""",
+                    (limit, offset),
+                ).fetchall()
 
-        return [dict(r) for r in rows]
+            return [dict(r) for r in rows]
 
     def get(self, memory_id: str) -> dict | None:
         """Get a single memory by ID."""
-        row = self._conn.execute(
-            "SELECT * FROM memories WHERE id = ?", (memory_id,)
-        ).fetchone()
-        return dict(row) if row else None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM memories WHERE id = ?", (memory_id,)
+            ).fetchone()
+            return dict(row) if row else None
 
     def update(
         self,
@@ -373,91 +379,95 @@ class MemoryDB:
         embedding: list[float] | None = None,
     ) -> bool:
         """Update an existing memory. Returns True if found and updated."""
-        existing = self.get(memory_id)
-        if not existing:
-            return False
+        with self._lock:
+            existing = self.get(memory_id)
+            if not existing:
+                return False
 
-        now = _now_iso()
-        updates = []
-        params: list = []
+            now = _now_iso()
+            updates = []
+            params: list = []
 
-        if content is not None:
-            updates.append("content = ?")
-            params.append(content)
-        if category is not None:
-            updates.append("category = ?")
-            params.append(category)
-        if tags is not None:
-            updates.append("tags = ?")
-            params.append(json.dumps(tags))
+            if content is not None:
+                updates.append("content = ?")
+                params.append(content)
+            if category is not None:
+                updates.append("category = ?")
+                params.append(category)
+            if tags is not None:
+                updates.append("tags = ?")
+                params.append(json.dumps(tags))
 
-        updates.append("updated_at = ?")
-        params.append(now)
-        params.append(memory_id)
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(memory_id)
 
-        self._conn.execute(
-            f"UPDATE memories SET {', '.join(updates)} WHERE id = ?",
-            params,
-        )
-
-        # Update embedding if provided
-        if embedding and self._vec_enabled:
-            self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
             self._conn.execute(
-                "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding)),
+                f"UPDATE memories SET {', '.join(updates)} WHERE id = ?",
+                params,
             )
 
-        self._conn.commit()
-        return True
+            # Update embedding if provided
+            if embedding and self._vec_enabled:
+                self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
+                self._conn.execute(
+                    "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
+                    (memory_id, _serialize_f32(embedding)),
+                )
+
+            self._conn.commit()
+            return True
 
     def delete(self, memory_id: str) -> bool:
         """Delete a memory by ID. Returns True if found and deleted."""
-        existing = self.get(memory_id)
-        if not existing:
-            return False
+        with self._lock:
+            existing = self.get(memory_id)
+            if not existing:
+                return False
 
-        self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
 
-        if self._vec_enabled:
-            self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
+            if self._vec_enabled:
+                self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
 
-        self._conn.commit()
-        return True
+            self._conn.commit()
+            return True
 
     def stats(self) -> dict:
         """Get database statistics."""
-        total = self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        with self._lock:
+            total = self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
-        categories = self._conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM memories GROUP BY category ORDER BY cnt DESC"
-        ).fetchall()
+            categories = self._conn.execute(
+                "SELECT category, COUNT(*) as cnt FROM memories GROUP BY category ORDER BY cnt DESC"
+            ).fetchall()
 
-        last_updated = self._conn.execute(
-            "SELECT MAX(updated_at) FROM memories"
-        ).fetchone()[0]
+            last_updated = self._conn.execute(
+                "SELECT MAX(updated_at) FROM memories"
+            ).fetchone()[0]
 
-        return {
-            "total_memories": total,
-            "categories": {r["category"]: r["cnt"] for r in categories},
-            "last_updated": last_updated,
-            "vec_enabled": self._vec_enabled,
-            "db_path": str(self._db_path),
-        }
+            return {
+                "total_memories": total,
+                "categories": {r["category"]: r["cnt"] for r in categories},
+                "last_updated": last_updated,
+                "vec_enabled": self._vec_enabled,
+                "db_path": str(self._db_path),
+            }
 
     def export_jsonl(self) -> str:
         """Export all memories as JSONL string."""
-        rows = self._conn.execute(
-            "SELECT * FROM memories ORDER BY created_at"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM memories ORDER BY created_at"
+            ).fetchall()
 
-        lines = []
-        for row in rows:
-            d = dict(row)
-            d["tags"] = json.loads(d["tags"])
-            lines.append(json.dumps(d, ensure_ascii=False))
+            lines = []
+            for row in rows:
+                d = dict(row)
+                d["tags"] = json.loads(d["tags"])
+                lines.append(json.dumps(d, ensure_ascii=False))
 
-        return "\n".join(lines)
+            return "\n".join(lines)
 
     def import_jsonl(self, data: str, mode: str = "merge") -> dict:
         """Import memories from JSONL string.
@@ -469,58 +479,60 @@ class MemoryDB:
         Returns:
             Dict with import stats.
         """
-        if mode == "replace":
-            self._conn.execute("DELETE FROM memories")
-            if self._vec_enabled:
-                self._conn.execute("DELETE FROM memories_vec")
+        with self._lock:
+            if mode == "replace":
+                self._conn.execute("DELETE FROM memories")
+                if self._vec_enabled:
+                    self._conn.execute("DELETE FROM memories_vec")
 
-        imported = 0
-        skipped = 0
+            imported = 0
+            skipped = 0
 
-        for line in data.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-
-            mem = json.loads(line)
-            memory_id = mem.get("id", uuid.uuid4().hex[:12])
-
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
+            for line in data.strip().split("\n"):
+                line = line.strip()
+                if not line:
                     continue
 
-            tags = mem.get("tags", [])
-            if isinstance(tags, list):
-                tags_json = json.dumps(tags)
-            else:
-                tags_json = tags
+                mem = json.loads(line)
+                memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
-            now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    mem["content"],
-                    mem.get("category", "general"),
-                    tags_json,
-                    mem.get("source"),
-                    mem.get("created_at", now),
-                    mem.get("updated_at", now),
-                    mem.get("access_count", 0),
-                    mem.get("last_accessed", now),
-                ),
-            )
-            imported += 1
+                # Check if exists (for merge mode)
+                if mode == "merge":
+                    existing = self.get(memory_id)
+                    if existing:
+                        skipped += 1
+                        continue
 
-        self._conn.commit()
-        return {"imported": imported, "skipped": skipped}
+                tags = mem.get("tags", [])
+                if isinstance(tags, list):
+                    tags_json = json.dumps(tags)
+                else:
+                    tags_json = tags
+
+                now = _now_iso()
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        memory_id,
+                        mem["content"],
+                        mem.get("category", "general"),
+                        tags_json,
+                        mem.get("source"),
+                        mem.get("created_at", now),
+                        mem.get("updated_at", now),
+                        mem.get("access_count", 0),
+                        mem.get("last_accessed", now),
+                    ),
+                )
+                imported += 1
+
+            self._conn.commit()
+            return {"imported": imported, "skipped": skipped}
 
     def close(self) -> None:
         """Close database connection."""
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
