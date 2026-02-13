@@ -1,11 +1,12 @@
 """Tests for mnemo_mcp.sync — rclone management and sync operations."""
 
-import pytest
-import zipfile
 import base64
 import json
 import os
+import zipfile
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from mnemo_mcp.sync import (
     _extract_token,
