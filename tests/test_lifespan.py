@@ -42,7 +42,10 @@ def mock_db_class():
 @pytest.fixture
 def mock_sync():
     """Mock sync functions."""
-    with patch("mnemo_mcp.sync.start_auto_sync", create=True) as start,          patch("mnemo_mcp.sync.stop_auto_sync", create=True) as stop:
+    with (
+        patch("mnemo_mcp.sync.start_auto_sync", create=True) as start,
+        patch("mnemo_mcp.sync.stop_auto_sync", create=True) as stop,
+    ):
         yield start, stop
 
 
@@ -131,6 +134,7 @@ async def test_lifespan_auto_detect_model(
         if model == "text-embedding-3-small":
             return 1536
         return 0
+
     mock_embedder.side_effect = check_side_effect
 
     # Run lifespan
