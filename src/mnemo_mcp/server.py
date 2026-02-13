@@ -343,6 +343,90 @@ async def memory(
             )
 
 
+
+def _handle_config_status(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+) -> str:
+    """Handle config status action."""
+    s = db.stats()
+    return _json(
+        {
+            "database": {
+                "path": str(settings.get_db_path()),
+                "total_memories": s["total_memories"],
+                "categories": s["categories"],
+                "vec_enabled": s["vec_enabled"],
+            },
+            "embedding": {
+                "model": embedding_model,
+                "dims": embedding_dims,
+                "available": embedding_model is not None,
+            },
+            "sync": {
+                "enabled": settings.sync_enabled,
+                "remote": settings.sync_remote,
+                "folder": settings.sync_folder,
+                "interval": settings.sync_interval,
+            },
+        }
+    )
+
+
+async def _handle_config_sync(db: MemoryDB) -> str:
+    """Handle config sync action."""
+    from mnemo_mcp.sync import sync_full
+
+    result = await sync_full(db)
+    return _json(result)
+
+
+def _handle_config_set(key: str | None, value: str | None) -> str:
+    """Handle config set action."""
+    if not key or value is None:
+        return _json({"error": "key and value are required for set"})
+
+    valid_keys = {
+        "sync_enabled",
+        "sync_remote",
+        "sync_folder",
+        "sync_interval",
+        "log_level",
+    }
+    if key not in valid_keys:
+        return _json(
+            {
+                "error": f"Invalid key: {key}",
+                "valid_keys": sorted(valid_keys),
+            }
+        )
+
+    # Apply setting
+    if key == "sync_enabled":
+        settings.sync_enabled = value.lower() in ("true", "1", "yes")
+    elif key == "sync_interval":
+        settings.sync_interval = int(value)
+    elif key == "log_level":
+        settings.log_level = value.upper()
+        logger.remove()
+        logger.add(
+            sys.stderr,
+            level=settings.log_level,
+        )
+    else:
+        setattr(settings, key, value)
+
+    return _json(
+        {
+            "status": "updated",
+            "key": key,
+            "value": getattr(settings, key),
+        }
+    )
+
+
+
 @mcp.tool(
     description=(
         "Server config and sync. Actions: status|sync|set. "
@@ -366,76 +450,13 @@ async def config(
 
     match action:
         case "status":
-            s = db.stats()
-            return _json(
-                {
-                    "database": {
-                        "path": str(settings.get_db_path()),
-                        "total_memories": s["total_memories"],
-                        "categories": s["categories"],
-                        "vec_enabled": s["vec_enabled"],
-                    },
-                    "embedding": {
-                        "model": embedding_model,
-                        "dims": embedding_dims,
-                        "available": embedding_model is not None,
-                    },
-                    "sync": {
-                        "enabled": settings.sync_enabled,
-                        "remote": settings.sync_remote,
-                        "folder": settings.sync_folder,
-                        "interval": settings.sync_interval,
-                    },
-                }
-            )
+            return _handle_config_status(db, embedding_model, embedding_dims)
 
         case "sync":
-            from mnemo_mcp.sync import sync_full
-
-            result = await sync_full(db)
-            return _json(result)
+            return await _handle_config_sync(db)
 
         case "set":
-            if not key or value is None:
-                return _json({"error": "key and value are required for set"})
-
-            valid_keys = {
-                "sync_enabled",
-                "sync_remote",
-                "sync_folder",
-                "sync_interval",
-                "log_level",
-            }
-            if key not in valid_keys:
-                return _json(
-                    {
-                        "error": f"Invalid key: {key}",
-                        "valid_keys": sorted(valid_keys),
-                    }
-                )
-
-            # Apply setting
-            if key == "sync_enabled":
-                settings.sync_enabled = value.lower() in ("true", "1", "yes")
-            elif key == "sync_interval":
-                settings.sync_interval = int(value)
-            elif key == "log_level":
-                settings.log_level = value.upper()
-                logger.remove()
-                logger.add(
-                    sys.stderr,
-                    level=settings.log_level,
-                )
-            else:
-                setattr(settings, key, value)
-
-            return _json(
-                {
-                    "status": "updated",
-                    "key": key,
-                    "value": getattr(settings, key),
-                }
-            )
+            return _handle_config_set(key, value)
 
         case _:
             return _json(
