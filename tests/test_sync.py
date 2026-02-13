@@ -272,6 +272,7 @@ class TestSetupSync:
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
 
+
 class TestDownloadRclone:
     async def test_download_success(self, tmp_path):
         """rclone binary is downloaded and extracted."""
@@ -285,7 +286,9 @@ class TestDownloadRclone:
 
         # 2. Mock dependencies
         with (
-            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch(
+                "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+            ),
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -325,7 +328,9 @@ class TestDownloadRclone:
 
         # 2. Mock
         with (
-            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch(
+                "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+            ),
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -341,7 +346,9 @@ class TestDownloadRclone:
     async def test_download_failure(self, tmp_path):
         """Returns None if download fails."""
         with (
-            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch(
+                "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+            ),
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -366,7 +373,9 @@ class TestDownloadRclone:
 
         # 2. Mock
         with (
-            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch(
+                "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+            ),
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
         ):
