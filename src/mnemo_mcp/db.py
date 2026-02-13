@@ -18,6 +18,14 @@ from pathlib import Path
 import sqlite_vec
 from loguru import logger
 
+from mnemo_mcp.sql import (
+    CHECK_VEC_TABLE_EXISTS,
+    INIT_FTS_TABLE,
+    INIT_FTS_TRIGGERS,
+    INIT_MEMORIES_TABLE,
+    INIT_VEC_TABLE_TEMPLATE,
+)
+
 
 def _serialize_f32(vec: list[float]) -> bytes:
     """Serialize float list to bytes for sqlite-vec."""
@@ -68,75 +76,22 @@ class MemoryDB:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_memories_category
-                ON memories(category);
-            CREATE INDEX IF NOT EXISTS idx_memories_updated
-                ON memories(updated_at);
-            CREATE INDEX IF NOT EXISTS idx_memories_accessed
-                ON memories(last_accessed);
-        """)
+        self._conn.executescript(INIT_MEMORIES_TABLE)
 
         # FTS5 full-text search (always available)
-        self._conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-            USING fts5(
-                id UNINDEXED,
-                content,
-                category UNINDEXED,
-                tags,
-                content=memories,
-                content_rowid=rowid,
-                tokenize='porter unicode61'
-            )
-        """)
+        self._conn.execute(INIT_FTS_TABLE)
 
         # FTS5 triggers to keep index in sync
-        self._conn.executescript("""
-            CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
-            END;
-        """)
+        self._conn.executescript(INIT_FTS_TRIGGERS)
 
         # sqlite-vec virtual table (only if enabled)
         if self._vec_enabled and self._embedding_dims > 0:
             # Check if vec table exists
-            row = self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
-            ).fetchone()
+            row = self._conn.execute(CHECK_VEC_TABLE_EXISTS).fetchone()
             if not row:
-                self._conn.execute(f"""
-                    CREATE VIRTUAL TABLE memories_vec
-                    USING vec0(
-                        id TEXT PRIMARY KEY,
-                        embedding float[{self._embedding_dims}]
-                    )
-                """)
+                self._conn.execute(
+                    INIT_VEC_TABLE_TEMPLATE.format(dims=self._embedding_dims)
+                )
                 logger.debug("Created memories_vec table")
 
         self._conn.commit()
