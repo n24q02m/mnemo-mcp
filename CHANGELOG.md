@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.2...v0.1.3) (2026-02-13)
+
+
+### Documentation
+
+* add optional/required annotations to sync config examples ([52cf348](https://github.com/n24q02m/mnemo-mcp/commit/52cf348af49894f63f9d0fc7cc9745598164df5d))
+
 ## [0.1.2](https://github.com/n24q02m/mnemo-mcp/compare/v0.1.1...v0.1.2) (2026-02-13)
 
 
