@@ -1,17 +1,17 @@
 """Tests for mnemo_mcp.sync — rclone management and sync operations."""
 
 import base64
-import json
 import io
-import zipfile
+import json
 import os
+import zipfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.sync import (
+    _download_rclone,
     _extract_token,
     _get_platform_info,
     _prepare_rclone_env,
-    _download_rclone,
     setup_sync,
     sync_full,
 )
