@@ -280,13 +280,48 @@ async def sync_pull(
         return None
 
 
+def _merge_worker(local_db_path: Path, remote_db_path: Path) -> dict:
+    """Worker function to execute DB merge in a separate thread.
+
+    This handles opening the remote DB, exporting JSONL, opening
+    a temporary connection to the local DB, and importing the JSONL.
+    """
+    from mnemo_mcp.db import MemoryDB
+
+    # 1. Export from remote
+    try:
+        remote_db = MemoryDB(remote_db_path, embedding_dims=0)
+        remote_jsonl = remote_db.export_jsonl()
+        remote_db.close()
+    except Exception as e:
+        logger.error(f"Failed to export from remote DB: {e}")
+        raise
+
+    if not remote_jsonl.strip():
+        return {"imported": 0, "skipped": 0}
+
+    # 2. Import to local
+    # We create a fresh connection to the local DB for this thread.
+    # embedding_dims=0 is sufficient as import_jsonl doesn't handle vectors.
+    try:
+        local_temp_db = MemoryDB(local_db_path, embedding_dims=0)
+        result = local_temp_db.import_jsonl(remote_jsonl, mode="merge")
+        local_temp_db.close()
+        return result
+    except Exception as e:
+        logger.error(f"Failed to import to local DB: {e}")
+        raise
+
+
 async def sync_full(db: MemoryDB) -> dict:
     """Full sync cycle: pull → merge → push.
 
     Returns:
         Dict with sync results.
     """
-    from mnemo_mcp.db import MemoryDB
+    # Note: 'db' argument is primarily used for dependency injection/typing,
+    # but the merge logic now uses a separate connection in a thread.
+    # We assume 'db' points to the same path as settings.get_db_path().
 
     if not settings.sync_enabled or not settings.sync_remote:
         return {"status": "disabled", "message": "Sync not configured"}
@@ -315,18 +350,19 @@ async def sync_full(db: MemoryDB) -> dict:
     remote_db_path = await sync_pull(rclone_path, db_path, remote, folder)
     if remote_db_path:
         try:
-            # Open remote DB and export JSONL
-            remote_db = MemoryDB(remote_db_path, embedding_dims=0)
-            remote_jsonl = remote_db.export_jsonl()
-            remote_db.close()
+            # Offload heavy DB operations (export + import) to a thread
+            # to avoid blocking the asyncio loop.
+            import_result = await asyncio.to_thread(
+                _merge_worker, db_path, remote_db_path
+            )
 
-            # Import into local DB (merge mode - skip existing)
-            if remote_jsonl.strip():
-                import_result = db.import_jsonl(remote_jsonl, mode="merge")
-                result["pull"] = import_result
+            result["pull"] = import_result
+            if import_result.get("imported", 0) > 0:
                 logger.info(f"Merged {import_result['imported']} memories from remote")
             else:
-                result["pull"] = {"imported": 0, "skipped": 0}
+                # Use default if skipped only or empty
+                if "skipped" not in import_result:
+                    result["pull"] = {"imported": 0, "skipped": 0}
 
         except Exception as e:
             logger.error(f"Merge failed: {e}")
@@ -334,7 +370,10 @@ async def sync_full(db: MemoryDB) -> dict:
         finally:
             # Cleanup temp file
             remote_db_path.unlink(missing_ok=True)
-            remote_db_path.parent.rmdir()
+            try:
+                remote_db_path.parent.rmdir()
+            except OSError:
+                pass
     else:
         result["pull"] = {"imported": 0, "skipped": 0, "note": "No remote DB found"}
 
