@@ -192,9 +192,14 @@ class TestSetupSync:
     def test_rclone_downloaded(self, tmp_path, capsys):
         """setup_sync downloads rclone when not found."""
         rclone_path = tmp_path / "rclone"
+
+        def side_effect(coro):
+            coro.close()
+            return rclone_path
+
         with (
             patch("mnemo_mcp.sync._get_rclone_path", return_value=None),
-            patch("mnemo_mcp.sync.asyncio.run", return_value=rclone_path),
+            patch("mnemo_mcp.sync.asyncio.run", side_effect=side_effect),
             patch(
                 "mnemo_mcp.sync.subprocess.run",
                 return_value=self._mock_result(),
@@ -206,9 +211,14 @@ class TestSetupSync:
 
     def test_download_fails(self, capsys):
         """setup_sync exits when rclone download fails."""
+
+        def side_effect(coro):
+            coro.close()
+            return None
+
         with (
             patch("mnemo_mcp.sync._get_rclone_path", return_value=None),
-            patch("mnemo_mcp.sync.asyncio.run", return_value=None),
+            patch("mnemo_mcp.sync.asyncio.run", side_effect=side_effect),
         ):
             import pytest
 
@@ -268,3 +278,42 @@ class TestSetupSync:
             assert expected_b64 in captured.out
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
+
+class TestDownloadRclone:
+    async def test_uses_configured_version(self):
+        """_download_rclone uses the version from settings."""
+        from pathlib import Path
+        from mnemo_mcp.sync import _download_rclone
+
+        with (
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+            patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+            patch("mnemo_mcp.sync.Path.mkdir"),  # prevent actual mkdir
+            patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile"),  # prevent temp file
+            patch("mnemo_mcp.sync.zipfile.ZipFile"),  # prevent zip file
+            patch("pathlib.Path.exists", return_value=False),  # pretend not installed
+            patch("mnemo_mcp.sync.Path.write_bytes"), # prevent writing
+            patch("mnemo_mcp.sync.Path.chmod"), # prevent chmod
+            patch("mnemo_mcp.sync.Path.stat"), # prevent stat
+            patch("mnemo_mcp.sync.Path.unlink"), # prevent unlink
+        ):
+            mock_settings.get_data_dir.return_value = Path("/tmp/data")
+            mock_settings.rclone_version = "v9.9.9"
+
+            # Mock client response
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # Use MagicMock for the response to avoid async issues with raise_for_status
+            mock_response = MagicMock()
+            mock_response.content = b"fake zip"
+            mock_client.get.return_value = mock_response
+
+            await _download_rclone()
+
+            # Check URL
+            mock_client.get.assert_called_once()
+            url = mock_client.get.call_args[0][0]
+            assert "v9.9.9" in url
+            assert "rclone-v9.9.9-linux-amd64.zip" in url

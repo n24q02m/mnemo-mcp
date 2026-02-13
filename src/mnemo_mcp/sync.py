@@ -40,9 +40,6 @@ from mnemo_mcp.config import settings
 if TYPE_CHECKING:
     from mnemo_mcp.db import MemoryDB
 
-# Rclone version to download
-_RCLONE_VERSION = "v1.68.2"
-
 # Background sync task reference
 _sync_task: asyncio.Task | None = None
 
@@ -110,8 +107,9 @@ async def _download_rclone() -> Path | None:
     Returns path to binary on success, None on failure.
     """
     os_name, arch, ext = _get_platform_info()
-    archive_name = f"rclone-{_RCLONE_VERSION}-{os_name}-{arch}.zip"
-    url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/{archive_name}"
+    version = settings.rclone_version
+    archive_name = f"rclone-{version}-{os_name}-{arch}.zip"
+    url = f"https://github.com/rclone/rclone/releases/download/{version}/{archive_name}"
 
     install_dir = _get_rclone_dir()
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +118,7 @@ async def _download_rclone() -> Path | None:
     if target_path.exists():
         return target_path
 
-    logger.info(f"Downloading rclone {_RCLONE_VERSION} for {os_name}-{arch}...")
+    logger.info(f"Downloading rclone {version} for {os_name}-{arch}...")
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -178,7 +176,7 @@ def _prepare_rclone_env() -> dict[str, str]:
     """Prepare env dict for rclone, decoding base64 tokens if needed.
 
     Supports both raw JSON and base64-encoded tokens in
-    ``RCLONE_CONFIG_*_TOKEN`` env vars.  Base64 avoids nested JSON
+    RCLONE_CONFIG_*_TOKEN env vars.  Base64 avoids nested JSON
     escaping issues in MCP config files.
     """
     env = os.environ.copy()

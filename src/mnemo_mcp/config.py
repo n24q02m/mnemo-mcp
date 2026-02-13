@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     - SYNC_REMOTE: Rclone remote name (e.g., "gdrive")
     - SYNC_FOLDER: Remote folder name (default: "mnemo-mcp")
     - SYNC_INTERVAL: Auto-sync interval in seconds (0 = manual only)
+    - RCLONE_VERSION: Rclone version to download (default: "v1.68.2")
     """
 
     # Database
@@ -40,6 +41,7 @@ class Settings(BaseSettings):
     sync_remote: str = ""  # rclone remote name
     sync_folder: str = "mnemo-mcp"
     sync_interval: int = 0  # seconds, 0 = manual only
+    rclone_version: str = "v1.68.2"
 
     # Logging
     log_level: str = "INFO"
