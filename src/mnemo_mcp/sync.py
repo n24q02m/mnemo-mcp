@@ -121,6 +121,7 @@ def _extract_rclone_zip(zip_path: Path, target_path: Path, binary_name: str) -> 
         if not found:
             raise FileNotFoundError(f"Binary '{binary_name}' not found in archive")
 
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
@@ -152,7 +153,9 @@ async def _download_rclone() -> Path | None:
         # Extract rclone binary from zip (in thread pool)
         binary_name = f"rclone{ext}"
         try:
-            await asyncio.to_thread(_extract_rclone_zip, tmp_path, target_path, binary_name)
+            await asyncio.to_thread(
+                _extract_rclone_zip, tmp_path, target_path, binary_name
+            )
         except Exception as e:
             logger.error(f"Failed to extract rclone binary: {e}")
             return None

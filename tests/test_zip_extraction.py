@@ -22,6 +22,7 @@ def test_extract_rclone_zip_success(tmp_path):
     assert target_path.exists()
     assert target_path.read_bytes() == b"dummy content"
 
+
 def test_extract_rclone_zip_nested(tmp_path):
     """Test extraction when file is nested in a folder inside the zip."""
     zip_path = tmp_path / "test_nested.zip"
@@ -36,6 +37,7 @@ def test_extract_rclone_zip_nested(tmp_path):
     assert target_path.exists()
     assert target_path.read_bytes() == b"windows content"
 
+
 def test_extract_rclone_zip_not_found(tmp_path):
     """Test FileNotFoundError when binary is missing."""
     zip_path = tmp_path / "test_missing.zip"
@@ -49,6 +51,7 @@ def test_extract_rclone_zip_not_found(tmp_path):
         _extract_rclone_zip(zip_path, target_path, binary_name)
 
     assert not target_path.exists()
+
 
 def test_extract_rclone_zip_is_dir(tmp_path):
     """Test that directories matching the name are ignored."""
