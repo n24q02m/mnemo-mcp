@@ -243,22 +243,38 @@ class MemoryDB:
                     (_serialize_f32(embedding), limit * 2),
                 ).fetchall()
 
+                # Collect IDs for batch fetching
+                vec_scores = {}
+                missing_ids = []
+
                 for row in vec_rows:
                     mid = row["id"]
                     # Distance is cosine distance (0 = identical), convert to similarity
                     vec_score = 1.0 - row["distance"]
+                    vec_scores[mid] = vec_score
+
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
+                        missing_ids.append(mid)
+
+                # Batch fetch missing memories (chunked to respect SQLite limits)
+                if missing_ids:
+                    chunk_size = 900
+                    for i in range(0, len(missing_ids), chunk_size):
+                        chunk = missing_ids[i : i + chunk_size]
+                        placeholders = ",".join("?" for _ in chunk)
+                        mem_rows = self._conn.execute(
+                            f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                            chunk,
+                        ).fetchall()
+
+                        for mem in mem_rows:
+                            mid = mem["id"]
                             results[mid] = {
                                 **dict(mem),
                                 "fts_score": 0.0,
-                                "vec_score": vec_score,
+                                "vec_score": vec_scores.get(mid, 0.0),
                             }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
