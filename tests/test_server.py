@@ -305,6 +305,7 @@ class TestPrompts:
         assert "machine learning" in result
         assert "search" in result.lower()
 
+
 class TestResources:
     async def test_recent_resource(self, ctx_with_db):
         ctx, db = ctx_with_db
