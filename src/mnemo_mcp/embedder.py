@@ -21,6 +21,7 @@ litellm.set_verbose = False
 logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 logging.getLogger("LiteLLM").handlers = [logging.NullHandler()]
 
+from litellm import aembedding as litellm_aembedding  # noqa: E402
 from litellm import embedding as litellm_embedding  # noqa: E402
 from loguru import logger  # noqa: E402
 
@@ -51,7 +52,7 @@ async def embed_texts(
         kwargs["dimensions"] = dimensions
 
     try:
-        response = litellm_embedding(**kwargs)
+        response = await litellm_aembedding(**kwargs)
         # Sort by index to ensure correct order
         data = sorted(response.data, key=lambda x: x["index"])
         return [d["embedding"] for d in data]
