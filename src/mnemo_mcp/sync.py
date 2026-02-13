@@ -40,6 +40,35 @@ from mnemo_mcp.config import settings
 if TYPE_CHECKING:
     from mnemo_mcp.db import MemoryDB
 
+# Platform Constants (platform.system())
+PLATFORM_SYSTEM_WINDOWS = "windows"
+PLATFORM_SYSTEM_DARWIN = "darwin"
+PLATFORM_SYSTEM_LINUX = "linux"
+
+# Sys Platform Constants (sys.platform)
+SYS_PLATFORM_WIN32 = "win32"
+
+# Rclone OS Names (used for download URL construction)
+RCLONE_OS_WINDOWS = "windows"
+RCLONE_OS_OSX = "osx"
+RCLONE_OS_LINUX = "linux"
+
+# Architecture Constants
+ARCH_AMD64 = "amd64"
+ARCH_ARM64 = "arm64"
+ARCH_386 = "386"
+
+# Machine Types (platform.machine())
+MACHINE_X86_64 = "x86_64"
+MACHINE_AMD64 = "amd64"
+MACHINE_AARCH64 = "aarch64"
+MACHINE_ARM64 = "arm64"
+MACHINE_I386 = "i386"
+MACHINE_I686 = "i686"
+
+# Extensions
+EXT_EXE = ".exe"
+
 # Rclone version to download
 _RCLONE_VERSION = "v1.68.2"
 
@@ -65,7 +94,7 @@ def _get_rclone_path() -> Path | None:
         return Path(system_rclone)
 
     # Check bundled binary
-    ext = ".exe" if sys.platform == "win32" else ""
+    ext = EXT_EXE if sys.platform == SYS_PLATFORM_WIN32 else ""
     bundled = _get_rclone_dir() / f"rclone{ext}"
     if bundled.exists():
         return bundled
@@ -82,24 +111,24 @@ def _get_platform_info() -> tuple[str, str, str]:
     system = platform.system().lower()
     machine = platform.machine().lower()
 
-    if system == "windows":
-        os_name = "windows"
-        ext = ".exe"
-    elif system == "darwin":
-        os_name = "osx"
+    if system == PLATFORM_SYSTEM_WINDOWS:
+        os_name = RCLONE_OS_WINDOWS
+        ext = EXT_EXE
+    elif system == PLATFORM_SYSTEM_DARWIN:
+        os_name = RCLONE_OS_OSX
         ext = ""
     else:
-        os_name = "linux"
+        os_name = RCLONE_OS_LINUX
         ext = ""
 
-    if machine in ("x86_64", "amd64"):
-        arch = "amd64"
-    elif machine in ("aarch64", "arm64"):
-        arch = "arm64"
-    elif machine in ("i386", "i686"):
-        arch = "386"
+    if machine in (MACHINE_X86_64, MACHINE_AMD64):
+        arch = ARCH_AMD64
+    elif machine in (MACHINE_AARCH64, MACHINE_ARM64):
+        arch = ARCH_ARM64
+    elif machine in (MACHINE_I386, MACHINE_I686):
+        arch = ARCH_386
     else:
-        arch = "amd64"  # Fallback
+        arch = ARCH_AMD64  # Fallback
 
     return os_name, arch, ext
 
@@ -460,7 +489,7 @@ def setup_sync(remote_type: str = "drive") -> None:
         print(f"{'=' * 60}\n")
         print("Could not auto-extract token from rclone output.")
         print("Copy the token JSON from above and base64-encode it:\n")
-        if sys.platform == "win32":
+        if sys.platform == SYS_PLATFORM_WIN32:
             print(
                 '  python -c "import base64,sys; print(base64.b64encode(input().encode()).decode())"'
             )
