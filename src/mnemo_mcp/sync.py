@@ -46,6 +46,43 @@ _RCLONE_VERSION = "v1.68.2"
 # Background sync task reference
 _sync_task: asyncio.Task | None = None
 
+# Environment allowlist for rclone subprocess
+_ENV_ALLOWLIST = {
+    # System
+    "PATH",
+    "HOME",
+    "USER",
+    "SHELL",
+    "LANG",
+    "TERM",
+    # Temp
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    # Windows
+    "SYSTEMROOT",
+    "COMSPEC",
+    "PATHEXT",
+    "WINDIR",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "USERPROFILE",
+    # XDG
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
+    # Proxy
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+}
+
 
 def _get_rclone_dir() -> Path:
     """Get directory for rclone binary."""
@@ -180,8 +217,22 @@ def _prepare_rclone_env() -> dict[str, str]:
     Supports both raw JSON and base64-encoded tokens in
     ``RCLONE_CONFIG_*_TOKEN`` env vars.  Base64 avoids nested JSON
     escaping issues in MCP config files.
+
+    Security: Only allows specific env vars to prevent leaking sensitive
+    API keys (like OPENAI_API_KEY) to subprocesses.
     """
-    env = os.environ.copy()
+    env = {}
+
+    # Copy allowlisted vars
+    for key, value in os.environ.items():
+        if (
+            key in _ENV_ALLOWLIST
+            or key.startswith("RCLONE_")
+            or key.startswith("LC_")  # Locale
+        ):
+            env[key] = value
+
+    # Decode base64 tokens
     for key in list(env):
         if key.startswith("RCLONE_CONFIG_") and key.endswith("_TOKEN"):
             value = env[key]
