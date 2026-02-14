@@ -168,6 +168,37 @@ class TestPrepareRcloneEnv:
             env = _prepare_rclone_env()
             assert env["RCLONE_CONFIG_GDRIVE_TYPE"] == "drive"
 
+    def test_env_sanitization(self):
+        """Sensitive env vars are removed from rclone environment."""
+        test_env = {
+            # Allowed
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "RCLONE_CONFIG_MYREMOTE_TYPE": "s3",
+            "LC_ALL": "en_US.UTF-8",
+            "HTTP_PROXY": "http://proxy.local",
+            "https_proxy": "http://proxy.local",
+            # Blocked
+            "OPENAI_API_KEY": "sk-secret",
+            "AWS_SECRET_ACCESS_KEY": "secret",
+            "UNKNOWN_VAR": "value",
+        }
+        with patch.dict(os.environ, test_env, clear=True):
+            env = _prepare_rclone_env()
+
+            # Check allowed
+            assert env["PATH"] == "/usr/bin"
+            assert env["HOME"] == "/home/user"
+            assert env["RCLONE_CONFIG_MYREMOTE_TYPE"] == "s3"
+            assert env["LC_ALL"] == "en_US.UTF-8"
+            assert env["HTTP_PROXY"] == "http://proxy.local"
+            assert env["https_proxy"] == "http://proxy.local"
+
+            # Check blocked
+            assert "OPENAI_API_KEY" not in env
+            assert "AWS_SECRET_ACCESS_KEY" not in env
+            assert "UNKNOWN_VAR" not in env
+
 
 class TestSetupSync:
     def _mock_result(self, returncode: int = 0, stdout: str = ""):
