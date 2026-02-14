@@ -18,6 +18,9 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.13-slim-bookworm
 
+# Create non-root user
+RUN useradd -m -u 1000 mnemo
+
 WORKDIR /app
 
 # Install rclone for sync support
@@ -30,8 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
+COPY --from=builder --chown=mnemo:mnemo /app/.venv /app/.venv
+COPY --from=builder --chown=mnemo:mnemo /app/src /app/src
 
 # Activate venv
 ENV PATH="/app/.venv/bin:$PATH"
@@ -39,7 +42,14 @@ ENV PYTHONPATH=/app/src
 
 # Default data directory
 ENV DB_PATH=/data/memories.db
+ENV HOME=/home/mnemo
+
+# Ensure correct permissions
+RUN mkdir -p /data && chown -R mnemo:mnemo /data
+
 VOLUME /data
+
+USER mnemo
 
 # Stdio transport by default
 CMD ["python", "-m", "mnemo_mcp"]
