@@ -7,7 +7,7 @@ FROM python:3.13-slim-bookworm AS builder
 WORKDIR /app
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /bin/uv
 
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
@@ -37,9 +37,16 @@ COPY --from=builder /app/src /app/src
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app/src
 
+# Create user and setup permissions
+RUN useradd -m -u 1000 appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+
 # Default data directory
 ENV DB_PATH=/data/memories.db
 VOLUME /data
+
+USER appuser
 
 # Stdio transport by default
 CMD ["python", "-m", "mnemo_mcp"]

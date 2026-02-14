@@ -447,7 +447,8 @@ async def config(
 
 
 @mcp.tool(
-    description="Full documentation for memory and config tools. topic: 'memory' | 'config'"
+    description="Full documentation for memory and config tools. topic: 'memory' | 'config'",
+    annotations={"readOnlyHint": True, "idempotentHint": True},
 )
 async def help(topic: str = "memory") -> str:
     """Load full documentation for a tool."""
