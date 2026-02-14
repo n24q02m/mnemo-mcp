@@ -549,23 +549,18 @@ class MemoryDB:
             if self._vec_enabled:
                 self._conn.execute("DELETE FROM memories_vec")
 
-        imported = 0
-        skipped = 0
+        now = _now_iso()
+        params = []
+        total_lines = 0
 
         for line in data.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
 
+            total_lines += 1
             mem = json.loads(line)
-            memory_id = mem.get("id", uuid.uuid4().hex[:12])
-
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
+            memory_id = mem.get("id") or uuid.uuid4().hex[:12]
 
             tags = mem.get("tags", [])
             if isinstance(tags, list):
@@ -573,12 +568,7 @@ class MemoryDB:
             else:
                 tags_json = tags
 
-            now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            params.append(
                 (
                     memory_id,
                     mem["content"],
@@ -589,11 +579,35 @@ class MemoryDB:
                     mem.get("updated_at", now),
                     mem.get("access_count", 0),
                     mem.get("last_accessed", now),
-                ),
+                )
             )
-            imported += 1
 
+        if not params:
+            return {"imported": 0, "skipped": 0}
+
+        sql = """INSERT OR REPLACE INTO memories
+                 (id, content, category, tags, source,
+                  created_at, updated_at, access_count, last_accessed)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+        if mode == "merge":
+            sql = """INSERT OR IGNORE INTO memories
+                     (id, content, category, tags, source,
+                      created_at, updated_at, access_count, last_accessed)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+        cursor = self._conn.cursor()
+        cursor.executemany(sql, params)
+        imported = cursor.rowcount
         self._conn.commit()
+
+        if mode == "merge":
+            skipped = len(params) - imported
+        else:
+            skipped = 0
+            # For replace mode, we consider all imported (duplicates within file are merged/replaced)
+            imported = len(params)
+
         return {"imported": imported, "skipped": skipped}
 
     def close(self) -> None:
