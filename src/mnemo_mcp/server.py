@@ -16,6 +16,7 @@ from importlib import resources as pkg_resources
 
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
 
 from mnemo_mcp.config import settings
 from mnemo_mcp.db import MemoryDB
@@ -448,7 +449,7 @@ async def config(
 
 @mcp.tool(
     description="Full documentation for memory and config tools. topic: 'memory' | 'config'",
-    annotations={"readOnlyHint": True, "idempotentHint": True},
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
 )
 async def help(topic: str = "memory") -> str:
     """Load full documentation for a tool."""
