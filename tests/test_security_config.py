@@ -19,6 +19,7 @@ def ctx_with_db(tmp_path):
     yield ctx, db
     db.close()
 
+
 @pytest.mark.asyncio
 async def test_config_set_sync_remote_injection(ctx_with_db):
     ctx, _ = ctx_with_db
@@ -34,6 +35,7 @@ async def test_config_set_sync_remote_injection(ctx_with_db):
     # This should now fail
     assert "error" in result
     assert "alphanumeric" in result["error"]
+
 
 @pytest.mark.asyncio
 async def test_config_set_sync_folder_traversal(ctx_with_db):
@@ -51,6 +53,7 @@ async def test_config_set_sync_folder_traversal(ctx_with_db):
     assert "error" in result
     assert "contain '..'" in result["error"]
 
+
 @pytest.mark.asyncio
 async def test_config_set_sync_folder_absolute(ctx_with_db):
     ctx, _ = ctx_with_db
@@ -67,6 +70,7 @@ async def test_config_set_sync_folder_absolute(ctx_with_db):
     assert "error" in result
     assert "relative path" in result["error"]
 
+
 @pytest.mark.asyncio
 async def test_config_set_sync_folder_flags(ctx_with_db):
     ctx, _ = ctx_with_db
@@ -82,6 +86,7 @@ async def test_config_set_sync_folder_flags(ctx_with_db):
     # This should now fail
     assert "error" in result
     assert "start with '-'" in result["error"]
+
 
 @pytest.mark.asyncio
 async def test_config_set_valid(ctx_with_db):
