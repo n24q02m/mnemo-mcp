@@ -297,22 +297,43 @@ class MemoryDB:
                 vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
+
+                # Collect scores and missing IDs
+                vec_scores = {}
+                missing_ids = []
+
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
+                    vec_scores[mid] = vec_score
+
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        missing_ids.append(mid)
+
+                # Batch fetch missing memories
+                if missing_ids:
+                    # SQLite limit is 999 params usually, safe chunk size 500
+                    chunk_size = 500
+                    for i in range(0, len(missing_ids), chunk_size):
+                        chunk = missing_ids[i : i + chunk_size]
+                        placeholders = ",".join("?" for _ in chunk)
+
+                        rows = self._conn.execute(
+                            f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                            chunk,
+                        ).fetchall()
+
+                        for row in rows:
+                            mid = row["id"]
+                            # Only add if we have a score (safety check, always true here)
+                            if mid in vec_scores:
+                                results[mid] = {
+                                    **dict(row),
+                                    "fts_score": 0.0,
+                                    "vec_score": vec_scores[mid],
+                                }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
