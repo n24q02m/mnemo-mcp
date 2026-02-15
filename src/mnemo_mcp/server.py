@@ -9,10 +9,12 @@ MCP Interface:
 """
 
 import json
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib import resources as pkg_resources
+from pathlib import Path
 
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
@@ -477,6 +479,20 @@ async def config(
                     sys.stderr,
                     level=settings.log_level,
                 )
+            elif key == "sync_remote":
+                if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+                    return _json(
+                        {"error": "sync_remote must be alphanumeric (allows _ and -)"}
+                    )
+                settings.sync_remote = value
+            elif key == "sync_folder":
+                if value.startswith("-"):
+                    return _json({"error": "sync_folder cannot start with '-'"})
+                if ".." in value:
+                    return _json({"error": "sync_folder cannot contain '..'"})
+                if Path(value).is_absolute():
+                    return _json({"error": "sync_folder must be a relative path"})
+                settings.sync_folder = value
             else:
                 setattr(settings, key, value)
 
