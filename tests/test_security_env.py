@@ -6,16 +6,19 @@ from mnemo_mcp.sync import _prepare_rclone_env
 
 def test_sensitive_env_vars_filtered():
     """Ensure sensitive API keys are not passed to rclone."""
-    with patch.dict(os.environ, {
-        "OPENAI_API_KEY": "sk-secret",
-        "GEMINI_API_KEY": "AIza-secret",
-        "RCLONE_CONFIG_MYREMOTE_TYPE": "drive",
-        "PATH": "/usr/bin",
-        "HOME": "/home/user",
-        "AWS_ACCESS_KEY_ID": "AKIA...",
-        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/key.json",
-        "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock"
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_API_KEY": "sk-secret",
+            "GEMINI_API_KEY": "AIza-secret",
+            "RCLONE_CONFIG_MYREMOTE_TYPE": "drive",
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "AWS_ACCESS_KEY_ID": "AKIA...",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/key.json",
+            "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock",
+        },
+    ):
         env = _prepare_rclone_env()
 
         # These should be removed
