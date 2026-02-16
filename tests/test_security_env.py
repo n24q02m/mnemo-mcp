@@ -1,6 +1,8 @@
 import os
 from unittest.mock import patch
+
 from mnemo_mcp.sync import _prepare_rclone_env
+
 
 def test_sensitive_env_vars_filtered():
     """Ensure sensitive API keys are not passed to rclone."""
