@@ -476,6 +476,7 @@ async def config(
                 logger.add(
                     sys.stderr,
                     level=settings.log_level,
+                    serialize=settings.log_json,
                 )
             else:
                 setattr(settings, key, value)
@@ -576,7 +577,7 @@ def recall_context(topic: str) -> str:
 def main() -> None:
     """Run the MCP server."""
     logger.remove()
-    logger.add(sys.stderr, level=settings.log_level)
+    logger.add(sys.stderr, level=settings.log_level, serialize=settings.log_json)
     logger.info("Starting Mnemo MCP Server...")
 
     mcp.run()

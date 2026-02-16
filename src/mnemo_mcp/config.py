@@ -1,8 +1,10 @@
 """Configuration settings for Mnemo MCP Server."""
 
 import os
+import sys
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
     - SYNC_REMOTE: Rclone remote name (e.g., "gdrive")
     - SYNC_FOLDER: Remote folder name (default: "mnemo-mcp")
     - SYNC_INTERVAL: Auto-sync interval in seconds (0 = manual only)
+    - LOG_JSON: Enable JSON logging (default: false)
     """
 
     # Database
@@ -44,6 +47,7 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+    log_json: bool = Field(default_factory=lambda: not sys.stderr.isatty())
 
     model_config = {"env_prefix": "", "case_sensitive": False}
 
