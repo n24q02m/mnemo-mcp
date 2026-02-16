@@ -46,6 +46,40 @@ _RCLONE_VERSION = "v1.68.2"
 # Background sync task reference
 _sync_task: asyncio.Task | None = None
 
+# Environment variables allowed for rclone subprocess
+_ENV_ALLOWLIST = {
+    # System
+    "PATH",
+    "HOME",
+    "USER",
+    "SHELL",
+    "LANG",
+    "TERM",
+    # Temp
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    # Windows
+    "SYSTEMROOT",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMDATA",
+    "COMSPEC",
+    # Proxy
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    # Cloud Auth (Rclone backends)
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    # SSH (SFTP backend)
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+}
+
 
 def _get_rclone_dir() -> Path:
     """Get directory for rclone binary."""
@@ -177,14 +211,27 @@ async def ensure_rclone() -> Path | None:
 def _prepare_rclone_env() -> dict[str, str]:
     """Prepare env dict for rclone, decoding base64 tokens if needed.
 
-    Supports both raw JSON and base64-encoded tokens in
-    ``RCLONE_CONFIG_*_TOKEN`` env vars.  Base64 avoids nested JSON
-    escaping issues in MCP config files.
+    Filters the environment to prevent leaking sensitive variables
+    (like API keys) to the rclone subprocess.
     """
-    env = os.environ.copy()
-    for key in list(env):
+    env: dict[str, str] = {}
+
+    # 1. Copy allowlisted variables
+    for key, value in os.environ.items():
+        upper_key = key.upper()
+        if (
+            upper_key in _ENV_ALLOWLIST
+            or upper_key.startswith("RCLONE_")
+            or upper_key.startswith("LC_")
+            or upper_key.startswith("XDG_")
+            or upper_key.startswith("AWS_")
+            or upper_key.startswith("AZURE_")
+        ):
+            env[key] = value
+
+    # 2. Handle base64 tokens
+    for key, value in list(env.items()):
         if key.startswith("RCLONE_CONFIG_") and key.endswith("_TOKEN"):
-            value = env[key]
             if value and not value.lstrip().startswith("{"):
                 try:
                     decoded = base64.b64decode(value).decode("utf-8")
