@@ -1,4 +1,3 @@
-
 import json
 from unittest.mock import MagicMock
 
@@ -21,6 +20,7 @@ def ctx_with_db(tmp_path):
     yield ctx, db
     db.close()
 
+
 @pytest.mark.asyncio
 async def test_set_insecure_sync_folder(ctx_with_db):
     ctx, _ = ctx_with_db
@@ -37,6 +37,7 @@ async def test_set_insecure_sync_folder(ctx_with_db):
     # Assert validation failure
     assert "error" in result
     assert "Invalid sync_folder" in result["error"]
+
 
 @pytest.mark.asyncio
 async def test_set_insecure_sync_remote(ctx_with_db):
