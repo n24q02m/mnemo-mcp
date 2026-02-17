@@ -303,7 +303,9 @@ class MemoryDB:
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
 
                 # Batch fetch missing memory details to avoid N+1 queries
-                missing_ids = [row["id"] for row in vec_rows if row["id"] not in results]
+                missing_ids = [
+                    row["id"] for row in vec_rows if row["id"] not in results
+                ]
                 mem_lookup = {}
 
                 if missing_ids:
