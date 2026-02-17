@@ -280,39 +280,52 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
+                # Use a subquery to ensure LIMIT applies to vector search
+                # We fetch slightly more to account for category filtering loss
+                search_limit = limit * 5
+
                 vec_sql = """
                     SELECT v.id, v.distance
-                    FROM memories_vec v
+                    FROM (
+                        SELECT id, distance
+                        FROM memories_vec
+                        WHERE embedding MATCH ?
+                        ORDER BY distance LIMIT ?
+                    ) v
                     JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
                 """
-                vec_params: list = [_serialize_f32(embedding)]
+                vec_params: list = [_serialize_f32(embedding), search_limit]
 
-                # Category pre-filter for vector search too
                 if category:
-                    vec_sql += " AND m.category = ?"
+                    vec_sql += " WHERE m.category = ?"
                     vec_params.append(category)
 
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
-
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
+
+                # Batch fetch missing memory details to avoid N+1 queries
+                missing_ids = [row["id"] for row in vec_rows if row["id"] not in results]
+                mem_lookup = {}
+
+                if missing_ids:
+                    placeholders = ",".join("?" for _ in missing_ids)
+                    fetched_memories = self._conn.execute(
+                        f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                        missing_ids,
+                    ).fetchall()
+                    mem_lookup = {m["id"]: dict(m) for m in fetched_memories}
+
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
+
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
-                    else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                    elif mid in mem_lookup:
+                        results[mid] = {
+                            **mem_lookup[mid],
+                            "fts_score": 0.0,
+                            "vec_score": vec_score,
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
