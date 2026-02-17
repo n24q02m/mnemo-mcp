@@ -9,10 +9,12 @@ MCP Interface:
 """
 
 import json
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib import resources as pkg_resources
+from pathlib import Path
 
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
@@ -468,6 +470,25 @@ async def config(
             # Apply setting
             if key == "sync_enabled":
                 settings.sync_enabled = value.lower() in ("true", "1", "yes")
+            elif key == "sync_remote":
+                if not re.match(r"^[a-zA-Z0-9_.-]+$", value) or value.startswith("-"):
+                    return _json(
+                        {
+                            "error": "Invalid sync_remote. Must be alphanumeric with -, _, or . and not start with -.",
+                            "value": value,
+                        }
+                    )
+                settings.sync_remote = value
+            elif key == "sync_folder":
+                p = Path(value)
+                if p.is_absolute() or ".." in p.parts:
+                    return _json(
+                        {
+                            "error": "Invalid sync_folder. Must be a relative path and not contain '..'.",
+                            "value": value,
+                        }
+                    )
+                settings.sync_folder = value
             elif key == "sync_interval":
                 settings.sync_interval = int(value)
             elif key == "log_level":

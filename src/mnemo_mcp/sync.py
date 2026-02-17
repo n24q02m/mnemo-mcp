@@ -181,7 +181,46 @@ def _prepare_rclone_env() -> dict[str, str]:
     ``RCLONE_CONFIG_*_TOKEN`` env vars.  Base64 avoids nested JSON
     escaping issues in MCP config files.
     """
-    env = os.environ.copy()
+    # Allowlist of env vars to pass to rclone
+    allowed_prefixes = (
+        "RCLONE_",
+        "AWS_",
+        "GOOGLE_",
+        "AZURE_",
+        "XDG_",
+        "LC_",
+        "SSH_",
+    )
+    allowed_keys = {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "ALL_PROXY",
+        "LANG",
+        "TZ",
+        # Windows specific
+        "SystemRoot",
+        "COMSPEC",
+        "PATHEXT",
+        "WINDIR",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+    }
+
+    env = {}
+    for key, value in os.environ.items():
+        if key in allowed_keys or key.startswith(allowed_prefixes):
+            env[key] = value
+
     for key in list(env):
         if key.startswith("RCLONE_CONFIG_") and key.endswith("_TOKEN"):
             value = env[key]
