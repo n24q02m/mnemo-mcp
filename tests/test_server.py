@@ -26,14 +26,14 @@ def ctx_with_db(tmp_path: Path) -> Generator[tuple[MagicMock, MemoryDB]]:
 
 
 class TestMemoryAdd:
-    async def test_add(self, ctx_with_db):
+    async def test_add_valid_content_returns_id(self, ctx_with_db):
         ctx, db = ctx_with_db
         result = json.loads(await memory(action="add", content="test memory", ctx=ctx))
         assert result["status"] == "saved"
         assert result["id"]
         assert result["semantic"] is False
 
-    async def test_add_with_category(self, ctx_with_db):
+    async def test_add_with_category_and_tags_returns_metadata(self, ctx_with_db):
         ctx, db = ctx_with_db
         result = json.loads(
             await memory(
@@ -49,14 +49,14 @@ class TestMemoryAdd:
         assert mem is not None
         assert json.loads(mem["tags"]) == ["urgent"]
 
-    async def test_add_no_content(self, ctx_with_db):
+    async def test_add_missing_content_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="add", ctx=ctx))
         assert "error" in result
 
 
 class TestMemorySearch:
-    async def test_search(self, ctx_with_db):
+    async def test_search_valid_query_returns_results(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("Python is great for AI and machine learning")
         result = json.loads(await memory(action="search", query="Python AI", ctx=ctx))
@@ -68,12 +68,12 @@ class TestMemorySearch:
         score = result["results"][0]["score"]
         assert score == round(score, 3)
 
-    async def test_search_no_query(self, ctx_with_db):
+    async def test_search_missing_query_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="search", ctx=ctx))
         assert "error" in result
 
-    async def test_search_with_filters(self, ctx_with_db):
+    async def test_search_with_category_filter_returns_filtered_results(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("Python tip", category="tech", tags=["python"])
         db.add("Python recipe", category="food", tags=["cooking"])
@@ -89,7 +89,7 @@ class TestMemorySearch:
 
 
 class TestMemoryList:
-    async def test_list(self, ctx_with_db):
+    async def test_list_all_returns_memories(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("mem1", tags=["a", "b"])
         db.add("mem2")
@@ -99,7 +99,7 @@ class TestMemoryList:
         for r in result["results"]:
             assert isinstance(r["tags"], list)
 
-    async def test_list_with_category(self, ctx_with_db):
+    async def test_list_with_category_returns_filtered_memories(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("a", category="x")
         db.add("b", category="y")
@@ -108,7 +108,7 @@ class TestMemoryList:
 
 
 class TestMemoryUpdate:
-    async def test_update(self, ctx_with_db):
+    async def test_update_valid_id_returns_success(self, ctx_with_db):
         ctx, db = ctx_with_db
         mid = db.add("original")
         result = json.loads(
@@ -124,12 +124,12 @@ class TestMemoryUpdate:
         assert mem is not None
         assert mem["content"] == "updated"
 
-    async def test_update_no_id(self, ctx_with_db):
+    async def test_update_missing_id_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="update", content="x", ctx=ctx))
         assert "error" in result
 
-    async def test_update_nonexistent(self, ctx_with_db):
+    async def test_update_nonexistent_id_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
             await memory(
@@ -143,19 +143,19 @@ class TestMemoryUpdate:
 
 
 class TestMemoryDelete:
-    async def test_delete(self, ctx_with_db):
+    async def test_delete_valid_id_returns_success(self, ctx_with_db):
         ctx, db = ctx_with_db
         mid = db.add("to delete")
         result = json.loads(await memory(action="delete", memory_id=mid, ctx=ctx))
         assert result["status"] == "deleted"
         assert db.get(mid) is None
 
-    async def test_delete_no_id(self, ctx_with_db):
+    async def test_delete_missing_id_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="delete", ctx=ctx))
         assert "error" in result
 
-    async def test_delete_nonexistent(self, ctx_with_db):
+    async def test_delete_nonexistent_id_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
             await memory(
@@ -168,7 +168,7 @@ class TestMemoryDelete:
 
 
 class TestMemoryExportImport:
-    async def test_export(self, ctx_with_db):
+    async def test_export_returns_jsonl(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("mem1")
         db.add("mem2")
@@ -176,21 +176,21 @@ class TestMemoryExportImport:
         assert result["format"] == "jsonl"
         assert result["count"] == 2
 
-    async def test_import(self, ctx_with_db):
+    async def test_import_valid_data_returns_success(self, ctx_with_db):
         ctx, _ = ctx_with_db
         data = json.dumps({"id": "imp1", "content": "imported"})
         result = json.loads(await memory(action="import", data=data, ctx=ctx))
         assert result["status"] == "imported"
         assert result["imported"] == 1
 
-    async def test_import_no_data(self, ctx_with_db):
+    async def test_import_missing_data_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="import", ctx=ctx))
         assert "error" in result
 
 
 class TestMemoryStats:
-    async def test_stats(self, ctx_with_db):
+    async def test_stats_returns_db_stats(self, ctx_with_db):
         ctx, db = ctx_with_db
         db.add("test")
         result = json.loads(await memory(action="stats", ctx=ctx))
@@ -198,14 +198,14 @@ class TestMemoryStats:
         assert "embedding_model" in result
         assert "sync_enabled" in result
 
-    async def test_stats_empty(self, ctx_with_db):
+    async def test_stats_empty_db_returns_zero_count(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="stats", ctx=ctx))
         assert result["total_memories"] == 0
 
 
 class TestMemoryUnknownAction:
-    async def test_unknown_action(self, ctx_with_db):
+    async def test_unknown_action_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await memory(action="invalid", ctx=ctx))
         assert "error" in result
@@ -214,7 +214,7 @@ class TestMemoryUnknownAction:
 
 
 class TestConfigTool:
-    async def test_status(self, ctx_with_db):
+    async def test_status_returns_config(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await config(action="status", ctx=ctx))
         assert "database" in result
@@ -222,7 +222,7 @@ class TestConfigTool:
         assert "sync" in result
         assert "path" in result["database"]
 
-    async def test_set_valid_key(self, ctx_with_db):
+    async def test_set_valid_key_returns_updated(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
             await config(
@@ -234,7 +234,7 @@ class TestConfigTool:
         )
         assert result["status"] == "updated"
 
-    async def test_set_sync_enabled(self, ctx_with_db):
+    async def test_set_sync_enabled_returns_updated(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
             await config(
@@ -246,7 +246,7 @@ class TestConfigTool:
         )
         assert result["status"] == "updated"
 
-    async def test_set_invalid_key(self, ctx_with_db):
+    async def test_set_invalid_key_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(
             await config(
@@ -259,12 +259,12 @@ class TestConfigTool:
         assert "error" in result
         assert "valid_keys" in result
 
-    async def test_set_missing_params(self, ctx_with_db):
+    async def test_set_missing_params_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await config(action="set", ctx=ctx))
         assert "error" in result
 
-    async def test_unknown_action(self, ctx_with_db):
+    async def test_unknown_action_returns_error(self, ctx_with_db):
         ctx, _ = ctx_with_db
         result = json.loads(await config(action="invalid", ctx=ctx))
         assert "error" in result
@@ -272,16 +272,16 @@ class TestConfigTool:
 
 
 class TestHelpTool:
-    async def test_memory_topic(self):
+    async def test_help_memory_topic_returns_docs(self):
         result = await help(topic="memory")
         assert "memory" in result.lower()
         assert len(result) > 100  # Should be substantial docs
 
-    async def test_config_topic(self):
+    async def test_help_config_topic_returns_docs(self):
         result = await help(topic="config")
         assert "config" in result.lower()
 
-    async def test_invalid_topic(self):
+    async def test_help_invalid_topic_returns_error(self):
         result = json.loads(await help(topic="invalid"))
         assert "error" in result
         assert "valid_topics" in result

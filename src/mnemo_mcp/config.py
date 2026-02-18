@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+    log_json: bool = False
 
     model_config = {"env_prefix": "", "case_sensitive": False}
 

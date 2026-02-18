@@ -234,7 +234,7 @@ async def _embed(
     annotations=ToolAnnotations(
         title="Memory",
         readOnlyHint=False,
-        destructiveHint=False,
+        destructiveHint=True,
         idempotentHint=False,
         openWorldHint=False,
     ),
@@ -500,9 +500,11 @@ async def config(
             elif key == "log_level":
                 settings.log_level = value.upper()
                 logger.remove()
+                serialize = settings.log_json or not sys.stderr.isatty()
                 logger.add(
                     sys.stderr,
                     level=settings.log_level,
+                    serialize=serialize,
                 )
             else:
                 setattr(settings, key, value)
@@ -603,7 +605,9 @@ def recall_context(topic: str) -> str:
 def main() -> None:
     """Run the MCP server."""
     logger.remove()
-    logger.add(sys.stderr, level=settings.log_level)
+    # Serialize to JSON if log_json is set or stderr is not a TTY (production/service)
+    serialize = settings.log_json or not sys.stderr.isatty()
+    logger.add(sys.stderr, level=settings.log_level, serialize=serialize)
     logger.info("Starting Mnemo MCP Server...")
 
     mcp.run()
