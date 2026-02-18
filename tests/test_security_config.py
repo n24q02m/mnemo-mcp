@@ -1,10 +1,12 @@
-
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from mnemo_mcp.server import config
+
+import pytest
+
 from mnemo_mcp.config import settings
 from mnemo_mcp.db import MemoryDB
+from mnemo_mcp.server import config
+
 
 @pytest.fixture
 def ctx_with_db(tmp_path: Path):
@@ -19,12 +21,15 @@ def ctx_with_db(tmp_path: Path):
     yield ctx, db
     db.close()
 
+
 @pytest.mark.asyncio
 async def test_config_validation(ctx_with_db):
     ctx, _ = ctx_with_db
 
     # Test valid remote
-    result = await config(action="set", key="sync_remote", value="valid_remote", ctx=ctx)
+    result = await config(
+        action="set", key="sync_remote", value="valid_remote", ctx=ctx
+    )
     assert '"status": "updated"' in result
     assert settings.sync_remote == "valid_remote"
 
@@ -36,7 +41,9 @@ async def test_config_validation(ctx_with_db):
     assert settings.sync_remote == "valid_remote"
 
     # Test invalid remote (bad chars)
-    result = await config(action="set", key="sync_remote", value="invalid/remote", ctx=ctx)
+    result = await config(
+        action="set", key="sync_remote", value="invalid/remote", ctx=ctx
+    )
     assert '"error":' in result
     assert "alphanumeric" in result
 

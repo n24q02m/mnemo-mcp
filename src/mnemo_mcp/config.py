@@ -79,9 +79,7 @@ class Settings(BaseSettings):
         if ".." in v:
             raise ValueError("Folder path cannot contain '..'")
         if v.startswith("/") or v.startswith("\\"):
-            raise ValueError(
-                "Folder path must be relative (cannot start with / or \\)"
-            )
+            raise ValueError("Folder path must be relative (cannot start with / or \\)")
         return v
 
     def get_db_path(self) -> Path:
