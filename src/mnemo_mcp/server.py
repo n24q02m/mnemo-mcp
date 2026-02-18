@@ -18,6 +18,7 @@ from importlib import resources as pkg_resources
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import ValidationError
 
 from mnemo_mcp.config import settings
 from mnemo_mcp.db import MemoryDB
@@ -492,20 +493,23 @@ async def config(
                     }
                 )
 
-            # Apply setting
-            if key == "sync_enabled":
-                settings.sync_enabled = value.lower() in ("true", "1", "yes")
-            elif key == "sync_interval":
-                settings.sync_interval = int(value)
-            elif key == "log_level":
-                settings.log_level = value.upper()
-                logger.remove()
-                logger.add(
-                    sys.stderr,
-                    level=settings.log_level,
-                )
-            else:
-                setattr(settings, key, value)
+            try:
+                # Apply setting
+                if key == "sync_enabled":
+                    settings.sync_enabled = value.lower() in ("true", "1", "yes")
+                elif key == "sync_interval":
+                    settings.sync_interval = int(value)
+                elif key == "log_level":
+                    settings.log_level = value.upper()
+                    logger.remove()
+                    logger.add(
+                        sys.stderr,
+                        level=settings.log_level,
+                    )
+                else:
+                    setattr(settings, key, value)
+            except (ValidationError, ValueError) as e:
+                return _json({"error": str(e)})
 
             return _json(
                 {
