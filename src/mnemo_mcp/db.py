@@ -280,21 +280,30 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
-                vec_sql = """
-                    SELECT v.id, v.distance
-                    FROM memories_vec v
-                    JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
+                # Use subquery to ensure LIMIT applies to vector search (required by sqlite-vec)
+                vec_limit = limit * 3
+                vec_params = [_serialize_f32(embedding), vec_limit]
+
+                # Inner query: Find top-k closest vectors
+                vec_inner_sql = """
+                    SELECT id, distance
+                    FROM memories_vec
+                    WHERE embedding MATCH ?
+                    ORDER BY distance
+                    LIMIT ?
                 """
-                vec_params: list = [_serialize_f32(embedding)]
 
-                # Category pre-filter for vector search too
+                # Outer query: Join with memories table to get full details immediately
+                # This avoids N+1 queries for fetching memory content
+                vec_sql = f"""
+                    SELECT sub.distance, m.*
+                    FROM ({vec_inner_sql}) sub
+                    JOIN memories m ON sub.id = m.id
+                """
+
                 if category:
-                    vec_sql += " AND m.category = ?"
+                    vec_sql += " WHERE m.category = ?"
                     vec_params.append(category)
-
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
                 for row in vec_rows:
@@ -303,16 +312,16 @@ class MemoryDB:
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        # We already have the full memory data from the join
+                        data = dict(row)
+                        # Remove 'distance' which came from the subquery
+                        data.pop("distance", None)
+
+                        results[mid] = {
+                            **data,
+                            "fts_score": 0.0,
+                            "vec_score": vec_score,
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
