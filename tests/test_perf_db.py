@@ -1,6 +1,7 @@
-import sqlite3
 import pytest
+
 from mnemo_mcp.db import MemoryDB
+
 
 class WrappedConnection:
     def __init__(self, conn):
@@ -16,6 +17,7 @@ class WrappedConnection:
     def __getattr__(self, name):
         return getattr(self._conn, name)
 
+
 def test_search_performance(tmp_path):
     """Verify search does not have N+1 query issue."""
     db_path = tmp_path / "perf.db"
@@ -27,22 +29,14 @@ def test_search_performance(tmp_path):
 
     # Insert 10 memories with embeddings
     for i in range(10):
-        db.add(
-            f"unique content {i}",
-            embedding=[0.1, 0.1, 0.1],
-            tags=["tag"]
-        )
+        db.add(f"unique content {i}", embedding=[0.1, 0.1, 0.1], tags=["tag"])
 
     # Wrap the connection to count queries
     wrapped_conn = WrappedConnection(db._conn)
     db._conn = wrapped_conn
 
     # Search with embedding
-    results = db.search(
-        query="nomatch",
-        embedding=[0.1, 0.1, 0.1],
-        limit=10
-    )
+    results = db.search(query="nomatch", embedding=[0.1, 0.1, 0.1], limit=10)
 
     assert len(results) == 10
 
@@ -57,6 +51,8 @@ def test_search_performance(tmp_path):
         print(f"Query: {q}")
 
     # Expected: 1 FTS + 1 Vector + 1 Update access_count = 3
-    assert wrapped_conn.call_count <= 3, f"Expected <= 3 queries, got {wrapped_conn.call_count}"
+    assert wrapped_conn.call_count <= 3, (
+        f"Expected <= 3 queries, got {wrapped_conn.call_count}"
+    )
 
     db.close()
