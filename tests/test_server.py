@@ -73,7 +73,9 @@ class TestMemorySearch:
         result = json.loads(await memory(action="search", ctx=ctx))
         assert "error" in result
 
-    async def test_search_with_category_filter_returns_filtered_results(self, ctx_with_db):
+    async def test_search_with_category_filter_returns_filtered_results(
+        self, ctx_with_db
+    ):
         ctx, db = ctx_with_db
         db.add("Python tip", category="tech", tags=["python"])
         db.add("Python recipe", category="food", tags=["cooking"])
