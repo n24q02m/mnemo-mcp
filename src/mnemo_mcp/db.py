@@ -227,6 +227,7 @@ class MemoryDB:
             List of memory dicts sorted by relevance.
         """
         results: dict[str, dict] = {}
+        now_iso = _now_iso()
 
         # 1. FTS5 search with tiered queries + BM25 column weights
         # Weights: id(0), content(1), category(0-unindexed), tags(5)
@@ -236,12 +237,13 @@ class MemoryDB:
             try:
                 fts_sql = """
                     SELECT m.*,
-                           bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score
+                           bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score,
+                           (julianday(?) - julianday(m.updated_at)) AS days_old
                     FROM memories_fts f
                     JOIN memories m ON f.id = m.id
                     WHERE memories_fts MATCH ?
                 """
-                fts_params: list = [fts_query]
+                fts_params: list = [now_iso, fts_query]
 
                 # Category pre-filter in SQL (not post-search)
                 if category:
@@ -305,7 +307,7 @@ class MemoryDB:
                     else:
                         # Fetch full memory
                         mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
+                            "SELECT *, (julianday(?) - julianday(updated_at)) AS days_old FROM memories WHERE id = ?", (now_iso, mid)
                         ).fetchone()
                         if mem:
                             results[mid] = {
@@ -352,11 +354,10 @@ class MemoryDB:
                 rrf = 1.0 / (k + fr) + 1.0 / (k + vr)
 
                 # Recency boost (half-life = 7 days)
-                try:
-                    updated = datetime.fromisoformat(mem["updated_at"])
-                    days_old = (now - updated).total_seconds() / 86400
+                days_old = mem.get("days_old")
+                if days_old is not None:
                     recency = 2.0 ** (-days_old / 7.0)
-                except (ValueError, KeyError):
+                else:
                     recency = 0.0
 
                 # Frequency boost (logarithmic)
@@ -372,11 +373,10 @@ class MemoryDB:
             for mem in results.values():
                 fts = mem.get("fts_score", 0.0)
 
-                try:
-                    updated = datetime.fromisoformat(mem["updated_at"])
-                    days_old = (now - updated).total_seconds() / 86400
+                days_old = mem.get("days_old")
+                if days_old is not None:
                     recency = 2.0 ** (-days_old / 7.0)
-                except (ValueError, KeyError):
+                else:
                     recency = 0.0
 
                 freq = math.log1p(mem.get("access_count", 0)) / 10.0
