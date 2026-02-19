@@ -8,6 +8,7 @@ Provides:
 """
 
 import json
+import io
 import math
 import sqlite3
 import struct
@@ -537,11 +538,11 @@ class MemoryDB:
 
         return "\n".join(lines)
 
-    def import_jsonl(self, data: str, mode: str = "merge") -> dict:
-        """Import memories from JSONL string.
+    def import_jsonl(self, data: str | list[dict] | dict, mode: str = "merge") -> dict:
+        """Import memories from JSONL string, list of dicts, or single dict.
 
         Args:
-            data: JSONL string (one JSON object per line).
+            data: JSONL string, list of memory objects, or single memory object.
             mode: "merge" (skip existing) or "replace" (clear + import).
 
         Returns:
@@ -555,12 +556,29 @@ class MemoryDB:
         imported = 0
         skipped = 0
 
-        for line in data.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
+        # Create an iterator to handle different input types lazily
+        iterator = []
+        if isinstance(data, list):
+            iterator = data
+        elif isinstance(data, dict):
+            iterator = [data]
+        elif isinstance(data, str):
+            # Use StringIO to iterate line-by-line avoiding large list creation
+            # Note: We create the generator inside a function to manage StringIO scope if needed,
+            # but here we can just iterate.
+            def _line_iterator(text):
+                with io.StringIO(text) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        yield json.loads(line)
+            iterator = _line_iterator(data)
+        else:
+             # Should not happen if types are respected, but safe fallback
+             iterator = []
 
-            mem = json.loads(line)
+        for mem in iterator:
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
             # Check if exists (for merge mode)
