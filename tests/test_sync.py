@@ -271,6 +271,7 @@ class TestSetupSync:
             assert "SYNC_ENABLED=true" in captured.out
             assert "auto-decodes base64" in captured.out
 
+
 class TestStartAutoSync:
     def teardown_method(self):
         """Ensure _sync_task is reset after each test."""
@@ -280,16 +281,20 @@ class TestStartAutoSync:
 
     def test_sync_disabled(self, tmp_db):
         """Task is not started if sync is disabled."""
-        with patch("mnemo_mcp.sync.settings") as mock_settings, \
-             patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task:
+        with (
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task,
+        ):
             mock_settings.sync_enabled = False
             start_auto_sync(tmp_db)
             mock_create_task.assert_not_called()
 
     def test_invalid_interval(self, tmp_db):
         """Task is not started if interval is <= 0."""
-        with patch("mnemo_mcp.sync.settings") as mock_settings, \
-             patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task:
+        with (
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task,
+        ):
             mock_settings.sync_enabled = True
             mock_settings.sync_interval = 0
             start_auto_sync(tmp_db)
@@ -302,8 +307,10 @@ class TestStartAutoSync:
         mock_task.done.return_value = False
         mnemo_mcp.sync._sync_task = mock_task
 
-        with patch("mnemo_mcp.sync.settings") as mock_settings, \
-             patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task:
+        with (
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task,
+        ):
             mock_settings.sync_enabled = True
             mock_settings.sync_interval = 60
 
@@ -314,10 +321,11 @@ class TestStartAutoSync:
         """Task is started correctly when conditions are met."""
         mnemo_mcp.sync._sync_task = None
 
-        with patch("mnemo_mcp.sync.settings") as mock_settings, \
-             patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task, \
-             patch("mnemo_mcp.sync._auto_sync_loop") as mock_loop:
-
+        with (
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+            patch("mnemo_mcp.sync.asyncio.create_task") as mock_create_task,
+            patch("mnemo_mcp.sync._auto_sync_loop") as mock_loop,
+        ):
             mock_settings.sync_enabled = True
             mock_settings.sync_interval = 60
 
