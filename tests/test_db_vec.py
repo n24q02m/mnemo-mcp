@@ -1,9 +1,12 @@
 """Tests for mnemo_mcp.db with vector search enabled."""
 
 import struct
-import pytest
 from pathlib import Path
+
+import pytest
+
 from mnemo_mcp.db import MemoryDB
+
 
 def _serialize_f32(vec: list[float]) -> bytes:
     """Serialize float list to bytes for sqlite-vec."""
