@@ -226,10 +226,40 @@ class MemoryDB:
         Returns:
             List of memory dicts sorted by relevance.
         """
-        results: dict[str, dict] = {}
+        # 1. FTS5 search
+        results = self._search_fts(query, category, limit)
 
-        # 1. FTS5 search with tiered queries + BM25 column weights
-        # Weights: id(0), content(1), category(0-unindexed), tags(5)
+        # 2. Vector search (if embedding provided)
+        if embedding:
+            self._search_vector(embedding, category, limit, results)
+
+        if not results:
+            return []
+
+        # 3. Tag post-filter
+        if tags:
+            results = self._filter_by_tags(results, tags)
+
+        # 4. Compute hybrid score
+        scored = self._compute_hybrid_scores(results)
+
+        # 5. Return top results and update stats
+        top = scored[:limit]
+        self._update_access_stats(top)
+
+        # Clean up internal scores from output
+        for m in top:
+            m.pop("fts_score", None)
+            m.pop("vec_score", None)
+            m.pop("bm25_score", None)
+
+        return top
+
+    def _search_fts(
+        self, query: str, category: str | None, limit: int
+    ) -> dict[str, dict]:
+        """Execute tiered FTS search and return normalized results."""
+        results: dict[str, dict] = {}
         fts_queries = _build_fts_queries(query)
 
         for fts_query in fts_queries:
@@ -243,7 +273,6 @@ class MemoryDB:
                 """
                 fts_params: list = [fts_query]
 
-                # Category pre-filter in SQL (not post-search)
                 if category:
                     fts_sql += " AND m.category = ?"
                     fts_params.append(category)
@@ -277,58 +306,68 @@ class MemoryDB:
                 elif m["fts_score"] > 0:
                     m["fts_score"] = 1.0
 
-        # 2. Semantic search (if embedding provided)
-        if embedding and self._vec_enabled:
-            try:
-                vec_sql = """
-                    SELECT v.id, v.distance
-                    FROM memories_vec v
-                    JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
-                """
-                vec_params: list = [_serialize_f32(embedding)]
+        return results
 
-                # Category pre-filter for vector search too
-                if category:
-                    vec_sql += " AND m.category = ?"
-                    vec_params.append(category)
+    def _search_vector(
+        self,
+        embedding: list[float],
+        category: str | None,
+        limit: int,
+        results: dict[str, dict],
+    ) -> None:
+        """Execute vector search and merge results into the provided dictionary."""
+        if not self._vec_enabled:
+            return
 
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
+        try:
+            vec_sql = """
+                SELECT v.id, v.distance
+                FROM memories_vec v
+                JOIN memories m ON v.id = m.id
+                WHERE v.embedding MATCH ?
+            """
+            vec_params: list = [_serialize_f32(embedding)]
 
-                vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
-                for row in vec_rows:
-                    mid = row["id"]
-                    vec_score = max(0.0, 1.0 - row["distance"])
-                    if mid in results:
-                        results[mid]["vec_score"] = vec_score
-                    else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
-            except Exception as e:
-                logger.debug(f"Vector search error: {e}")
+            if category:
+                vec_sql += " AND m.category = ?"
+                vec_params.append(category)
 
-        if not results:
-            return []
+            vec_sql += " ORDER BY distance LIMIT ?"
+            vec_params.append(limit * 3)
 
-        # 3. Tag post-filter (JSON array matching not feasible in SQL)
-        if tags:
+            vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
+            for row in vec_rows:
+                mid = row["id"]
+                vec_score = max(0.0, 1.0 - row["distance"])
+                if mid in results:
+                    results[mid]["vec_score"] = vec_score
+                else:
+                    # Fetch full memory
+                    mem = self._conn.execute(
+                        "SELECT * FROM memories WHERE id = ?", (mid,)
+                    ).fetchone()
+                    if mem:
+                        results[mid] = {
+                            **dict(mem),
+                            "fts_score": 0.0,
+                            "vec_score": vec_score,
+                        }
+        except Exception as e:
+            logger.debug(f"Vector search error: {e}")
 
-            def _has_tags(mem: dict) -> bool:
-                mem_tags = json.loads(mem.get("tags", "[]"))
-                return any(t in mem_tags for t in tags)
+    def _filter_by_tags(
+        self, results: dict[str, dict], tags: list[str]
+    ) -> dict[str, dict]:
+        """Filter results by tags."""
 
-            results = {k: v for k, v in results.items() if _has_tags(v)}
+        def _has_tags(mem: dict) -> bool:
+            mem_tags = json.loads(mem.get("tags", "[]"))
+            return any(t in mem_tags for t in tags)
 
-        # 4. Compute hybrid score
+        return {k: v for k, v in results.items() if _has_tags(v)}
+
+    def _compute_hybrid_scores(self, results: dict[str, dict]) -> list[dict]:
+        """Compute hybrid scores and return sorted list."""
         now = datetime.now(UTC)
         scored = []
         has_vec = any(m["vec_score"] > 0 for m in results.values())
@@ -387,28 +426,23 @@ class MemoryDB:
 
         # Sort by score descending
         scored.sort(key=lambda m: m["score"], reverse=True)
+        return scored
 
-        # Update access counts for returned results
-        top = scored[:limit]
-        if top:
-            ids = [m["id"] for m in top]
-            placeholders = ",".join("?" for _ in ids)
-            self._conn.execute(
-                f"""UPDATE memories
-                    SET access_count = access_count + 1,
-                        last_accessed = ?
-                    WHERE id IN ({placeholders})""",
-                [_now_iso(), *ids],
-            )
-            self._conn.commit()
+    def _update_access_stats(self, memories: list[dict]) -> None:
+        """Update access count and last_accessed for memories."""
+        if not memories:
+            return
 
-        # Clean up internal scores from output
-        for m in top:
-            m.pop("fts_score", None)
-            m.pop("vec_score", None)
-            m.pop("bm25_score", None)
-
-        return top
+        ids = [m["id"] for m in memories]
+        placeholders = ",".join("?" for _ in ids)
+        self._conn.execute(
+            f"""UPDATE memories
+                SET access_count = access_count + 1,
+                    last_accessed = ?
+                WHERE id IN ({placeholders})""",
+            [_now_iso(), *ids],
+        )
+        self._conn.commit()
 
     def list_memories(
         self,
