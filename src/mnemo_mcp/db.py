@@ -184,7 +184,7 @@ class MemoryDB:
         Returns:
             Memory ID.
         """
-        memory_id = uuid.uuid4().hex[:12]
+        memory_id = uuid.uuid4().hex
         now = _now_iso()
         tags_json = json.dumps(tags or [])
 
@@ -561,7 +561,7 @@ class MemoryDB:
                 continue
 
             mem = json.loads(line)
-            memory_id = mem.get("id", uuid.uuid4().hex[:12])
+            memory_id = mem.get("id", uuid.uuid4().hex)
 
             # Check if exists (for merge mode)
             if mode == "merge":
