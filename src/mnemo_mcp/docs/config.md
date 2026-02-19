@@ -47,8 +47,6 @@ Change runtime settings. Changes persist for the current session.
 
 **Available settings:**
 - `sync_enabled`: Enable/disable sync ("true" / "false")
-- `sync_remote`: Rclone remote name
-- `sync_folder`: Remote folder name
 - `sync_interval`: Auto-sync interval in seconds (0 = manual)
 - `log_level`: Logging level ("DEBUG", "INFO", "WARNING", "ERROR")
 
