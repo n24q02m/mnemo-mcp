@@ -72,6 +72,7 @@ Configure via environment variables before starting the server:
 | `SYNC_REMOTE` | (none) | Rclone remote name |
 | `SYNC_FOLDER` | `mnemo-mcp` | Remote folder name |
 | `SYNC_INTERVAL` | `0` | Auto-sync interval (seconds) |
+| `RCLONE_VERSION` | `v1.68.2` | Rclone version to download |
 | `LOG_LEVEL` | `INFO` | Log level |
 
 ### API_KEYS Format
