@@ -326,7 +326,7 @@ class MemoryDB:
                     placeholders = ",".join("?" for _ in missing_ids)
                     mem_rows = self._conn.execute(
                         f"SELECT * FROM memories WHERE id IN ({placeholders})",
-                        missing_ids
+                        missing_ids,
                     ).fetchall()
 
                     for row in mem_rows:
