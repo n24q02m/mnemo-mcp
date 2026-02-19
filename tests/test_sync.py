@@ -11,8 +11,8 @@ from mnemo_mcp.sync import (
     _get_platform_info,
     _prepare_rclone_env,
     setup_sync,
-    sync_full,
     start_auto_sync,
+    sync_full,
 )
 
 
