@@ -7,8 +7,8 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
-import json
 import io
+import json
 import math
 import sqlite3
 import struct
@@ -573,10 +573,11 @@ class MemoryDB:
                         if not line:
                             continue
                         yield json.loads(line)
+
             iterator = _line_iterator(data)
         else:
-             # Should not happen if types are respected, but safe fallback
-             iterator = []
+            # Should not happen if types are respected, but safe fallback
+            iterator = []
 
         for mem in iterator:
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
