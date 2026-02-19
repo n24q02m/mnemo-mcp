@@ -12,6 +12,7 @@ def _serialize_f32(vec: list[float]) -> bytes:
     """Serialize float list to bytes for sqlite-vec."""
     return struct.pack(f"{len(vec)}f", *vec)
 
+
 @pytest.fixture
 def tmp_db_vec(tmp_path: Path):
     """Temporary MemoryDB with vector search enabled."""
@@ -19,9 +20,11 @@ def tmp_db_vec(tmp_path: Path):
     yield db
     db.close()
 
+
 class TestVecEnabled:
     def test_vec_enabled(self, tmp_db_vec):
         assert tmp_db_vec.vec_enabled is True
+
 
 class TestUpdateWithVectors:
     def test_add_stores_embedding(self, tmp_db_vec):
