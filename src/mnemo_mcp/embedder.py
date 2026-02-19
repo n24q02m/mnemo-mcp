@@ -80,7 +80,7 @@ class EmbeddingBackend(Protocol):
         """Embed a single text. Returns embedding vector."""
         ...
 
-    def check_available(self) -> int:
+    async def check_available(self) -> int:
         """Check if backend is available.
 
         Returns:
@@ -190,12 +190,15 @@ class LiteLLMBackend:
         results = await self.embed_texts([text], dimensions)
         return results[0]
 
-    def check_available(self) -> int:
+    async def check_available(self) -> int:
         """Check if the LiteLLM model is available via test request."""
         try:
             from litellm import embedding as litellm_embedding
 
-            response = litellm_embedding(model=self.model, input=["test"])
+            def _check():
+                return litellm_embedding(model=self.model, input=["test"])
+
+            response = await asyncio.to_thread(_check)
             if response.data:
                 dim = len(response.data[0]["embedding"])
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
@@ -280,11 +283,16 @@ class Qwen3EmbedBackend:
 
         return await asyncio.to_thread(_query)
 
-    def check_available(self) -> int:
+    async def check_available(self) -> int:
         """Check if qwen3-embed is available."""
         try:
-            model = self._get_model()
-            result = list(model.embed(["test"]))
+
+            def _check():
+                model = self._get_model()
+                return list(model.embed(["test"]))
+
+            result = await asyncio.to_thread(_check)
+
             if result:
                 dim = len(result[0])
                 logger.info(
@@ -358,7 +366,7 @@ async def embed_single(
     return await backend.embed_single(text, dimensions)
 
 
-def check_embedding_available(model: str) -> int:
+async def check_embedding_available(model: str) -> int:
     """Check if an embedding model is available (legacy interface)."""
     backend = LiteLLMBackend(model)
-    return backend.check_available()
+    return await backend.check_available()

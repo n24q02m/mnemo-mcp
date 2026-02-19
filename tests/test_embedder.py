@@ -69,16 +69,16 @@ class TestLiteLLMBackend:
         assert result == [0.1, 0.2, 0.3]
 
     @patch("litellm.embedding")
-    def test_check_available_returns_dims(self, mock_embed):
+    async def test_check_available_returns_dims(self, mock_embed):
         mock_embed.return_value = MagicMock(data=[{"embedding": [0.1, 0.2]}])
         backend = LiteLLMBackend("model")
-        assert backend.check_available() == 2
+        assert await backend.check_available() == 2
 
     @patch("litellm.embedding")
-    def test_check_available_error(self, mock_embed):
+    async def test_check_available_error(self, mock_embed):
         mock_embed.side_effect = Exception("Model not found")
         backend = LiteLLMBackend("model")
-        assert backend.check_available() == 0
+        assert await backend.check_available() == 0
 
     @patch("litellm.embedding")
     async def test_raises_on_non_retryable_error(self, mock_embed):
@@ -88,10 +88,10 @@ class TestLiteLLMBackend:
             await backend.embed_texts(["test"])
 
     @patch("litellm.embedding")
-    def test_check_available_empty_data(self, mock_embed):
+    async def test_check_available_empty_data(self, mock_embed):
         mock_embed.return_value = MagicMock(data=[])
         backend = LiteLLMBackend("model")
-        assert backend.check_available() == 0
+        assert await backend.check_available() == 0
 
 
 class TestBatchSplitting:
@@ -235,11 +235,11 @@ class TestQwen3EmbedBackend:
         assert result == [0.1, 0.2, 0.3]
 
     @patch("mnemo_mcp.embedder.Qwen3EmbedBackend._get_model")
-    def test_check_available_not_installed(self, mock_get_model):
+    async def test_check_available_not_installed(self, mock_get_model):
         """Returns 0 when qwen3-embed is not available."""
         mock_get_model.side_effect = ImportError("No module named 'qwen3_embed'")
         backend = Qwen3EmbedBackend()
-        assert backend.check_available() == 0
+        assert await backend.check_available() == 0
 
 
 class TestBackendFactory:
@@ -280,6 +280,6 @@ class TestLegacyCompat:
         assert result == [0.1, 0.2]
 
     @patch("litellm.embedding")
-    def test_check_available_legacy(self, mock_embed):
+    async def test_check_available_legacy(self, mock_embed):
         mock_embed.return_value = MagicMock(data=[{"embedding": [0.1]}])
-        assert check_embedding_available("model") == 1
+        assert await check_embedding_available("model") == 1
