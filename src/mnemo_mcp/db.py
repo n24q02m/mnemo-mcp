@@ -554,6 +554,12 @@ class MemoryDB:
 
         imported = 0
         skipped = 0
+        now = _now_iso()
+
+        # Optimize with executemany and batching
+        batch_size = 5000
+        rows_to_insert = []
+        cursor = self._conn.cursor()
 
         for line in data.strip().split("\n"):
             line = line.strip()
@@ -563,25 +569,13 @@ class MemoryDB:
             mem = json.loads(line)
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
-
             tags = mem.get("tags", [])
             if isinstance(tags, list):
                 tags_json = json.dumps(tags)
             else:
                 tags_json = tags
 
-            now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows_to_insert.append(
                 (
                     memory_id,
                     mem["content"],
@@ -592,9 +586,55 @@ class MemoryDB:
                     mem.get("updated_at", now),
                     mem.get("access_count", 0),
                     mem.get("last_accessed", now),
-                ),
+                )
             )
-            imported += 1
+
+            if len(rows_to_insert) >= batch_size:
+                if mode == "replace":
+                    cursor.executemany(
+                        """INSERT OR REPLACE INTO memories
+                           (id, content, category, tags, source,
+                            created_at, updated_at, access_count, last_accessed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        rows_to_insert,
+                    )
+                    imported += len(rows_to_insert)
+                else:
+                    cursor.executemany(
+                        """INSERT OR IGNORE INTO memories
+                           (id, content, category, tags, source,
+                            created_at, updated_at, access_count, last_accessed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        rows_to_insert,
+                    )
+                    inserted_batch = cursor.rowcount
+                    imported += inserted_batch
+                    skipped += len(rows_to_insert) - inserted_batch
+
+                rows_to_insert = []
+
+        # Process remaining
+        if rows_to_insert:
+            if mode == "replace":
+                cursor.executemany(
+                    """INSERT OR REPLACE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows_to_insert,
+                )
+                imported += len(rows_to_insert)
+            else:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows_to_insert,
+                )
+                inserted_batch = cursor.rowcount
+                imported += inserted_batch
+                skipped += len(rows_to_insert) - inserted_batch
 
         self._conn.commit()
         return {"imported": imported, "skipped": skipped}
