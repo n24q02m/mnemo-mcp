@@ -241,7 +241,7 @@ class MemoryDB:
                     JOIN memories m ON f.id = m.id
                     WHERE memories_fts MATCH ?
                 """
-                fts_params: list = [fts_query]
+                fts_params = [fts_query]
 
                 # Category pre-filter in SQL (not post-search)
                 if category:
@@ -280,39 +280,62 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
-                vec_sql = """
-                    SELECT v.id, v.distance
-                    FROM memories_vec v
-                    JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
-                """
-                vec_params: list = [_serialize_f32(embedding)]
+                vec_params = [_serialize_f32(embedding)]
 
-                # Category pre-filter for vector search too
                 if category:
-                    vec_sql += " AND m.category = ?"
+                    # Use subquery to force sqlite-vec usage before join
+                    vec_sql = """
+                        SELECT sub.id, sub.distance
+                        FROM (
+                            SELECT id, distance
+                            FROM memories_vec
+                            WHERE embedding MATCH ?
+                            ORDER BY distance LIMIT ?
+                        ) sub
+                        JOIN memories m ON sub.id = m.id
+                        WHERE m.category = ?
+                    """
+                    vec_params.append(limit * 15)
                     vec_params.append(category)
-
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
+                else:
+                    vec_sql = """
+                        SELECT id, distance
+                        FROM memories_vec
+                        WHERE embedding MATCH ?
+                        ORDER BY distance LIMIT ?
+                    """
+                    vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
+
+                # Optimized: Batch fetch missing memories to avoid N+1 queries
+                vec_scores = {}
+                missing_ids = []
+
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
+                    vec_scores[mid] = vec_score
+
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        missing_ids.append(mid)
+
+                if missing_ids:
+                    placeholders = ",".join("?" for _ in missing_ids)
+                    mem_rows = self._conn.execute(
+                        f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                        missing_ids,
+                    ).fetchall()
+
+                    for row in mem_rows:
+                        mid = row["id"]
+                        results[mid] = {
+                            **dict(row),
+                            "fts_score": 0.0,
+                            "vec_score": vec_scores[mid],
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
