@@ -280,21 +280,28 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
+                # Use subquery to ensure sqlite-vec sees the LIMIT
+                # If category filtering is used, we need to fetch more candidates
+                # from the vector index since we can't push the filter down.
+                k_factor = 10 if category else 3
+                vec_limit = limit * k_factor
+
                 vec_sql = """
                     SELECT v.id, v.distance
-                    FROM memories_vec v
+                    FROM (
+                        SELECT id, distance
+                        FROM memories_vec
+                        WHERE embedding MATCH ?
+                        ORDER BY distance
+                        LIMIT ?
+                    ) v
                     JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
                 """
-                vec_params: list = [_serialize_f32(embedding)]
+                vec_params: list = [_serialize_f32(embedding), vec_limit]
 
-                # Category pre-filter for vector search too
                 if category:
-                    vec_sql += " AND m.category = ?"
+                    vec_sql += " WHERE m.category = ?"
                     vec_params.append(category)
-
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
                 for row in vec_rows:
