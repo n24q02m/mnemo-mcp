@@ -1,14 +1,12 @@
 
-import asyncio
 import hashlib
 import io
-import sys
 import zipfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mnemo_mcp.sync import _download_rclone, _RCLONE_VERSION
+
+from mnemo_mcp.sync import _RCLONE_VERSION, _download_rclone
 
 
 @pytest.fixture
@@ -141,7 +139,7 @@ async def test_download_rclone_checksum_missing(
     # Mock sums response with missing file
     sums_resp = MagicMock()
     sums_resp.status_code = 200
-    sums_resp.text = f"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  other-file.zip\n"
+    sums_resp.text = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  other-file.zip\n"
     sums_resp.raise_for_status = MagicMock()
 
     mock_httpx_client._responses[zip_url] = zip_resp
