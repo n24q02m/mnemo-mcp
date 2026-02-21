@@ -192,9 +192,14 @@ class TestSetupSync:
     def test_rclone_downloaded(self, tmp_path, capsys):
         """setup_sync downloads rclone when not found."""
         rclone_path = tmp_path / "rclone"
+
+        def mock_run(coro):
+            coro.close()
+            return rclone_path
+
         with (
             patch("mnemo_mcp.sync._get_rclone_path", return_value=None),
-            patch("mnemo_mcp.sync.asyncio.run", return_value=rclone_path),
+            patch("mnemo_mcp.sync.asyncio.run", side_effect=mock_run),
             patch(
                 "mnemo_mcp.sync.subprocess.run",
                 return_value=self._mock_result(),
@@ -206,9 +211,14 @@ class TestSetupSync:
 
     def test_download_fails(self, capsys):
         """setup_sync exits when rclone download fails."""
+
+        def mock_run(coro):
+            coro.close()
+            return None
+
         with (
             patch("mnemo_mcp.sync._get_rclone_path", return_value=None),
-            patch("mnemo_mcp.sync.asyncio.run", return_value=None),
+            patch("mnemo_mcp.sync.asyncio.run", side_effect=mock_run),
         ):
             import pytest
 
