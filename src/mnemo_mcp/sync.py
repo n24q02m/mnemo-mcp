@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -104,6 +105,28 @@ def _get_platform_info() -> tuple[str, str, str]:
     return os_name, arch, ext
 
 
+def _verify_checksum(content: bytes, filename: str, sums_text: str) -> None:
+    """Verify content SHA256 matches entry in sums_text.
+
+    sums_text format (SHA256SUMS):
+    hash  filename
+    """
+    digest = hashlib.sha256(content).hexdigest()
+
+    for line in sums_text.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[1].strip() == filename:
+            expected = parts[0].strip()
+            if digest != expected:
+                raise ValueError(
+                    f"Checksum mismatch for {filename}: expected {expected}, got {digest}"
+                )
+            logger.info(f"Verified checksum for {filename}")
+            return
+
+    raise ValueError(f"Checksum for {filename} not found in SHA256SUMS")
+
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
@@ -112,6 +135,7 @@ async def _download_rclone() -> Path | None:
     os_name, arch, ext = _get_platform_info()
     archive_name = f"rclone-{_RCLONE_VERSION}-{os_name}-{arch}.zip"
     url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/{archive_name}"
+    sums_url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/SHA256SUMS"
 
     install_dir = _get_rclone_dir()
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -124,13 +148,23 @@ async def _download_rclone() -> Path | None:
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
+            # Download zip
             response = await client.get(url, timeout=120.0)
             response.raise_for_status()
+            zip_content = response.content
 
-            # Write to temp file
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
+            # Download checksums
+            sums_response = await client.get(sums_url, timeout=30.0)
+            sums_response.raise_for_status()
+            sums_content = sums_response.text
+
+        # Verify checksum
+        _verify_checksum(zip_content, archive_name, sums_content)
+
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(zip_content)
+            tmp_path = Path(tmp.name)
 
         # Extract rclone binary from zip
         with zipfile.ZipFile(tmp_path, "r") as zf:
