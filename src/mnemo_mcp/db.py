@@ -569,17 +569,19 @@ class MemoryDB:
                 tags_json = tags
 
             now = _now_iso()
-            values.append((
-                memory_id,
-                mem["content"],
-                mem.get("category", "general"),
-                tags_json,
-                mem.get("source"),
-                mem.get("created_at", now),
-                mem.get("updated_at", now),
-                mem.get("access_count", 0),
-                mem.get("last_accessed", now),
-            ))
+            values.append(
+                (
+                    memory_id,
+                    mem["content"],
+                    mem.get("category", "general"),
+                    tags_json,
+                    mem.get("source"),
+                    mem.get("created_at", now),
+                    mem.get("updated_at", now),
+                    mem.get("access_count", 0),
+                    mem.get("last_accessed", now),
+                )
+            )
 
         sql = """
             INSERT OR REPLACE INTO memories
