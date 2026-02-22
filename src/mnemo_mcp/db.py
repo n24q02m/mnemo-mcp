@@ -7,6 +7,7 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
+import io
 import json
 import math
 import sqlite3
@@ -552,24 +553,15 @@ class MemoryDB:
             if self._vec_enabled:
                 self._conn.execute("DELETE FROM memories_vec")
 
-        imported = 0
-        skipped = 0
-
-        for line in data.strip().split("\n"):
+        values = []
+        # Use io.StringIO to iterate line by line without creating a large list of strings
+        for line in io.StringIO(data):
             line = line.strip()
             if not line:
                 continue
 
             mem = json.loads(line)
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
-
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
-
             tags = mem.get("tags", [])
             if isinstance(tags, list):
                 tags_json = json.dumps(tags)
@@ -577,11 +569,7 @@ class MemoryDB:
                 tags_json = tags
 
             now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            values.append(
                 (
                     memory_id,
                     mem["content"],
@@ -592,11 +580,31 @@ class MemoryDB:
                     mem.get("updated_at", now),
                     mem.get("access_count", 0),
                     mem.get("last_accessed", now),
-                ),
+                )
             )
-            imported += 1
 
+        sql = """
+            INSERT OR REPLACE INTO memories
+            (id, content, category, tags, source,
+             created_at, updated_at, access_count, last_accessed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        if mode == "merge":
+            # For merge, skip existing IDs
+            sql = sql.replace("INSERT OR REPLACE", "INSERT OR IGNORE")
+
+        cursor = self._conn.cursor()
+        cursor.executemany(sql, values)
         self._conn.commit()
+
+        imported = cursor.rowcount
+        processed = len(values)
+
+        # In merge mode, rowcount is inserted count. Skipped is processed - inserted.
+        # In replace mode, rowcount is inserted count (duplicates count as ops). Skipped is 0.
+        skipped = processed - imported if mode == "merge" else 0
+
         return {"imported": imported, "skipped": skipped}
 
     def close(self) -> None:
