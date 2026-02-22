@@ -1,8 +1,10 @@
 """Configuration settings for Mnemo MCP Server."""
 
 import os
+import re
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -82,7 +84,45 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = {
+        "env_prefix": "",
+        "case_sensitive": False,
+        "validate_assignment": True,
+    }
+
+    @field_validator("sync_remote")
+    @classmethod
+    def validate_sync_remote(cls, v: str) -> str:
+        """Validate rclone remote name (prevent argument injection)."""
+        if not v:
+            return v
+        if v.startswith("-"):
+            raise ValueError("Remote name cannot start with '-'")
+        if not re.match(r"^[a-zA-Z0-9_.-]*$", v):
+            raise ValueError(
+                "Remote name must contain only alphanumeric characters, "
+                "underscores, dots, and dashes"
+            )
+        return v
+
+    @field_validator("sync_folder")
+    @classmethod
+    def validate_sync_folder(cls, v: str) -> str:
+        """Validate sync folder path (prevent traversal and absolute paths)."""
+        if not v:
+            return v
+        if v.startswith("-"):
+            raise ValueError("Folder name cannot start with '-'")
+        if v.startswith("/"):
+            raise ValueError("Folder must be a relative path (cannot start with '/')")
+        if ".." in v.split("/"):
+            raise ValueError("Folder path cannot contain '..' segments")
+        if not re.match(r"^[a-zA-Z0-9_./-]*$", v):
+            raise ValueError(
+                "Folder path must contain only alphanumeric characters, "
+                "underscores, dots, dashes, and forward slashes"
+            )
+        return v
 
     def get_db_path(self) -> Path:
         """Get resolved database path."""
