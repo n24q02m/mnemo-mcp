@@ -1,12 +1,12 @@
-
 import hashlib
 import io
 import zipfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from mnemo_mcp.sync import _download_rclone, _RCLONE_VERSION
+
+from mnemo_mcp.sync import _RCLONE_VERSION, _download_rclone
+
 
 # Helper to create a dummy zip with a file inside
 def create_zip_bytes(filename: str, content: bytes) -> bytes:
@@ -14,6 +14,7 @@ def create_zip_bytes(filename: str, content: bytes) -> bytes:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr(filename, content)
     return buf.getvalue()
+
 
 @pytest.mark.asyncio
 async def test_download_rclone_verification_failure(tmp_path):
@@ -23,14 +24,18 @@ async def test_download_rclone_verification_failure(tmp_path):
     mock_rclone_binary = b"fake-rclone-binary"
 
     # Mock platform info to get a predictable zip filename
-    with patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")):
+    with patch(
+        "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+    ):
         zip_filename = f"rclone-{_RCLONE_VERSION}-linux-amd64.zip"
 
         # Create a zip containing the binary
-        zip_bytes = create_zip_bytes("rclone-v1.2.3-linux-amd64/rclone", mock_rclone_binary)
+        zip_bytes = create_zip_bytes(
+            "rclone-v1.2.3-linux-amd64/rclone", mock_rclone_binary
+        )
 
         # Calculate real hash so we can give a WRONG one in SHA256SUMS
-        real_hash = hashlib.sha256(zip_bytes).hexdigest()
+        # real_hash = hashlib.sha256(zip_bytes).hexdigest()  <-- UNUSED
         fake_hash = "0" * 64  # Clearly wrong hash
 
         # Mock SHA256SUMS content
@@ -65,16 +70,21 @@ async def test_download_rclone_verification_failure(tmp_path):
                 result = await _download_rclone()
                 assert result is None
 
+
 @pytest.mark.asyncio
 async def test_download_rclone_verification_success(tmp_path):
     """Test that _download_rclone succeeds if SHA256SUMS hash matches."""
 
     mock_rclone_binary = b"fake-rclone-binary"
 
-    with patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")):
+    with patch(
+        "mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")
+    ):
         zip_filename = f"rclone-{_RCLONE_VERSION}-linux-amd64.zip"
 
-        zip_bytes = create_zip_bytes("rclone-v1.2.3-linux-amd64/rclone", mock_rclone_binary)
+        zip_bytes = create_zip_bytes(
+            "rclone-v1.2.3-linux-amd64/rclone", mock_rclone_binary
+        )
 
         real_hash = hashlib.sha256(zip_bytes).hexdigest()
 
