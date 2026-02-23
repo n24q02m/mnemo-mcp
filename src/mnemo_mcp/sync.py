@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -104,6 +105,18 @@ def _get_platform_info() -> tuple[str, str, str]:
     return os_name, arch, ext
 
 
+def _verify_checksum(file_path: Path, expected_hash: str) -> bool:
+    """Verify SHA256 checksum of a file."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest().lower() == expected_hash.lower()
+
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
@@ -112,6 +125,7 @@ async def _download_rclone() -> Path | None:
     os_name, arch, ext = _get_platform_info()
     archive_name = f"rclone-{_RCLONE_VERSION}-{os_name}-{arch}.zip"
     url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/{archive_name}"
+    checksum_url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/SHA256SUMS"
 
     install_dir = _get_rclone_dir()
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -124,6 +138,7 @@ async def _download_rclone() -> Path | None:
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
+            # 1. Download Zip
             response = await client.get(url, timeout=120.0)
             response.raise_for_status()
 
@@ -131,6 +146,28 @@ async def _download_rclone() -> Path | None:
             with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
                 tmp.write(response.content)
                 tmp_path = Path(tmp.name)
+
+            # 2. Verify Checksum
+            logger.info("Verifying checksum...")
+            response_sums = await client.get(checksum_url, timeout=30.0)
+            response_sums.raise_for_status()
+
+            expected_hash = None
+            for line in response_sums.text.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].strip() == archive_name:
+                    expected_hash = parts[0].strip()
+                    break
+
+            if not expected_hash:
+                logger.error(f"Could not find checksum for {archive_name}")
+                tmp_path.unlink(missing_ok=True)
+                return None
+
+            if not _verify_checksum(tmp_path, expected_hash):
+                logger.error(f"Checksum verification failed for {archive_name}")
+                tmp_path.unlink(missing_ok=True)
+                return None
 
         # Extract rclone binary from zip
         with zipfile.ZipFile(tmp_path, "r") as zf:
