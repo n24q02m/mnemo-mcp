@@ -552,8 +552,8 @@ class MemoryDB:
             if self._vec_enabled:
                 self._conn.execute("DELETE FROM memories_vec")
 
-        imported = 0
-        skipped = 0
+        rows_to_insert = []
+        now = _now_iso()
 
         for line in data.strip().split("\n"):
             line = line.strip()
@@ -563,25 +563,13 @@ class MemoryDB:
             mem = json.loads(line)
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
-
             tags = mem.get("tags", [])
             if isinstance(tags, list):
                 tags_json = json.dumps(tags)
             else:
                 tags_json = tags
 
-            now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows_to_insert.append(
                 (
                     memory_id,
                     mem["content"],
@@ -592,11 +580,29 @@ class MemoryDB:
                     mem.get("updated_at", now),
                     mem.get("access_count", 0),
                     mem.get("last_accessed", now),
-                ),
+                )
             )
-            imported += 1
 
+        if not rows_to_insert:
+            return {"imported": 0, "skipped": 0}
+
+        # Use INSERT OR IGNORE for merge mode to skip existing IDs
+        # Use INSERT OR REPLACE for replace mode (table already cleared, but handles duplicates in batch)
+        stmt = "INSERT OR IGNORE" if mode == "merge" else "INSERT OR REPLACE"
+
+        cursor = self._conn.cursor()
+        cursor.executemany(
+            f"""{stmt} INTO memories
+                   (id, content, category, tags, source,
+                    created_at, updated_at, access_count, last_accessed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows_to_insert,
+        )
         self._conn.commit()
+
+        imported = cursor.rowcount
+        skipped = len(rows_to_insert) - imported
+
         return {"imported": imported, "skipped": skipped}
 
     def close(self) -> None:
