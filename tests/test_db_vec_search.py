@@ -15,6 +15,7 @@ def vec_db(tmp_path: Path):
     yield db
     db.close()
 
+
 def test_vector_search_basic(vec_db: MemoryDB):
     # Add memories with embeddings
     # Target memory: close to [0.1, 0.1, 0.1, 0.1]
@@ -34,6 +35,7 @@ def test_vector_search_basic(vec_db: MemoryDB):
     assert "distance" not in results[0]
     assert "vec_score" not in results[0]
 
+
 def test_vector_search_category_filter(vec_db: MemoryDB):
     # Add memories
     vec_db.add("general match", embedding=[0.1, 0.1, 0.1, 0.1], category="general")
@@ -46,17 +48,18 @@ def test_vector_search_category_filter(vec_db: MemoryDB):
     assert len(results) == 1
     assert results[0]["content"] == "work match"
 
+
 def test_vector_search_returns_columns(vec_db: MemoryDB):
     """Verify that columns from 'memories' table are correctly returned."""
     vec_db.add(
         "rich memory",
-        embedding=[0.5]*4,
+        embedding=[0.5] * 4,
         category="special",
         tags=["t1", "t2"],
-        source="unit-test"
+        source="unit-test",
     )
 
-    results = vec_db.search("rich", embedding=[0.5]*4)
+    results = vec_db.search("rich", embedding=[0.5] * 4)
     assert len(results) >= 1
     mem = results[0]
 
@@ -67,13 +70,14 @@ def test_vector_search_returns_columns(vec_db: MemoryDB):
     assert "created_at" in mem
     assert "updated_at" in mem
 
+
 def test_vector_search_no_match_query(vec_db: MemoryDB):
     """Search with vector but no text match should still return vector results."""
-    vec_db.add("text mismatch", embedding=[0.2]*4)
+    vec_db.add("text mismatch", embedding=[0.2] * 4)
 
     # FTS won't match "nomatch", but vector might be close
     # Wait, Hybrid search merges results. If FTS returns nothing, but Vector returns something.
-    results = vec_db.search("nomatch", embedding=[0.2]*4)
+    results = vec_db.search("nomatch", embedding=[0.2] * 4)
 
     assert len(results) >= 1
     assert results[0]["content"] == "text mismatch"
