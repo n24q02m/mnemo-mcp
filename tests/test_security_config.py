@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -20,6 +19,7 @@ def ctx_with_db(tmp_path: Path):
     }
     yield ctx, db
     db.close()
+
 
 @pytest.mark.asyncio
 async def test_set_sync_folder_traversal(ctx_with_db):
@@ -54,6 +54,7 @@ async def test_set_sync_folder_traversal(ctx_with_db):
     assert "sync_folder must be a relative path" in result["error"]
 
     print("\nSecurity verification: path traversal and absolute paths are blocked.")
+
 
 @pytest.mark.asyncio
 async def test_set_sync_remote_validation(ctx_with_db):
