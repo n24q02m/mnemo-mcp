@@ -1,0 +1,3 @@
+## 2026-02-24 - [Fix N+1 in SQLite-Vec Search]
+**Learning:** `sqlite-vec` (specifically `vec0` virtual table) interacts poorly with standard SQL `JOIN` clauses when using `LIMIT ?` for k-NN search. The optimizer fails to push the limit down to the virtual table scan, causing query errors ("A LIMIT or 'k = ?' constraint is required").
+**Action:** Always use the `k = ?` constraint within the `WHERE` clause (e.g., `WHERE embedding MATCH ? AND k = ?`) instead of `ORDER BY distance LIMIT ?` when joining vector search results with other tables. This ensures the vector index scan is correctly constrained. Also, fetching joined columns (`m.*`) directly in the vector search query eliminates N+1 fetches for the full record.
