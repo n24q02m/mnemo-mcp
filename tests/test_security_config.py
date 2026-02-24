@@ -1,11 +1,13 @@
 
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from mnemo_mcp.server import config
+
+import pytest
+
 from mnemo_mcp.db import MemoryDB
-from mnemo_mcp.config import settings
+from mnemo_mcp.server import config
+
 
 @pytest.fixture
 def ctx_with_db(tmp_path: Path):
