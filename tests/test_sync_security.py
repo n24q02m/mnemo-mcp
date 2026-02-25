@@ -13,17 +13,20 @@ async def test_download_rclone_checksum_verification_fail():
     fake_hash = "a" * 64
     content = b"malicious content"
 
-    with patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")), \
-         patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls, \
-         patch("mnemo_mcp.sync.zipfile.ZipFile") as mock_zip_cls, \
-         patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": fake_hash}, create=True), \
-         patch("pathlib.Path.write_bytes"), \
-         patch("pathlib.Path.exists", return_value=False), \
-         patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp_cls, \
-         patch("pathlib.Path.chmod"), \
-         patch("pathlib.Path.stat") as mock_stat, \
-         patch("pathlib.Path.mkdir"):
-
+    with (
+        patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+        patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        patch("mnemo_mcp.sync.zipfile.ZipFile") as mock_zip_cls,
+        patch(
+            "mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": fake_hash}, create=True
+        ),
+        patch("pathlib.Path.write_bytes"),
+        patch("pathlib.Path.exists", return_value=False),
+        patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp_cls,
+        patch("pathlib.Path.chmod"),
+        patch("pathlib.Path.stat") as mock_stat,
+        patch("pathlib.Path.mkdir"),
+    ):
         # Mock client
         mock_client = AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
@@ -63,23 +66,29 @@ async def test_download_rclone_checksum_verification_fail():
         # Assertions
         assert result is None, "Should return None on checksum mismatch"
 
+
 @pytest.mark.asyncio
 async def test_download_rclone_checksum_verification_success():
     """Test that download succeeds when checksum matches."""
     content = b"valid content"
     expected_hash = hashlib.sha256(content).hexdigest()
 
-    with patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")), \
-         patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls, \
-         patch("mnemo_mcp.sync.zipfile.ZipFile") as mock_zip_cls, \
-         patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": expected_hash}, create=True), \
-         patch("pathlib.Path.mkdir"), \
-         patch("pathlib.Path.exists", return_value=False), \
-         patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp_cls, \
-         patch("pathlib.Path.chmod"), \
-         patch("pathlib.Path.write_bytes"), \
-         patch("pathlib.Path.stat") as mock_stat:
-
+    with (
+        patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+        patch("mnemo_mcp.sync.httpx.AsyncClient") as mock_client_cls,
+        patch("mnemo_mcp.sync.zipfile.ZipFile") as mock_zip_cls,
+        patch(
+            "mnemo_mcp.sync._RCLONE_CHECKSUMS",
+            {"linux-amd64": expected_hash},
+            create=True,
+        ),
+        patch("pathlib.Path.mkdir"),
+        patch("pathlib.Path.exists", return_value=False),
+        patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp_cls,
+        patch("pathlib.Path.chmod"),
+        patch("pathlib.Path.write_bytes"),
+        patch("pathlib.Path.stat") as mock_stat,
+    ):
         # Mock client
         mock_client = AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
