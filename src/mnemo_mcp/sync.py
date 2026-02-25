@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -42,6 +43,18 @@ if TYPE_CHECKING:
 
 # Rclone version to download
 _RCLONE_VERSION = "v1.68.2"
+
+# Rclone release checksums (SHA256)
+_RCLONE_CHECKSUMS = {
+    "windows-amd64": "812bf76cc02c04cf6327f3683f3d5a88e47d36c39db84c1a745777496be7d993",
+    "windows-386": "d076d341122287cf92033aeecf1dd6900ff407c22981fa5ddf49689d5301a7e2",
+    "windows-arm64": "cbc6584266cf62bb9f4df912cb00d566c1cbc50ce2748f5e433f1937209e807e",
+    "osx-amd64": "cdc685e16abbf35b6f47c95b2a5b4ad73a73921ff6842e5f4136c8b461756188",
+    "osx-arm64": "323f387b32bcf9ddfc3874f01879a0b2689dbd91309beb8c3a4410db04d0c41f",
+    "linux-amd64": "0e6fa18051e67fc600d803a2dcb10ddedb092247fc6eee61be97f64ec080a13c",
+    "linux-386": "8654f19f572ac90c8cf712f3e212ee499b8e5e270e209753f3e82f0b44d9447d",
+    "linux-arm64": "c6e9d4cf9c88b279f6ad80cd5675daebc068e404890fa7e191412c1bc7a4ac5f",
+}
 
 # Background sync task reference
 _sync_task: asyncio.Task | None = None
@@ -126,11 +139,26 @@ async def _download_rclone() -> Path | None:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, timeout=120.0)
             response.raise_for_status()
+            content = response.content
 
-            # Write to temp file
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
+        # Verify checksum
+        key = f"{os_name}-{arch}"
+        expected_hash = _RCLONE_CHECKSUMS.get(key)
+        if expected_hash:
+            actual_hash = hashlib.sha256(content).hexdigest()
+            if actual_hash != expected_hash:
+                logger.error(
+                    f"Checksum mismatch for {archive_name}: "
+                    f"expected {expected_hash}, got {actual_hash}"
+                )
+                return None
+        else:
+            logger.warning(f"No checksum found for {key}, skipping verification")
+
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
 
         # Extract rclone binary from zip
         with zipfile.ZipFile(tmp_path, "r") as zf:
