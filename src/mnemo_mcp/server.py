@@ -272,7 +272,6 @@ async def _embed(
         return None
 
 
-
 async def _handle_add(
     db: MemoryDB,
     content: str | None,
@@ -317,9 +316,7 @@ async def _handle_search(
     if not query:
         return _json({"error": "query is required for search"})
 
-    embedding = await _embed(
-        query, embedding_model, embedding_dims, is_query=True
-    )
+    embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
     results = await asyncio.to_thread(
         db.search,
         query=query,
@@ -420,16 +417,12 @@ async def _handle_import(
 ) -> str:
     if not data:
         return _json(
-            {
-                "error": "data (JSONL string or list of objects) is required for import"
-            }
+            {"error": "data (JSONL string or list of objects) is required for import"}
         )
 
     # Normalize: accept both JSONL string and parsed list/dict from MCP clients
     if isinstance(data, list):
-        import_data = "\n".join(
-            json.dumps(item, ensure_ascii=False) for item in data
-        )
+        import_data = "\n".join(json.dumps(item, ensure_ascii=False) for item in data)
     elif isinstance(data, dict):
         import_data = json.dumps(data, ensure_ascii=False)
     else:
