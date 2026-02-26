@@ -1,18 +1,21 @@
-import sys
-import pytest
-from unittest.mock import MagicMock, patch
 import importlib.metadata
+import sys
+from unittest.mock import MagicMock, patch
 
-# Setup mocks for dependencies
+import pytest
+
+
+# Apply patch to importlib.metadata.version globally for this module
+# Must happen before other imports if they use version checking
 def mock_version(name):
     if name == "mnemo-mcp":
         return "0.0.0-test"
     raise importlib.metadata.PackageNotFoundError(name)
 
-# Apply patch to importlib.metadata.version globally for this module
 patcher = patch("importlib.metadata.version", side_effect=mock_version)
 patcher.start()
 
+# Setup mocks for dependencies in sys.modules
 sys.modules["mnemo_mcp.db"] = MagicMock()
 sys.modules["mnemo_mcp.embedder"] = MagicMock()
 
@@ -32,8 +35,9 @@ mock_fast_mcp.prompt.side_effect = identity_decorator
 mock_mcp_module.FastMCP.return_value = mock_fast_mcp
 sys.modules["mcp.server.fastmcp"] = mock_mcp_module
 
-# Import the module under test
-from mnemo_mcp import server
+# Import the module under test (must be after patching)
+from mnemo_mcp import server  # noqa: E402
+
 
 @pytest.mark.asyncio
 async def test_log_level_invalid_rejection():
@@ -42,7 +46,6 @@ async def test_log_level_invalid_rejection():
         with patch("mnemo_mcp.server.settings") as mock_settings:
             mock_settings.log_level = "INFO"
             with patch("mnemo_mcp.server._get_ctx", return_value=(MagicMock(), MagicMock(), MagicMock())):
-
                 # Action
                 result = await server.config(action="set", key="log_level", value="INVALID_LEVEL")
 
@@ -54,6 +57,7 @@ async def test_log_level_invalid_rejection():
                 mock_logger.remove.assert_not_called()
                 mock_logger.add.assert_not_called()
 
+
 @pytest.mark.asyncio
 async def test_log_level_valid_update():
     """Verify that setting a valid log level updates the logger."""
@@ -61,7 +65,6 @@ async def test_log_level_valid_update():
         with patch("mnemo_mcp.server.settings") as mock_settings:
             mock_settings.log_level = "INFO"
             with patch("mnemo_mcp.server._get_ctx", return_value=(MagicMock(), MagicMock(), MagicMock())):
-
                 # Action
                 result = await server.config(action="set", key="log_level", value="DEBUG")
 

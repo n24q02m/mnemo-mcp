@@ -568,7 +568,7 @@ async def config(
                     return _json(
                         {
                             "error": f"Invalid log level: {value}",
-                            "valid_levels": sorted(list(valid_levels)),
+                            "valid_levels": sorted(valid_levels),
                         }
                     )
 
