@@ -261,6 +261,15 @@ class MemoryDB:
                     fts_sql += " AND m.category = ?"
                     fts_params.append(category)
 
+                # Tag filter in SQL
+                if tags:
+                    placeholders = ",".join("?" for _ in tags)
+                    fts_sql += f""" AND EXISTS (
+                        SELECT 1 FROM json_each(m.tags)
+                        WHERE json_each.value IN ({placeholders})
+                    )"""
+                    fts_params.extend(tags)
+
                 fts_sql += " ORDER BY bm25_score LIMIT ?"
                 fts_params.append(limit * 3)
 
@@ -306,6 +315,15 @@ class MemoryDB:
                     vec_sql += " AND m.category = ?"
                     vec_params.append(category)
 
+                # Tag filter in SQL
+                if tags:
+                    placeholders = ",".join("?" for _ in tags)
+                    vec_sql += f""" AND EXISTS (
+                        SELECT 1 FROM json_each(m.tags)
+                        WHERE json_each.value IN ({placeholders})
+                    )"""
+                    vec_params.extend(tags)
+
                 vec_sql += " ORDER BY distance LIMIT ?"
                 vec_params.append(limit * 3)
 
@@ -332,14 +350,7 @@ class MemoryDB:
         if not results:
             return []
 
-        # 3. Tag post-filter (JSON array matching not feasible in SQL)
-        if tags:
-
-            def _has_tags(mem: dict) -> bool:
-                mem_tags = json.loads(mem.get("tags", "[]"))
-                return any(t in mem_tags for t in tags)
-
-            results = {k: v for k, v in results.items() if _has_tags(v)}
+        # 3. Tag filter is now applied in SQL
 
         # 4. Compute hybrid score
         now = datetime.now(UTC)
