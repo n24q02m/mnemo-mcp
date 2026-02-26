@@ -1,12 +1,11 @@
-
-import asyncio
 import hashlib
 import stat
 from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
 import pytest
+
 from mnemo_mcp.sync import _download_rclone, _get_platform_info
+
 
 # Helper to generate a fake zip file content
 def create_fake_zip(filename: str, content: bytes) -> bytes:
@@ -17,6 +16,7 @@ def create_fake_zip(filename: str, content: bytes) -> bytes:
     with zipfile.ZipFile(b, "w") as zf:
         zf.writestr(filename, content)
     return b.getvalue()
+
 
 @pytest.mark.asyncio
 async def test_download_rclone_checksum_verification_success():
@@ -30,15 +30,16 @@ async def test_download_rclone_checksum_verification_success():
 
     mock_checksums = {platform_key: sha256}
 
-    with patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", mock_checksums, create=True), \
-         patch("httpx.AsyncClient") as MockClient, \
-         patch("pathlib.Path.write_bytes"), \
-         patch("pathlib.Path.chmod"), \
-         patch("pathlib.Path.stat") as mock_stat, \
-         patch("pathlib.Path.mkdir"), \
-         patch("pathlib.Path.exists") as mock_exists, \
-         patch("tempfile.NamedTemporaryFile") as mock_temp:
-
+    with (
+        patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", mock_checksums, create=True),
+        patch("httpx.AsyncClient") as MockClient,
+        patch("pathlib.Path.write_bytes"),
+        patch("pathlib.Path.chmod"),
+        patch("pathlib.Path.stat") as mock_stat,
+        patch("pathlib.Path.mkdir"),
+        patch("pathlib.Path.exists") as mock_exists,
+        patch("tempfile.NamedTemporaryFile") as mock_temp,
+    ):
         # Ensure it attempts download
         mock_exists.return_value = False
 
@@ -62,24 +63,25 @@ async def test_download_rclone_checksum_verification_success():
         mock_stat.return_value = mock_stat_obj
 
         with patch("zipfile.ZipFile") as MockZip:
-             mock_zip_instance = MagicMock()
-             mock_info = MagicMock()
-             mock_info.filename = f"rclone-v1.68.2/{f'rclone{ext}'}"
-             mock_info.is_dir.return_value = False
+            mock_zip_instance = MagicMock()
+            mock_info = MagicMock()
+            mock_info.filename = f"rclone-v1.68.2/{f'rclone{ext}'}"
+            mock_info.is_dir.return_value = False
 
-             mock_zip_instance.infolist.return_value = [mock_info]
+            mock_zip_instance.infolist.return_value = [mock_info]
 
-             mock_src_file = MagicMock()
-             mock_src_file.read.return_value = fake_content
-             mock_zip_instance.open.return_value.__enter__.return_value = mock_src_file
+            mock_src_file = MagicMock()
+            mock_src_file.read.return_value = fake_content
+            mock_zip_instance.open.return_value.__enter__.return_value = mock_src_file
 
-             MockZip.return_value.__enter__.return_value = mock_zip_instance
+            MockZip.return_value.__enter__.return_value = mock_zip_instance
 
-             # RUN
-             result = await _download_rclone()
+            # RUN
+            result = await _download_rclone()
 
-             assert result is not None
-             assert result.name == f"rclone{ext}"
+            assert result is not None
+            assert result.name == f"rclone{ext}"
+
 
 @pytest.mark.asyncio
 async def test_download_rclone_checksum_verification_failure():
@@ -95,15 +97,16 @@ async def test_download_rclone_checksum_verification_failure():
 
     mock_checksums = {platform_key: wrong_checksum}
 
-    with patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", mock_checksums, create=True), \
-         patch("httpx.AsyncClient") as MockClient, \
-         patch("pathlib.Path.write_bytes"), \
-         patch("pathlib.Path.chmod"), \
-         patch("pathlib.Path.stat") as mock_stat, \
-         patch("pathlib.Path.mkdir"), \
-         patch("pathlib.Path.exists") as mock_exists, \
-         patch("tempfile.NamedTemporaryFile") as mock_temp:
-
+    with (
+        patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", mock_checksums, create=True),
+        patch("httpx.AsyncClient") as MockClient,
+        patch("pathlib.Path.write_bytes"),
+        patch("pathlib.Path.chmod"),
+        patch("pathlib.Path.stat") as mock_stat,
+        patch("pathlib.Path.mkdir"),
+        patch("pathlib.Path.exists") as mock_exists,
+        patch("tempfile.NamedTemporaryFile") as mock_temp,
+    ):
         # Ensure it attempts download
         mock_exists.return_value = False
 
@@ -124,10 +127,10 @@ async def test_download_rclone_checksum_verification_failure():
         mock_stat.return_value.st_mode = stat.S_IRUSR
 
         with patch("zipfile.ZipFile") as MockZip:
-             mock_zip_instance = MagicMock()
-             MockZip.return_value.__enter__.return_value = mock_zip_instance
+            mock_zip_instance = MagicMock()
+            MockZip.return_value.__enter__.return_value = mock_zip_instance
 
-             # RUN
-             result = await _download_rclone()
+            # RUN
+            result = await _download_rclone()
 
-             assert result is None
+            assert result is None
