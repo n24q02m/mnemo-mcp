@@ -16,42 +16,56 @@ def mock_version(name):
 patcher = patch("importlib.metadata.version", side_effect=mock_version)
 patcher.start()
 
-# Setup mocks for dependencies in sys.modules
-sys.modules["mnemo_mcp.db"] = MagicMock()
-sys.modules["mnemo_mcp.embedder"] = MagicMock()
 
-# Mock FastMCP
-mock_mcp_module = MagicMock()
-mock_fast_mcp = MagicMock()
+@pytest.fixture
+def mock_dependencies():
+    """Mock heavy dependencies in sys.modules to avoid importing them."""
+    mock_db = MagicMock()
+    mock_embedder = MagicMock()
+    mock_fast_mcp = MagicMock()
 
+    # Setup FastMCP mock to be transparent
+    def identity_decorator(*args, **kwargs):
+        def wrapper(func):
+            return func
 
-def identity_decorator(*args, **kwargs):
-    def wrapper(func):
-        return func
+        return wrapper
 
-    return wrapper
+    mock_fast_mcp.tool.side_effect = identity_decorator
+    mock_fast_mcp.resource.side_effect = identity_decorator
+    mock_fast_mcp.prompt.side_effect = identity_decorator
 
+    mock_mcp_module = MagicMock()
+    mock_mcp_module.FastMCP.return_value = mock_fast_mcp
 
-mock_fast_mcp.tool.side_effect = identity_decorator
-mock_fast_mcp.resource.side_effect = identity_decorator
-mock_fast_mcp.prompt.side_effect = identity_decorator
+    modules_to_patch = {
+        "mnemo_mcp.db": mock_db,
+        "mnemo_mcp.embedder": mock_embedder,
+        "mcp.server.fastmcp": mock_mcp_module,
+    }
 
-mock_mcp_module.FastMCP.return_value = mock_fast_mcp
-sys.modules["mcp.server.fastmcp"] = mock_mcp_module
-
-# Import the module under test (must be after patching)
-from mnemo_mcp import server  # noqa: E402
+    # Use patch.dict to safely modify sys.modules and RESTORE it afterwards
+    with patch.dict(sys.modules, modules_to_patch):
+        # Ensure mnemo_mcp.server is unloaded so it can be re-imported with mocks
+        if "mnemo_mcp.server" in sys.modules:
+            del sys.modules["mnemo_mcp.server"]
+        yield
+        # Cleanup: Remove mnemo_mcp.server so subsequent tests re-import the real one
+        if "mnemo_mcp.server" in sys.modules:
+            del sys.modules["mnemo_mcp.server"]
 
 
 @pytest.mark.asyncio
-async def test_log_level_invalid_rejection():
+async def test_log_level_invalid_rejection(mock_dependencies):
     """Verify that setting an invalid log level is rejected and does not crash."""
-    with patch("mnemo_mcp.server.logger") as mock_logger:
-        with patch("mnemo_mcp.server.settings") as mock_settings:
+    from mnemo_mcp import server
+
+    # Use patch.object to patch the exact object on the imported module
+    with patch.object(server, "logger") as mock_logger:
+        with patch.object(server, "settings") as mock_settings:
             mock_settings.log_level = "INFO"
-            with patch(
-                "mnemo_mcp.server._get_ctx",
-                return_value=(MagicMock(), MagicMock(), MagicMock()),
+            with patch.object(
+                server, "_get_ctx", return_value=(MagicMock(), MagicMock(), MagicMock())
             ):
                 # Action
                 result = await server.config(
@@ -68,14 +82,15 @@ async def test_log_level_invalid_rejection():
 
 
 @pytest.mark.asyncio
-async def test_log_level_valid_update():
+async def test_log_level_valid_update(mock_dependencies):
     """Verify that setting a valid log level updates the logger."""
-    with patch("mnemo_mcp.server.logger") as mock_logger:
-        with patch("mnemo_mcp.server.settings") as mock_settings:
+    from mnemo_mcp import server
+
+    with patch.object(server, "logger") as mock_logger:
+        with patch.object(server, "settings") as mock_settings:
             mock_settings.log_level = "INFO"
-            with patch(
-                "mnemo_mcp.server._get_ctx",
-                return_value=(MagicMock(), MagicMock(), MagicMock()),
+            with patch.object(
+                server, "_get_ctx", return_value=(MagicMock(), MagicMock(), MagicMock())
             ):
                 # Action
                 result = await server.config(
@@ -88,15 +103,3 @@ async def test_log_level_valid_update():
                 # Verify logger was reconfigured
                 mock_logger.remove.assert_called_once()
                 mock_logger.add.assert_called_once()
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    try:
-        asyncio.run(test_log_level_invalid_rejection())
-        asyncio.run(test_log_level_valid_update())
-        print("All tests passed.")
-    except Exception as e:
-        print(f"Test FAILED: {e}")
-        sys.exit(1)

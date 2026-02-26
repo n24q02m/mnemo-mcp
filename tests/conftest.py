@@ -1,5 +1,4 @@
-"""Shared test fixtures for Mnemo MCP Server."""
-
+import sys
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -7,6 +6,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from mnemo_mcp.db import MemoryDB
+
+# Mock qwen3_embed globally for tests if it's missing
+try:
+    import qwen3_embed  # noqa: F401
+except ImportError:
+    sys.modules["qwen3_embed"] = MagicMock()
+
+
+"""Shared test fixtures for Mnemo MCP Server."""
 
 
 @pytest.fixture
