@@ -1,7 +1,9 @@
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from mnemo_mcp.server import memory
+
 
 @pytest.mark.asyncio
 async def test_search_limit_clamping():
@@ -28,6 +30,7 @@ async def test_search_limit_clamping():
 
             # The limit should be clamped to 100
             assert actual_limit == 100, f"Limit expected to be 100, got {actual_limit}"
+
 
 @pytest.mark.asyncio
 async def test_list_limit_clamping():
