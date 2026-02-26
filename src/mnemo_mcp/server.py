@@ -315,6 +315,10 @@ async def memory(
     """
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
+    # Clamp limit to reasonable bounds to prevent DoS
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
     match action:
         case "add":
             if not content:
