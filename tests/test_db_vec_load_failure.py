@@ -1,7 +1,9 @@
 """Tests for sqlite-vec load failure handling in MemoryDB."""
 
 from unittest.mock import patch
+
 from mnemo_mcp.db import MemoryDB
+
 
 def test_sqlite_vec_load_failure_handled_gracefully(tmp_path):
     """Verify that MemoryDB handles sqlite-vec load failure gracefully."""
