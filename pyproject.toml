@@ -105,4 +105,3 @@ select = ["E", "F", "W", "I", "UP", "B", "C4"]
 ignore = ["E501"]
 
 [tool.ruff.format]
-quote-style = "double"

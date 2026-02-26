@@ -409,12 +409,12 @@ async def memory(
             return _json({"error": f"Memory {memory_id} not found"})
 
         case "export":
-            jsonl = await asyncio.to_thread(db.export_jsonl)
+            jsonl, count = await asyncio.to_thread(db.export_jsonl)
             return _json(
                 {
                     "format": "jsonl",
                     "data": jsonl,
-                    "count": len(jsonl.strip().split("\n")) if jsonl.strip() else 0,
+                    "count": count,
                 }
             )
 
