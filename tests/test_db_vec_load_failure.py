@@ -10,8 +10,13 @@ def test_sqlite_vec_load_failure_handled_gracefully(tmp_path):
     db_path = tmp_path / "test_vec_fail.db"
 
     # Mock sqlite_vec.load and logger
-    with patch("mnemo_mcp.db.sqlite_vec.load", side_effect=RuntimeError("Extension load failed")),          patch("mnemo_mcp.db.logger") as mock_logger:
-
+    with (
+        patch(
+            "mnemo_mcp.db.sqlite_vec.load",
+            side_effect=RuntimeError("Extension load failed"),
+        ),
+        patch("mnemo_mcp.db.logger") as mock_logger,
+    ):
         db = MemoryDB(db_path, embedding_dims=768)
 
         # Should have logged a warning
