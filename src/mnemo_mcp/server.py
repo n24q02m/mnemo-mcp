@@ -253,20 +253,15 @@ async def _embed(
     from mnemo_mcp.embedder import Qwen3EmbedBackend, get_backend
 
     backend = get_backend()
-    if backend is not None:
-        try:
-            if is_query and isinstance(backend, Qwen3EmbedBackend):
-                return await backend.embed_single_query(text, dims)
-            return await backend.embed_single(text, dims)
-        except Exception as e:
-            logger.debug(f"Embedding failed: {e}")
-            return None
-
-    # Legacy path: no backend initialized but model is set
-    from mnemo_mcp.embedder import embed_single
+    if backend is None:
+        # Should not happen if model is set (implies init succeeded), but safe guard.
+        logger.warning(f"Embedding backend not initialized despite model={model}")
+        return None
 
     try:
-        return await embed_single(text, model, dims)
+        if is_query and isinstance(backend, Qwen3EmbedBackend):
+            return await backend.embed_single_query(text, dims)
+        return await backend.embed_single(text, dims)
     except Exception as e:
         logger.debug(f"Embedding failed: {e}")
         return None
