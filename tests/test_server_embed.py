@@ -1,13 +1,17 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from mnemo_mcp.server import _embed
+
 from mnemo_mcp.embedder import Qwen3EmbedBackend
+from mnemo_mcp.server import _embed
+
 
 @pytest.mark.asyncio
 async def test_embed_no_model():
     """Test _embed returns None when model is None."""
     result = await _embed("text", None, 768)
     assert result is None
+
 
 @pytest.mark.asyncio
 async def test_embed_with_generic_backend_query():
@@ -21,6 +25,7 @@ async def test_embed_with_generic_backend_query():
         assert result == [0.1, 0.2]
         mock_backend.embed_single.assert_called_once_with("text", 768)
 
+
 @pytest.mark.asyncio
 async def test_embed_with_qwen3_backend_query():
     """Test _embed with Qwen3Backend and is_query=True calls embed_single_query."""
@@ -31,6 +36,7 @@ async def test_embed_with_qwen3_backend_query():
         result = await _embed("text", "model", 768, is_query=True)
         assert result == [0.3, 0.4]
         mock_backend.embed_single_query.assert_called_once_with("text", 768)
+
 
 @pytest.mark.asyncio
 async def test_embed_with_qwen3_backend_doc():
@@ -43,6 +49,7 @@ async def test_embed_with_qwen3_backend_doc():
         assert result == [0.5, 0.6]
         mock_backend.embed_single.assert_called_once_with("text", 768)
 
+
 @pytest.mark.asyncio
 async def test_embed_backend_exception():
     """Test _embed handles backend exceptions gracefully."""
@@ -53,21 +60,27 @@ async def test_embed_backend_exception():
         result = await _embed("text", "model", 768)
         assert result is None
 
+
 @pytest.mark.asyncio
 async def test_embed_legacy_fallback():
     """Test _embed falls back to legacy embed_single if get_backend returns None."""
     with patch("mnemo_mcp.embedder.get_backend", return_value=None):
-        with patch("mnemo_mcp.embedder.embed_single", new_callable=AsyncMock) as mock_legacy:
+        with patch(
+            "mnemo_mcp.embedder.embed_single", new_callable=AsyncMock
+        ) as mock_legacy:
             mock_legacy.return_value = [0.7, 0.8]
             result = await _embed("text", "model", 768)
             assert result == [0.7, 0.8]
             mock_legacy.assert_called_once_with("text", "model", 768)
 
+
 @pytest.mark.asyncio
 async def test_embed_legacy_exception():
     """Test _embed handles legacy fallback exceptions."""
     with patch("mnemo_mcp.embedder.get_backend", return_value=None):
-        with patch("mnemo_mcp.embedder.embed_single", new_callable=AsyncMock) as mock_legacy:
+        with patch(
+            "mnemo_mcp.embedder.embed_single", new_callable=AsyncMock
+        ) as mock_legacy:
             mock_legacy.side_effect = Exception("Legacy error")
             result = await _embed("text", "model", 768)
             assert result is None
