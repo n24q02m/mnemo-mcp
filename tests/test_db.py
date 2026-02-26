@@ -293,6 +293,27 @@ class TestSearch:
         assert any("Meeting" in r["content"] for r in results)
 
 
+
+    def test_invalid_json_tags_no_crash(self, tmp_db: MemoryDB):
+        """Search should gracefully handle invalid JSON in tags column."""
+        mid = "bad_json_id"
+        from mnemo_mcp.db import _now_iso
+        now = _now_iso()
+
+        # Direct SQL injection of bad data
+        tmp_db._conn.execute(
+            """INSERT INTO memories (id, content, category, tags, created_at, updated_at, access_count, last_accessed)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?)""",
+            (mid, "corrupted memory", "general", "{not valid json}", now, now, now)
+        )
+        tmp_db._conn.commit()
+
+        # Should not raise exception
+        results = tmp_db.search("memory", tags=["important"])
+
+        # Corrupted row should be excluded
+        ids = [r["id"] for r in results]
+        assert mid not in ids
 class TestStats:
     def test_empty_db(self, tmp_db: MemoryDB):
         s = tmp_db.stats()
