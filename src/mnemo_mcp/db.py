@@ -7,16 +7,15 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
+import io
 import json
 import math
 import sqlite3
-import io
 import struct
 import uuid
-from datetime import UTC, datetime
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Union
 
 import sqlite_vec
 from loguru import logger
@@ -565,7 +564,7 @@ class MemoryDB:
         return "\n".join(lines)
 
     def import_jsonl(
-        self, data: Union[str, Path, Iterable[str]], mode: str = "merge"
+        self, data: str | Path | Iterable[str], mode: str = "merge"
     ) -> dict:
         """Import memories from JSONL string, file, or iterator.
 
