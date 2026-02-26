@@ -554,7 +554,25 @@ async def config(
             elif key == "sync_interval":
                 settings.sync_interval = int(value)
             elif key == "log_level":
-                settings.log_level = value.upper()
+                level = value.upper()
+                valid_levels = {
+                    "TRACE",
+                    "DEBUG",
+                    "INFO",
+                    "SUCCESS",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL",
+                }
+                if level not in valid_levels:
+                    return _json(
+                        {
+                            "error": f"Invalid log level: {value}",
+                            "valid_levels": sorted(list(valid_levels)),
+                        }
+                    )
+
+                settings.log_level = level
                 logger.remove()
                 logger.add(
                     sys.stderr,
