@@ -1,19 +1,16 @@
 import hashlib
-import zipfile
-from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
 
-from mnemo_mcp.sync import _download_rclone
 from mnemo_mcp.config import Settings
+from mnemo_mcp.sync import _download_rclone
 
 
 @pytest.mark.asyncio
 async def test_download_verification_fails_on_checksum_mismatch():
     """Verify that _download_rclone fails when SHA256 checksum mismatches."""
-
     # Mock content
     dummy_content = b"fake zip content"
     # The real code expects a specific hash for linux-amd64.
@@ -62,7 +59,6 @@ async def test_download_verification_fails_on_checksum_mismatch():
 @pytest.mark.asyncio
 async def test_download_verification_succeeds_with_correct_checksum():
     """Verify that _download_rclone succeeds when SHA256 checksum matches."""
-
     # Mock content
     dummy_content = b"valid zip content"
     dummy_hash = hashlib.sha256(dummy_content).hexdigest()
