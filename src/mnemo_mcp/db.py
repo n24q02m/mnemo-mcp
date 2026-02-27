@@ -611,11 +611,13 @@ class MemoryDB:
 
                 # Filter pending_rows
                 to_insert = []
-                for row, mid in zip(pending_rows, pending_ids):
+                for row, mid in zip(pending_rows, pending_ids):  # noqa: B905
                     if mid in existing:
                         skipped += 1
                     else:
                         to_insert.append(row)
+                        # Add to existing set to skip intra-batch duplicates (first-write-wins)
+                        existing.add(mid)
             else:
                 to_insert = pending_rows
 
