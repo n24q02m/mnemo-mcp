@@ -561,12 +561,19 @@ class MemoryDB:
 
         return "\n".join(lines)
 
-    def import_jsonl(self, data: str, mode: str = "merge") -> dict:
+    def import_jsonl(
+        self,
+        data: str,
+        mode: str = "merge",
+        batch_size: int = 900,
+    ) -> dict:
         """Import memories from JSONL string.
 
         Args:
             data: JSONL string (one JSON object per line).
             mode: "merge" (skip existing) or "replace" (clear + import).
+            batch_size: Number of records to process in one transaction.
+                Defaults to 900 to safely stay under potential SQLite 999 var limit.
 
         Returns:
             Dict with import stats (imported, skipped, rejected).
@@ -579,13 +586,63 @@ class MemoryDB:
         imported = 0
         skipped = 0
         rejected = 0
+        now = _now_iso()
+
+        # Iterate over lines, processing in batches
+        pending_rows = []
+        pending_ids = []
+
+        def _flush_batch():
+            nonlocal imported, skipped, rejected, pending_rows, pending_ids
+            if not pending_rows:
+                return
+
+            # If mode is merge, filter out existing IDs in one go
+            if mode == "merge":
+                # Check for existing IDs
+                placeholders = ",".join("?" for _ in pending_ids)
+                existing = set()
+                rows = self._conn.execute(
+                    f"SELECT id FROM memories WHERE id IN ({placeholders})",
+                    pending_ids,
+                ).fetchall()
+                for r in rows:
+                    existing.add(r[0])
+
+                # Filter pending_rows
+                to_insert = []
+                for row, mid in zip(pending_rows, pending_ids):
+                    if mid in existing:
+                        skipped += 1
+                    else:
+                        to_insert.append(row)
+            else:
+                to_insert = pending_rows
+
+            if to_insert:
+                self._conn.executemany(
+                    """INSERT OR REPLACE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    to_insert,
+                )
+                imported += len(to_insert)
+
+            pending_rows = []
+            pending_ids = []
 
         for line in data.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
 
-            mem = json.loads(line)
+            try:
+                mem = json.loads(line)
+            except json.JSONDecodeError:
+                rejected += 1
+                continue
+
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
             # Content length validation (memory poisoning prevention)
@@ -598,38 +655,33 @@ class MemoryDB:
                 rejected += 1
                 continue
 
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
-
             tags = mem.get("tags", [])
             if isinstance(tags, list):
                 tags_json = json.dumps(tags)
             else:
                 tags_json = tags
 
-            now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    content,
-                    mem.get("category", "general"),
-                    tags_json,
-                    mem.get("source"),
-                    mem.get("created_at", now),
-                    mem.get("updated_at", now),
-                    mem.get("access_count", 0),
-                    mem.get("last_accessed", now),
-                ),
+            # Prepare row tuple
+            row = (
+                memory_id,
+                content,
+                mem.get("category", "general"),
+                tags_json,
+                mem.get("source"),
+                mem.get("created_at", now),
+                mem.get("updated_at", now),
+                mem.get("access_count", 0),
+                mem.get("last_accessed", now),
             )
-            imported += 1
+
+            pending_rows.append(row)
+            pending_ids.append(memory_id)
+
+            if len(pending_rows) >= batch_size:
+                _flush_batch()
+
+        # Flush remaining
+        _flush_batch()
 
         self._conn.commit()
         if imported > 0:
