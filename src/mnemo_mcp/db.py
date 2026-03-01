@@ -310,27 +310,35 @@ class MemoryDB:
                 vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
+                missing_ids = []
+                vec_scores = {}
+
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        missing_ids.append(mid)
+                        vec_scores[mid] = vec_score
+
+                if missing_ids:
+                    # Batch fetch missing memories to avoid N+1 query
+                    placeholders = ",".join("?" for _ in missing_ids)
+                    rows = self._conn.execute(
+                        f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                        missing_ids,
+                    ).fetchall()
+
+                    for mem in rows:
+                        mid = mem["id"]
+                        results[mid] = {
+                            **dict(mem),
+                            "fts_score": 0.0,
+                            "vec_score": vec_scores[mid],
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
-
-        if not results:
-            return []
 
         # 3. Tag post-filter (JSON array matching not feasible in SQL)
         if tags:
