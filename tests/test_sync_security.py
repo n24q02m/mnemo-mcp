@@ -21,7 +21,6 @@ async def test_rclone_download_checksum_success():
     zip_content = zip_buffer.getvalue()
     zip_hash = hashlib.sha256(zip_content).hexdigest()
 
-
     mock_response = AsyncMock()
     mock_response.content = zip_content
     mock_response.raise_for_status = MagicMock()
@@ -32,15 +31,16 @@ async def test_rclone_download_checksum_success():
     mock_client_cls = MagicMock()
     mock_client_cls.return_value.__aenter__.return_value = mock_client_instance
 
-    with patch("mnemo_mcp.sync.httpx.AsyncClient", mock_client_cls), \
-         patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")), \
-         patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": zip_hash}), \
-         patch("mnemo_mcp.sync.Path.mkdir"), \
-         patch("mnemo_mcp.sync.Path.chmod"), \
-         patch("mnemo_mcp.sync.Path.exists", return_value=False), \
-         patch("mnemo_mcp.sync.Path.stat"), \
-         patch("mnemo_mcp.sync.Path.write_bytes") as mock_write_bytes:
-
+    with (
+        patch("mnemo_mcp.sync.httpx.AsyncClient", mock_client_cls),
+        patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+        patch("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": zip_hash}),
+        patch("mnemo_mcp.sync.Path.mkdir"),
+        patch("mnemo_mcp.sync.Path.chmod"),
+        patch("mnemo_mcp.sync.Path.exists", return_value=False),
+        patch("mnemo_mcp.sync.Path.stat"),
+        patch("mnemo_mcp.sync.Path.write_bytes") as mock_write_bytes,
+    ):
         path = await _download_rclone()
         assert path is not None
         mock_write_bytes.assert_called_once()
@@ -60,11 +60,12 @@ async def test_rclone_download_checksum_mismatch():
     mock_client_cls = MagicMock()
     mock_client_cls.return_value.__aenter__.return_value = mock_client_instance
 
-    with patch("mnemo_mcp.sync.httpx.AsyncClient", mock_client_cls), \
-         patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")), \
-         patch("mnemo_mcp.sync.Path.mkdir"), \
-         patch("mnemo_mcp.sync.Path.exists", return_value=False):
-
+    with (
+        patch("mnemo_mcp.sync.httpx.AsyncClient", mock_client_cls),
+        patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+        patch("mnemo_mcp.sync.Path.mkdir"),
+        patch("mnemo_mcp.sync.Path.exists", return_value=False),
+    ):
         path = await _download_rclone()
         # The function catches exceptions and logs error, returns None on failure
         assert path is None
