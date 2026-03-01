@@ -280,39 +280,38 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
+                # Use k=N constraint for vector search (required by sqlite-vec)
+                # Fetch full memory columns (m.*) directly to avoid N+1 queries
                 vec_sql = """
-                    SELECT v.id, v.distance
+                    SELECT v.distance, m.*
                     FROM memories_vec v
                     JOIN memories m ON v.id = m.id
-                    WHERE v.embedding MATCH ?
+                    WHERE v.embedding MATCH ? AND k = ?
                 """
-                vec_params: list = [_serialize_f32(embedding)]
+                # Fetch more candidates if filtering by category, as k-NN happens before filter
+                k = limit * 10 if category else limit * 5
+                vec_params: list = [_serialize_f32(embedding), k]
 
-                # Category pre-filter for vector search too
                 if category:
                     vec_sql += " AND m.category = ?"
                     vec_params.append(category)
 
-                vec_sql += " ORDER BY distance LIMIT ?"
-                vec_params.append(limit * 3)
+                vec_sql += " ORDER BY distance"
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
+
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        # Fetch full memory
-                        mem = self._conn.execute(
-                            "SELECT * FROM memories WHERE id = ?", (mid,)
-                        ).fetchone()
-                        if mem:
-                            results[mid] = {
-                                **dict(mem),
-                                "fts_score": 0.0,
-                                "vec_score": vec_score,
-                            }
+                        # Full memory already fetched
+                        results[mid] = {
+                            **dict(row),
+                            "fts_score": 0.0,
+                            "vec_score": vec_score,
+                        }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
 
@@ -407,6 +406,7 @@ class MemoryDB:
             m.pop("fts_score", None)
             m.pop("vec_score", None)
             m.pop("bm25_score", None)
+            m.pop("distance", None)
 
         return top
 
