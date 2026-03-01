@@ -37,6 +37,11 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       is_prerelease: ${{ steps.release.outputs.is_prerelease }}
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_PAT }}
@@ -64,11 +69,16 @@ jobs:
     if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release.outputs.tag }}
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098 # v7
 
       - run: uv build
 
@@ -96,6 +106,11 @@ jobs:
             artifact: linux-arm64
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.release.outputs.tag }}
@@ -126,7 +141,7 @@ jobs:
           mkdir -p ${{ runner.temp }}/digests
           echo "${{ steps.build.outputs.digest }}" > "${{ runner.temp }}/digests/${{ matrix.artifact }}"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: digest-${{ matrix.artifact }}
           path: ${{ runner.temp }}/digests/*
@@ -139,7 +154,12 @@ jobs:
     needs: [release, build-docker]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v7
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8
         with:
           pattern: digest-*
           path: ${{ runner.temp }}/digests

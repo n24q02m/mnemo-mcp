@@ -1,8 +1,10 @@
 """Configuration settings for Mnemo MCP Server."""
 
 import os
+import re
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -49,7 +51,7 @@ class Settings(BaseSettings):
     - API_KEYS: Provider API keys, supports multiple providers
         Format: "ENV_VAR:key,ENV_VAR:key,..."
         Example: "GOOGLE_API_KEY:AIza...,OPENAI_API_KEY:sk-..."
-        Embedding providers: Google, OpenAI, Mistral, Cohere
+        Embedding providers: Google, OpenAI, Cohere
     - EMBEDDING_MODEL: LiteLLM embedding model (auto-detected if not set)
     - EMBEDDING_DIMS: Embedding dimensions (0 = auto-detect, default 768)
     - EMBEDDING_BACKEND: "litellm" | "local" (auto: API_KEYS -> litellm, else local)
@@ -78,11 +80,30 @@ class Settings(BaseSettings):
     sync_remote: str = ""  # rclone remote name
     sync_folder: str = "mnemo-mcp"
     sync_interval: int = 0  # seconds, 0 = manual only
+    rclone_version: str = "v1.68.2"
 
     # Logging
     log_level: str = "INFO"
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = {
+        "env_prefix": "",
+        "case_sensitive": False,
+        "validate_assignment": True,
+    }
+
+    @field_validator("sync_remote")
+    @classmethod
+    def validate_sync_remote(cls, v: str) -> str:
+        """Validate sync_remote to prevent argument injection."""
+        if not v:
+            return v
+        if v.startswith("-"):
+            raise ValueError("sync_remote must not start with a hyphen (-)")
+        if not re.match(r"^[a-zA-Z0-9_.-]*$", v):
+            raise ValueError(
+                "sync_remote can only contain alphanumeric characters, dashes, underscores, and dots"
+            )
+        return v
 
     def get_db_path(self) -> Path:
         """Get resolved database path."""

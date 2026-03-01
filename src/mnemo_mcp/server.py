@@ -26,9 +26,8 @@ from mnemo_mcp.db import MemoryDB
 # LiteLLM validates each against its API key — first success wins.
 _EMBEDDING_CANDIDATES = [
     "gemini/gemini-embedding-001",
-    "text-embedding-3-small",
-    "mistral/mistral-embed",
-    "embed-english-v3.0",
+    "text-embedding-3-large",
+    "embed-multilingual-v3.0",
 ]
 
 # Fixed embedding dimensions for sqlite-vec.
@@ -39,27 +38,33 @@ _DEFAULT_EMBEDDING_DIMS = 768
 # --- Lifespan ---
 
 
-@asynccontextmanager
-async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Initialize DB, embeddings, and sync on startup."""
-    # 1. Setup API keys (+ aliases like GOOGLE_API_KEY -> GEMINI_API_KEY)
-    keys = settings.setup_api_keys()
-    if keys:
-        logger.info(f"API keys configured: {', '.join(keys.keys())}")
+async def _init_embedding_backend(
+    keys: dict,
+    ctx: dict,
+) -> None:
+    """Initialize embedding backend in background.
 
-    # 2. Resolve embedding backend + model + dims
+    Tries cloud (LiteLLM) first if API keys are available, then falls back
+    to local (qwen3-embed ONNX). Updates ``ctx`` dict in-place so tools
+    pick up the model/dims as soon as they are ready.
+
+    Running this as a background task lets the MCP server accept connections
+    immediately instead of blocking on model download (~570 MB on first run).
+    """
+    from mnemo_mcp.embedder import init_backend
+
     embedding_model = settings.resolve_embedding_model()
     embedding_dims = settings.resolve_embedding_dims()
     embedding_backend_type = settings.resolve_embedding_backend()
-
-    from mnemo_mcp.embedder import init_backend
 
     if embedding_backend_type == "litellm":
         if embedding_model:
             # Explicit model -- validate it
             try:
-                backend = init_backend("litellm", embedding_model)
-                native_dims = backend.check_available()
+                backend = await asyncio.to_thread(
+                    init_backend, "litellm", embedding_model
+                )
+                native_dims = await asyncio.to_thread(backend.check_available)
                 if native_dims > 0:
                     if embedding_dims == 0:
                         embedding_dims = _DEFAULT_EMBEDDING_DIMS
@@ -67,6 +72,9 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
                         f"Embedding: {embedding_model} "
                         f"(native={native_dims}, stored={embedding_dims})"
                     )
+                    ctx["embedding_model"] = embedding_model
+                    ctx["embedding_dims"] = embedding_dims
+                    return
                 else:
                     logger.warning(f"Embedding model {embedding_model} not available")
                     embedding_model = None
@@ -77,8 +85,10 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
             # Auto-detect: try candidate models
             for candidate in _EMBEDDING_CANDIDATES:
                 try:
-                    backend = init_backend("litellm", candidate)
-                    native_dims = backend.check_available()
+                    backend = await asyncio.to_thread(
+                        init_backend, "litellm", candidate
+                    )
+                    native_dims = await asyncio.to_thread(backend.check_available)
                     if native_dims > 0:
                         embedding_model = candidate
                         if embedding_dims == 0:
@@ -87,34 +97,55 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
                             f"Embedding: {embedding_model} "
                             f"(native={native_dims}, stored={embedding_dims})"
                         )
-                        break
+                        ctx["embedding_model"] = embedding_model
+                        ctx["embedding_dims"] = embedding_dims
+                        return
                 except Exception:
                     continue
 
         # Cloud not available -- fallback to local
         if not embedding_model:
             logger.warning("Cloud embedding not available, using local fallback")
-            embedding_backend_type = "local"
 
-    if embedding_backend_type == "local":
-        local_model = settings.resolve_local_embedding_model()
-        try:
-            backend = init_backend("local", local_model)
-            native_dims = backend.check_available()
-            if native_dims > 0:
-                embedding_model = "__local__"
-                if embedding_dims == 0:
-                    embedding_dims = _DEFAULT_EMBEDDING_DIMS
-                logger.info(
-                    f"Embedding: local {local_model} "
-                    f"(native={native_dims}, stored={embedding_dims})"
-                )
-            else:
-                logger.error("Local embedding model not available")
-        except Exception as e:
-            logger.error(f"Local embedding init failed: {e}")
+    # Local backend (always available)
+    local_model = settings.resolve_local_embedding_model()
+    try:
+        backend = await asyncio.to_thread(init_backend, "local", local_model)
+        native_dims = await asyncio.to_thread(backend.check_available)
+        if native_dims > 0:
+            if embedding_dims == 0:
+                embedding_dims = _DEFAULT_EMBEDDING_DIMS
+            logger.info(
+                f"Embedding: local {local_model} "
+                f"(native={native_dims}, stored={embedding_dims})"
+            )
+            ctx["embedding_model"] = "__local__"
+            ctx["embedding_dims"] = embedding_dims
+        else:
+            logger.error("Local embedding model not available")
+    except Exception as e:
+        logger.error(f"Local embedding init failed: {e}")
 
-    # 3. Initialize database
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
+    """Initialize DB, embeddings, and sync on startup.
+
+    Embedding backend init runs as a background task so the server accepts
+    connections immediately. Tools gracefully degrade to FTS5-only search
+    until the embedding model is ready.
+    """
+    # 1. Setup API keys (+ aliases like GOOGLE_API_KEY -> GEMINI_API_KEY)
+    keys = settings.setup_api_keys()
+    if keys:
+        logger.info(f"API keys configured: {', '.join(keys.keys())}")
+
+    # 2. Resolve initial embedding dims (may be refined by background task)
+    embedding_dims = settings.resolve_embedding_dims()
+    if embedding_dims == 0:
+        embedding_dims = _DEFAULT_EMBEDDING_DIMS
+
+    # 3. Initialize database (fast, no network)
     db_path = settings.get_db_path()
     db = MemoryDB(db_path, embedding_dims=embedding_dims)
     stats = db.stats()
@@ -133,15 +164,30 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
             f"(interval={settings.sync_interval}s)"
         )
 
+    # Shared context -- embedding_model starts as None (not ready yet).
+    # Background task updates it in-place once the backend is validated.
     ctx = {
         "db": db,
-        "embedding_model": embedding_model,
+        "embedding_model": None,
         "embedding_dims": embedding_dims,
     }
+
+    # 5. Initialize embedding backend in background (non-blocking).
+    # This avoids blocking the server start on model download (~570 MB)
+    # or cloud API validation. Tools degrade to FTS5-only until ready.
+    embedding_task = asyncio.create_task(_init_embedding_backend(keys, ctx))
 
     try:
         yield ctx
     finally:
+        # Cancel embedding init if still running
+        if not embedding_task.done():
+            embedding_task.cancel()
+            try:
+                await embedding_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         # Cleanup
         from mnemo_mcp.sync import stop_auto_sync
 
@@ -207,23 +253,196 @@ async def _embed(
     from mnemo_mcp.embedder import Qwen3EmbedBackend, get_backend
 
     backend = get_backend()
-    if backend is not None:
-        try:
-            if is_query and isinstance(backend, Qwen3EmbedBackend):
-                return await backend.embed_single_query(text, dims)
-            return await backend.embed_single(text, dims)
-        except Exception as e:
-            logger.debug(f"Embedding failed: {e}")
-            return None
-
-    # Legacy path: no backend initialized but model is set
-    from mnemo_mcp.embedder import embed_single
+    if backend is None:
+        # Should not happen if model is set (implies init succeeded), but safe guard.
+        logger.warning(f"Embedding backend not initialized despite model={model}")
+        return None
 
     try:
-        return await embed_single(text, model, dims)
+        if is_query and isinstance(backend, Qwen3EmbedBackend):
+            return await backend.embed_single_query(text, dims)
+        return await backend.embed_single(text, dims)
     except Exception as e:
         logger.debug(f"Embedding failed: {e}")
         return None
+
+
+async def _handle_add(
+    db: MemoryDB,
+    content: str | None,
+    category: str | None,
+    tags: list[str] | None,
+    embedding_model: str | None,
+    embedding_dims: int,
+) -> str:
+    if not content:
+        return _json({"error": "content is required for add"})
+
+    embedding = await _embed(content, embedding_model, embedding_dims)
+    try:
+        memory_id = await asyncio.to_thread(
+            db.add,
+            content=content,
+            category=category or "general",
+            tags=tags,
+            embedding=embedding,
+        )
+    except ValueError as e:
+        return _json({"error": str(e)})
+    return _json(
+        {
+            "id": memory_id,
+            "status": "saved",
+            "category": category or "general",
+            "semantic": embedding is not None,
+        }
+    )
+
+
+async def _handle_search(
+    db: MemoryDB,
+    query: str | None,
+    category: str | None,
+    tags: list[str] | None,
+    limit: int,
+    embedding_model: str | None,
+    embedding_dims: int,
+) -> str:
+    if not query:
+        return _json({"error": "query is required for search"})
+
+    embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
+    results = await asyncio.to_thread(
+        db.search,
+        query=query,
+        embedding=embedding,
+        category=category,
+        tags=tags,
+        limit=limit,
+    )
+    return _json(
+        {
+            "count": len(results),
+            "results": [_format_memory(r) for r in results],
+            "semantic": embedding is not None,
+        }
+    )
+
+
+async def _handle_list(
+    db: MemoryDB,
+    category: str | None,
+    limit: int,
+) -> str:
+    results = await asyncio.to_thread(
+        db.list_memories,
+        category=category,
+        limit=limit,
+    )
+    return _json(
+        {
+            "count": len(results),
+            "results": [_format_memory(r) for r in results],
+        }
+    )
+
+
+async def _handle_update(
+    db: MemoryDB,
+    memory_id: str | None,
+    content: str | None,
+    category: str | None,
+    tags: list[str] | None,
+    embedding_model: str | None,
+    embedding_dims: int,
+) -> str:
+    if not memory_id:
+        return _json({"error": "memory_id is required for update"})
+
+    embedding = None
+    if content:
+        embedding = await _embed(content, embedding_model, embedding_dims)
+
+    try:
+        ok = await asyncio.to_thread(
+            db.update,
+            memory_id=memory_id,
+            content=content,
+            category=category,
+            tags=tags,
+            embedding=embedding,
+        )
+    except ValueError as e:
+        return _json({"error": str(e)})
+    if ok:
+        return _json({"status": "updated", "id": memory_id})
+    return _json({"error": f"Memory {memory_id} not found"})
+
+
+async def _handle_delete(
+    db: MemoryDB,
+    memory_id: str | None,
+) -> str:
+    if not memory_id:
+        return _json({"error": "memory_id is required for delete"})
+
+    ok = await asyncio.to_thread(db.delete, memory_id)
+    if ok:
+        return _json({"status": "deleted", "id": memory_id})
+    return _json({"error": f"Memory {memory_id} not found"})
+
+
+async def _handle_export(
+    db: MemoryDB,
+) -> str:
+    jsonl, count = await asyncio.to_thread(db.export_jsonl)
+    return _json(
+        {
+            "format": "jsonl",
+            "data": jsonl,
+            "count": count,
+        }
+    )
+
+
+async def _handle_import(
+    db: MemoryDB,
+    data: str | list | None,
+    mode: str,
+) -> str:
+    if not data:
+        return _json(
+            {"error": "data (JSONL string or list of objects) is required for import"}
+        )
+
+    # Normalize: accept both JSONL string and parsed list/dict from MCP clients
+    if isinstance(data, list):
+        import_data = "\n".join(json.dumps(item, ensure_ascii=False) for item in data)
+    elif isinstance(data, dict):
+        import_data = json.dumps(data, ensure_ascii=False)
+    else:
+        import_data = data
+
+    result = await asyncio.to_thread(db.import_jsonl, import_data, mode=mode)
+    return _json(
+        {
+            "status": "imported",
+            **result,
+        }
+    )
+
+
+async def _handle_stats(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+) -> str:
+    s = await asyncio.to_thread(db.stats)
+    s["embedding_model"] = embedding_model
+    s["embedding_dims"] = embedding_dims
+    s["sync_enabled"] = settings.sync_enabled
+    s["sync_remote"] = settings.sync_remote
+    return _json(s)
 
 
 # --- Tools ---
@@ -269,137 +488,33 @@ async def memory(
     """
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
+    # Clamp limit to reasonable bounds to prevent DoS
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
     match action:
         case "add":
-            if not content:
-                return _json({"error": "content is required for add"})
-
-            embedding = await _embed(content, embedding_model, embedding_dims)
-            memory_id = await asyncio.to_thread(
-                db.add,
-                content=content,
-                category=category or "general",
-                tags=tags,
-                embedding=embedding,
+            return await _handle_add(
+                db, content, category, tags, embedding_model, embedding_dims
             )
-            return _json(
-                {
-                    "id": memory_id,
-                    "status": "saved",
-                    "category": category or "general",
-                    "semantic": embedding is not None,
-                }
-            )
-
         case "search":
-            if not query:
-                return _json({"error": "query is required for search"})
-
-            embedding = await _embed(
-                query, embedding_model, embedding_dims, is_query=True
+            return await _handle_search(
+                db, query, category, tags, limit, embedding_model, embedding_dims
             )
-            results = await asyncio.to_thread(
-                db.search,
-                query=query,
-                embedding=embedding,
-                category=category,
-                tags=tags,
-                limit=limit,
-            )
-            return _json(
-                {
-                    "count": len(results),
-                    "results": [_format_memory(r) for r in results],
-                    "semantic": embedding is not None,
-                }
-            )
-
         case "list":
-            results = await asyncio.to_thread(
-                db.list_memories,
-                category=category,
-                limit=limit,
-            )
-            return _json(
-                {
-                    "count": len(results),
-                    "results": [_format_memory(r) for r in results],
-                }
-            )
-
+            return await _handle_list(db, category, limit)
         case "update":
-            if not memory_id:
-                return _json({"error": "memory_id is required for update"})
-
-            embedding = None
-            if content:
-                embedding = await _embed(content, embedding_model, embedding_dims)
-
-            ok = await asyncio.to_thread(
-                db.update,
-                memory_id=memory_id,
-                content=content,
-                category=category,
-                tags=tags,
-                embedding=embedding,
+            return await _handle_update(
+                db, memory_id, content, category, tags, embedding_model, embedding_dims
             )
-            if ok:
-                return _json({"status": "updated", "id": memory_id})
-            return _json({"error": f"Memory {memory_id} not found"})
-
         case "delete":
-            if not memory_id:
-                return _json({"error": "memory_id is required for delete"})
-
-            ok = await asyncio.to_thread(db.delete, memory_id)
-            if ok:
-                return _json({"status": "deleted", "id": memory_id})
-            return _json({"error": f"Memory {memory_id} not found"})
-
+            return await _handle_delete(db, memory_id)
         case "export":
-            jsonl = await asyncio.to_thread(db.export_jsonl)
-            return _json(
-                {
-                    "format": "jsonl",
-                    "data": jsonl,
-                    "count": len(jsonl.strip().split("\n")) if jsonl.strip() else 0,
-                }
-            )
-
+            return await _handle_export(db)
         case "import":
-            if not data:
-                return _json(
-                    {
-                        "error": "data (JSONL string or list of objects) is required for import"
-                    }
-                )
-
-            # Normalize: accept both JSONL string and parsed list/dict from MCP clients
-            if isinstance(data, list):
-                import_data = "\n".join(
-                    json.dumps(item, ensure_ascii=False) for item in data
-                )
-            elif isinstance(data, dict):
-                import_data = json.dumps(data, ensure_ascii=False)
-            else:
-                import_data = data
-
-            result = await asyncio.to_thread(db.import_jsonl, import_data, mode=mode)
-            return _json(
-                {
-                    "status": "imported",
-                    **result,
-                }
-            )
-
+            return await _handle_import(db, data, mode)
         case "stats":
-            s = await asyncio.to_thread(db.stats)
-            s["embedding_model"] = embedding_model
-            s["embedding_dims"] = embedding_dims
-            s["sync_enabled"] = settings.sync_enabled
-            s["sync_remote"] = settings.sync_remote
-            return _json(s)
-
+            return await _handle_stats(db, embedding_model, embedding_dims)
         case _:
             return _json(
                 {
@@ -483,8 +598,6 @@ async def config(
 
             valid_keys = {
                 "sync_enabled",
-                "sync_remote",
-                "sync_folder",
                 "sync_interval",
                 "log_level",
             }
@@ -502,7 +615,25 @@ async def config(
             elif key == "sync_interval":
                 settings.sync_interval = int(value)
             elif key == "log_level":
-                settings.log_level = value.upper()
+                level = value.upper()
+                valid_levels = {
+                    "TRACE",
+                    "DEBUG",
+                    "INFO",
+                    "SUCCESS",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL",
+                }
+                if level not in valid_levels:
+                    return _json(
+                        {
+                            "error": f"Invalid log level: {value}",
+                            "valid_levels": sorted(valid_levels),
+                        }
+                    )
+
+                settings.log_level = level
                 logger.remove()
                 logger.add(
                     sys.stderr,

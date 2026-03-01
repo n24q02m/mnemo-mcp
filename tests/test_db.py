@@ -3,14 +3,16 @@
 import json
 import time
 
-from mnemo_mcp.db import MemoryDB, _build_fts_queries
+import pytest
+
+from mnemo_mcp.db import MAX_CONTENT_LENGTH, MemoryDB, _build_fts_queries
 
 
 class TestAdd:
-    def test_returns_12char_hex_id(self, tmp_db: MemoryDB):
+    def test_returns_32char_hex_id(self, tmp_db: MemoryDB):
         mid = tmp_db.add("test content")
         assert isinstance(mid, str)
-        assert len(mid) == 12
+        assert len(mid) == 32
         int(mid, 16)  # Should parse as hex
 
     def test_default_category(self, tmp_db: MemoryDB):
@@ -321,7 +323,8 @@ class TestStats:
 
 class TestExportImport:
     def test_export_jsonl_format(self, tmp_db_with_data: MemoryDB):
-        jsonl = tmp_db_with_data.export_jsonl()
+        jsonl, count = tmp_db_with_data.export_jsonl()
+        assert count == 4
         lines = [ln for ln in jsonl.split("\n") if ln.strip()]
         assert len(lines) == 4
         for line in lines:
@@ -331,7 +334,7 @@ class TestExportImport:
             assert isinstance(obj["tags"], list)  # Tags parsed from JSON
 
     def test_export_empty(self, tmp_db: MemoryDB):
-        assert tmp_db.export_jsonl() == ""
+        assert tmp_db.export_jsonl() == ("", 0)
 
     def test_import_merge(self, tmp_db: MemoryDB):
         data = json.dumps({"id": "test001", "content": "imported memory"})
@@ -362,7 +365,8 @@ class TestExportImport:
 
     def test_roundtrip(self, tmp_db_with_data: MemoryDB, tmp_path):
         """Export → import into fresh DB → verify data matches."""
-        jsonl = tmp_db_with_data.export_jsonl()
+        jsonl, count = tmp_db_with_data.export_jsonl()
+        assert count == 4
 
         db2 = MemoryDB(tmp_path / "db2.db", embedding_dims=0)
         result = db2.import_jsonl(jsonl, mode="merge")
@@ -439,7 +443,8 @@ class TestEdgeCases:
         assert mem["content"] == ""
 
     def test_very_long_content(self, tmp_db: MemoryDB):
-        content = "x" * 100_000
+        """Content at exactly MAX_CONTENT_LENGTH should succeed."""
+        content = "x" * MAX_CONTENT_LENGTH
         mid = tmp_db.add(content)
         mem = tmp_db.get(mid)
         assert mem is not None
@@ -512,3 +517,49 @@ class TestPhraseTierQueries:
         assert len(queries) == 3
         # Double quotes should be escaped
         assert '""' in queries[0]
+
+
+class TestContentLengthValidation:
+    """Memory poisoning prevention: MAX_CONTENT_LENGTH enforcement."""
+
+    def test_add_exceeds_limit(self, tmp_db: MemoryDB):
+        with pytest.raises(ValueError, match="exceeds limit"):
+            tmp_db.add("x" * (MAX_CONTENT_LENGTH + 1))
+
+    def test_add_at_limit_ok(self, tmp_db: MemoryDB):
+        mid = tmp_db.add("x" * MAX_CONTENT_LENGTH)
+        assert tmp_db.get(mid) is not None
+
+    def test_update_exceeds_limit(self, tmp_db: MemoryDB):
+        mid = tmp_db.add("short")
+        with pytest.raises(ValueError, match="exceeds limit"):
+            tmp_db.update(mid, content="x" * (MAX_CONTENT_LENGTH + 1))
+        # Original content preserved
+        mem = tmp_db.get(mid)
+        assert mem is not None
+        assert mem["content"] == "short"
+
+    def test_update_at_limit_ok(self, tmp_db: MemoryDB):
+        mid = tmp_db.add("short")
+        ok = tmp_db.update(mid, content="x" * MAX_CONTENT_LENGTH)
+        assert ok is True
+
+    def test_update_none_content_skips_validation(self, tmp_db: MemoryDB):
+        """Updating category only should not trigger content validation."""
+        mid = tmp_db.add("test")
+        ok = tmp_db.update(mid, category="new_cat")
+        assert ok is True
+
+    def test_import_rejects_oversized(self, tmp_db: MemoryDB):
+        """Import should skip oversized content and count as rejected."""
+        lines = [
+            json.dumps({"id": "ok1", "content": "short"}),
+            json.dumps({"id": "big1", "content": "x" * (MAX_CONTENT_LENGTH + 1)}),
+            json.dumps({"id": "ok2", "content": "also short"}),
+        ]
+        result = tmp_db.import_jsonl("\n".join(lines), mode="merge")
+        assert result["imported"] == 2
+        assert result["rejected"] == 1
+        assert tmp_db.get("ok1") is not None
+        assert tmp_db.get("big1") is None
+        assert tmp_db.get("ok2") is not None

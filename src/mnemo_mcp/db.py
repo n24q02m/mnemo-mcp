@@ -7,6 +7,7 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
+import io
 import json
 import math
 import sqlite3
@@ -27,6 +28,11 @@ def _serialize_f32(vec: list[float]) -> bytes:
 def _now_iso() -> str:
     """Current UTC timestamp in ISO format."""
     return datetime.now(UTC).isoformat()
+
+
+# Maximum content length to prevent memory poisoning attacks (OWASP LLM09).
+# Limits damage from indirect prompt injection writing oversized payloads.
+MAX_CONTENT_LENGTH = 5000
 
 
 def _build_fts_queries(query: str) -> list[str]:
@@ -183,8 +189,16 @@ class MemoryDB:
 
         Returns:
             Memory ID.
+
+        Raises:
+            ValueError: If content exceeds MAX_CONTENT_LENGTH.
         """
-        memory_id = uuid.uuid4().hex[:12]
+        if len(content) > MAX_CONTENT_LENGTH:
+            raise ValueError(
+                f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
+            )
+
+        memory_id = uuid.uuid4().hex
         now = _now_iso()
         tags_json = json.dumps(tags or [])
 
@@ -203,7 +217,7 @@ class MemoryDB:
             )
 
         self._conn.commit()
-        logger.debug(f"Added memory {memory_id}: {content[:50]}...")
+        logger.info(f"[AUDIT] add id={memory_id} cat={category} len={len(content)}")
         return memory_id
 
     def search(
@@ -241,12 +255,18 @@ class MemoryDB:
                     JOIN memories m ON f.id = m.id
                     WHERE memories_fts MATCH ?
                 """
-                fts_params = [fts_query]
+                fts_params: list = [fts_query]
 
                 # Category pre-filter in SQL (not post-search)
                 if category:
                     fts_sql += " AND m.category = ?"
                     fts_params.append(category)
+
+                # Tag pre-filter in SQL
+                if tags:
+                    tag_placeholders = ",".join("?" for _ in tags)
+                    fts_sql += f" AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+                    fts_params.extend(tags)
 
                 fts_sql += " ORDER BY bm25_score LIMIT ?"
                 fts_params.append(limit * 3)
@@ -280,43 +300,36 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
-                vec_params = [_serialize_f32(embedding)]
+                vec_sql = """
+                    SELECT v.id, v.distance
+                    FROM memories_vec v
+                    JOIN memories m ON v.id = m.id
+                    WHERE v.embedding MATCH ?
+                """
+                vec_params: list = [_serialize_f32(embedding)]
 
+                # Category pre-filter for vector search too
                 if category:
-                    # Use subquery to force sqlite-vec usage before join
-                    vec_sql = """
-                        SELECT sub.id, sub.distance
-                        FROM (
-                            SELECT id, distance
-                            FROM memories_vec
-                            WHERE embedding MATCH ?
-                            ORDER BY distance LIMIT ?
-                        ) sub
-                        JOIN memories m ON sub.id = m.id
-                        WHERE m.category = ?
-                    """
-                    vec_params.append(limit * 15)
+                    vec_sql += " AND m.category = ?"
                     vec_params.append(category)
-                else:
-                    vec_sql = """
-                        SELECT id, distance
-                        FROM memories_vec
-                        WHERE embedding MATCH ?
-                        ORDER BY distance LIMIT ?
-                    """
-                    vec_params.append(limit * 3)
+
+                # Tag pre-filter in SQL
+                if tags:
+                    tag_placeholders = ",".join("?" for _ in tags)
+                    vec_sql += f" AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+                    vec_params.extend(tags)
+
+                vec_sql += " ORDER BY distance LIMIT ?"
+                vec_params.append(limit * 3)
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
 
-                # Optimized: Batch fetch missing memories to avoid N+1 queries
-                vec_scores = {}
                 missing_ids = []
-
+                vec_scores = {}
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
                     vec_scores[mid] = vec_score
-
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
@@ -324,15 +337,14 @@ class MemoryDB:
 
                 if missing_ids:
                     placeholders = ",".join("?" for _ in missing_ids)
-                    mem_rows = self._conn.execute(
+                    missing_mems = self._conn.execute(
                         f"SELECT * FROM memories WHERE id IN ({placeholders})",
                         missing_ids,
                     ).fetchall()
-
-                    for row in mem_rows:
-                        mid = row["id"]
+                    for mem in missing_mems:
+                        mid = mem["id"]
                         results[mid] = {
-                            **dict(row),
+                            **dict(mem),
                             "fts_score": 0.0,
                             "vec_score": vec_scores[mid],
                         }
@@ -346,8 +358,13 @@ class MemoryDB:
         if tags:
 
             def _has_tags(mem: dict) -> bool:
-                mem_tags = json.loads(mem.get("tags", "[]"))
-                return any(t in mem_tags for t in tags)
+                try:
+                    mem_tags = json.loads(mem.get("tags", "[]"))
+                    if not isinstance(mem_tags, list):
+                        return False
+                    return any(t in mem_tags for t in tags)
+                except (json.JSONDecodeError, TypeError):
+                    return False
 
             results = {k: v for k, v in results.items() if _has_tags(v)}
 
@@ -473,7 +490,16 @@ class MemoryDB:
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> bool:
-        """Update an existing memory. Returns True if found and updated."""
+        """Update an existing memory. Returns True if found and updated.
+
+        Raises:
+            ValueError: If content exceeds MAX_CONTENT_LENGTH.
+        """
+        if content is not None and len(content) > MAX_CONTENT_LENGTH:
+            raise ValueError(
+                f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
+            )
+
         existing = self.get(memory_id)
         if not existing:
             return False
@@ -510,6 +536,7 @@ class MemoryDB:
             )
 
         self._conn.commit()
+        logger.info(f"[AUDIT] update id={memory_id}")
         return True
 
     def delete(self, memory_id: str) -> bool:
@@ -524,6 +551,7 @@ class MemoryDB:
             self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
 
         self._conn.commit()
+        logger.info(f"[AUDIT] delete id={memory_id}")
         return True
 
     def stats(self) -> dict:
@@ -546,19 +574,24 @@ class MemoryDB:
             "db_path": str(self._db_path),
         }
 
-    def export_jsonl(self) -> str:
-        """Export all memories as JSONL string."""
-        rows = self._conn.execute(
-            "SELECT * FROM memories ORDER BY created_at"
-        ).fetchall()
+    def export_jsonl(self) -> tuple[str, int]:
+        """Export all memories as JSONL string.
 
-        lines = []
-        for row in rows:
+        Returns:
+            Tuple of (jsonl_string, count_of_records).
+        """
+        cursor = self._conn.execute("SELECT * FROM memories ORDER BY created_at")
+        output = io.StringIO()
+        count = 0
+
+        for row in cursor:
             d = dict(row)
             d["tags"] = json.loads(d["tags"])
-            lines.append(json.dumps(d, ensure_ascii=False))
+            output.write(json.dumps(d, ensure_ascii=False))
+            output.write("\n")
+            count += 1
 
-        return "\n".join(lines)
+        return output.getvalue(), count
 
     def import_jsonl(self, data: str, mode: str = "merge") -> dict:
         """Import memories from JSONL string.
@@ -568,7 +601,7 @@ class MemoryDB:
             mode: "merge" (skip existing) or "replace" (clear + import).
 
         Returns:
-            Dict with import stats.
+            Dict with import stats (imported, skipped, rejected).
         """
         if mode == "replace":
             self._conn.execute("DELETE FROM memories")
@@ -577,50 +610,106 @@ class MemoryDB:
 
         imported = 0
         skipped = 0
+        rejected = 0
 
-        for line in data.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
+        if isinstance(data, list):
+            iterator = data
+        elif isinstance(data, dict):
+            iterator = [data]
+        elif isinstance(data, str):
+            iterator = []
+            for line in data.strip().split("\n"):
+                line = line.strip()
+                if line:
+                    try:
+                        import json
 
-            mem = json.loads(line)
-            memory_id = mem.get("id", uuid.uuid4().hex[:12])
+                        iterator.append(json.loads(line))
+                    except Exception:
+                        rejected += 1
+        else:
+            iterator = []
 
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
+        lines = iterator
+        BATCH_SIZE = 900
+
+        for i in range(0, len(lines), BATCH_SIZE):
+            batch_items = lines[i : i + BATCH_SIZE]
+            parsed_batch = []
+
+            # Validate batch
+            for mem in batch_items:
+                try:
+                    memory_id = mem.get("id", uuid.uuid4().hex)
+                    content = mem.get("content", "")
+
+                    if len(content) > MAX_CONTENT_LENGTH:
+                        logger.warning(
+                            f"[AUDIT] import rejected id={memory_id} "
+                            f"len={len(content)} exceeds {MAX_CONTENT_LENGTH}"
+                        )
+                        rejected += 1
+                        continue
+
+                    parsed_batch.append((memory_id, mem, content))
+                except Exception:
+                    rejected += 1
                     continue
 
-            tags = mem.get("tags", [])
-            if isinstance(tags, list):
-                tags_json = json.dumps(tags)
-            else:
-                tags_json = tags
+            if not parsed_batch:
+                continue
 
+            to_insert = []
             now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    mem["content"],
-                    mem.get("category", "general"),
-                    tags_json,
-                    mem.get("source"),
-                    mem.get("created_at", now),
-                    mem.get("updated_at", now),
-                    mem.get("access_count", 0),
-                    mem.get("last_accessed", now),
-                ),
-            )
-            imported += 1
+
+            for memory_id, mem, content in parsed_batch:
+                tags = mem.get("tags", [])
+                if isinstance(tags, list):
+                    tags_json = json.dumps(tags)
+                else:
+                    tags_json = tags
+
+                to_insert.append(
+                    (
+                        memory_id,
+                        content,
+                        mem.get("category", "general"),
+                        tags_json,
+                        mem.get("source"),
+                        mem.get("created_at", now),
+                        mem.get("updated_at", now),
+                        mem.get("access_count", 0),
+                        mem.get("last_accessed", now),
+                    )
+                )
+
+            if to_insert:
+                cursor = self._conn.cursor()
+                if mode == "replace":
+                    cursor.executemany(
+                        """INSERT OR REPLACE INTO memories
+                           (id, content, category, tags, source,
+                            created_at, updated_at, access_count, last_accessed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        to_insert,
+                    )
+                    imported += len(to_insert)
+                else:
+                    cursor.executemany(
+                        """INSERT OR IGNORE INTO memories
+                           (id, content, category, tags, source,
+                            created_at, updated_at, access_count, last_accessed)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        to_insert,
+                    )
+                    inserted_batch = cursor.rowcount
+                    imported += inserted_batch
+                    skipped += len(to_insert) - inserted_batch
 
         self._conn.commit()
-        return {"imported": imported, "skipped": skipped}
+        if imported > 0:
+            logger.info(f"[AUDIT] import count={imported} mode={mode}")
+        return {"imported": imported, "skipped": skipped, "rejected": rejected}
 
     def close(self) -> None:
         """Close database connection."""

@@ -1,6 +1,6 @@
 [tools]
-python = "3.13"
-node = "24"
+python = "3.14.3"
+node = "24.14.0"
 uv = "latest"
 
 [settings]
@@ -17,6 +17,7 @@ run = [
   "uv sync --group dev",
   "uv pip install pre-commit",
   "uv run pre-commit install",
+  "uv run pre-commit install --hook-type commit-msg",
   "echo 'Setup complete!'"
 ]
 

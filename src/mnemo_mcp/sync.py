@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import platform
@@ -40,8 +41,18 @@ from mnemo_mcp.config import settings
 if TYPE_CHECKING:
     from mnemo_mcp.db import MemoryDB
 
-# Rclone version to download
-_RCLONE_VERSION = "v1.68.2"
+
+# Expected SHA256 checksums for rclone archives (v1.68.2)
+_RCLONE_CHECKSUMS = {
+    "linux-amd64": "0e6fa18051e67fc600d803a2dcb10ddedb092247fc6eee61be97f64ec080a13c",
+    "linux-arm64": "c6e9d4cf9c88b279f6ad80cd5675daebc068e404890fa7e191412c1bc7a4ac5f",
+    "linux-386": "8654f19f572ac90c8cf712f3e212ee499b8e5e270e209753f3e82f0b44d9447d",
+    "osx-amd64": "cdc685e16abbf35b6f47c95b2a5b4ad73a73921ff6842e5f4136c8b461756188",
+    "osx-arm64": "323f387b32bcf9ddfc3874f01879a0b2689dbd91309beb8c3a4410db04d0c41f",
+    "windows-amd64": "812bf76cc02c04cf6327f3683f3d5a88e47d36c39db84c1a745777496be7d993",
+    "windows-arm64": "cbc6584266cf62bb9f4df912cb00d566c1cbc50ce2748f5e433f1937209e807e",
+    "windows-386": "d076d341122287cf92033aeecf1dd6900ff407c22981fa5ddf49689d5301a7e2",
+}
 
 # Background sync task reference
 _sync_task: asyncio.Task | None = None
@@ -104,14 +115,25 @@ def _get_platform_info() -> tuple[str, str, str]:
     return os_name, arch, ext
 
 
+def _extract_zip_sync(zip_path: Path, target_path: Path, binary_name: str) -> bool:
+    """Synchronous helper to extract rclone binary from zip."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            if info.filename.endswith(binary_name) and not info.is_dir():
+                with zf.open(info) as src:
+                    target_path.write_bytes(src.read())
+                return True
+    return False
+
+
 async def _download_rclone() -> Path | None:
     """Download rclone binary for current platform.
 
     Returns path to binary on success, None on failure.
     """
     os_name, arch, ext = _get_platform_info()
-    archive_name = f"rclone-{_RCLONE_VERSION}-{os_name}-{arch}.zip"
-    url = f"https://github.com/rclone/rclone/releases/download/{_RCLONE_VERSION}/{archive_name}"
+    archive_name = f"rclone-{settings.rclone_version}-{os_name}-{arch}.zip"
+    url = f"https://github.com/rclone/rclone/releases/download/{settings.rclone_version}/{archive_name}"
 
     install_dir = _get_rclone_dir()
     install_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +142,7 @@ async def _download_rclone() -> Path | None:
     if target_path.exists():
         return target_path
 
-    logger.info(f"Downloading rclone {_RCLONE_VERSION} for {os_name}-{arch}...")
+    logger.info(f"Downloading rclone {settings.rclone_version} for {os_name}-{arch}...")
 
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -132,19 +154,37 @@ async def _download_rclone() -> Path | None:
                 tmp.write(response.content)
                 tmp_path = Path(tmp.name)
 
+        # Verify SHA256 checksum
+        expected_hash = _RCLONE_CHECKSUMS.get(f"{os_name}-{arch}")
+        if expected_hash:
+            sha256 = hashlib.sha256()
+            with open(tmp_path, "rb") as f:
+                while chunk := f.read(8192):
+                    sha256.update(chunk)
+            file_hash = sha256.hexdigest()
+
+            if file_hash != expected_hash:
+                tmp_path.unlink(missing_ok=True)
+                logger.error(
+                    f"Checksum mismatch for rclone download!\n"
+                    f"Expected: {expected_hash}\n"
+                    f"Got:      {file_hash}"
+                )
+                raise ValueError("SHA256 checksum verification failed")
+        else:
+            logger.warning(
+                f"No checksum found for platform {os_name}-{arch}. "
+                "Skipping verification."
+            )
+
         # Extract rclone binary from zip
-        with zipfile.ZipFile(tmp_path, "r") as zf:
-            # Find rclone binary in archive
-            binary_name = f"rclone{ext}"
-            for info in zf.infolist():
-                if info.filename.endswith(binary_name) and not info.is_dir():
-                    # Extract to temp, then move
-                    with zf.open(info) as src:
-                        target_path.write_bytes(src.read())
-                    break
-            else:
-                logger.error("rclone binary not found in archive")
-                return None
+        binary_name = f"rclone{ext}"
+        found = await asyncio.to_thread(
+            _extract_zip_sync, tmp_path, target_path, binary_name
+        )
+        if not found:
+            logger.error("rclone binary not found in archive")
+            return None
 
         # Make executable on Unix
         if ext == "":
@@ -204,6 +244,7 @@ def _run_rclone(
 
     return subprocess.run(
         cmd,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -317,7 +358,7 @@ async def sync_full(db: MemoryDB) -> dict:
         try:
             # Open remote DB and export JSONL
             remote_db = MemoryDB(remote_db_path, embedding_dims=0)
-            remote_jsonl = remote_db.export_jsonl()
+            remote_jsonl, _ = remote_db.export_jsonl()
             remote_db.close()
 
             # Import into local DB (merge mode - skip existing)
