@@ -7,11 +7,13 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
+import io
 import json
 import math
 import sqlite3
 import struct
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -561,16 +563,29 @@ class MemoryDB:
 
         return "\n".join(lines)
 
-    def import_jsonl(self, data: str, mode: str = "merge") -> dict:
-        """Import memories from JSONL string.
+    def import_jsonl(
+        self, data: str | Path | Iterable[str], mode: str = "merge"
+    ) -> dict:
+        """Import memories from JSONL string, file, or iterator.
 
         Args:
-            data: JSONL string (one JSON object per line).
+            data: JSONL string, Path to file, or iterable of JSON strings.
             mode: "merge" (skip existing) or "replace" (clear + import).
 
         Returns:
             Dict with import stats (imported, skipped, rejected).
         """
+        if isinstance(data, str):
+            # Use StringIO to iterate line by line without splitting entire string
+            return self._import_iterator(io.StringIO(data), mode=mode)
+        elif isinstance(data, Path):
+            with data.open("r", encoding="utf-8") as f:
+                return self._import_iterator(f, mode=mode)
+        else:
+            return self._import_iterator(data, mode=mode)
+
+    def _import_iterator(self, iterator: Iterable[str], mode: str) -> dict:
+        """Helper to process import from an iterator with batching."""
         if mode == "replace":
             self._conn.execute("DELETE FROM memories")
             if self._vec_enabled:
@@ -579,16 +594,33 @@ class MemoryDB:
         imported = 0
         skipped = 0
         rejected = 0
+        batch_size = 1000
+        batch_records = []
 
-        for line in data.strip().split("\n"):
+        # Choose SQL based on mode
+        sql_template = """INSERT {modifier} INTO memories
+                   (id, content, category, tags, source,
+                    created_at, updated_at, access_count, last_accessed)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+        modifier = "OR IGNORE" if mode == "merge" else "OR REPLACE"
+        sql = sql_template.format(modifier=modifier)
+
+        cursor = self._conn.cursor()
+
+        for line in iterator:
             line = line.strip()
             if not line:
                 continue
 
-            mem = json.loads(line)
+            try:
+                mem = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
             memory_id = mem.get("id", uuid.uuid4().hex[:12])
 
-            # Content length validation (memory poisoning prevention)
+            # Content length validation
             content = mem.get("content", "")
             if len(content) > MAX_CONTENT_LENGTH:
                 logger.warning(
@@ -598,13 +630,6 @@ class MemoryDB:
                 rejected += 1
                 continue
 
-            # Check if exists (for merge mode)
-            if mode == "merge":
-                existing = self.get(memory_id)
-                if existing:
-                    skipped += 1
-                    continue
-
             tags = mem.get("tags", [])
             if isinstance(tags, list):
                 tags_json = json.dumps(tags)
@@ -612,24 +637,35 @@ class MemoryDB:
                 tags_json = tags
 
             now = _now_iso()
-            self._conn.execute(
-                """INSERT OR REPLACE INTO memories
-                   (id, content, category, tags, source,
-                    created_at, updated_at, access_count, last_accessed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    content,
-                    mem.get("category", "general"),
-                    tags_json,
-                    mem.get("source"),
-                    mem.get("created_at", now),
-                    mem.get("updated_at", now),
-                    mem.get("access_count", 0),
-                    mem.get("last_accessed", now),
-                ),
+            record = (
+                memory_id,
+                content,
+                mem.get("category", "general"),
+                tags_json,
+                mem.get("source"),
+                mem.get("created_at", now),
+                mem.get("updated_at", now),
+                mem.get("access_count", 0),
+                mem.get("last_accessed", now),
             )
-            imported += 1
+            batch_records.append(record)
+
+            if len(batch_records) >= batch_size:
+                cursor.executemany(sql, batch_records)
+                count = cursor.rowcount
+                imported += count
+                # For merge mode, skipped is total processed minus inserted
+                if mode == "merge":
+                    skipped += len(batch_records) - count
+                batch_records = []
+
+        # Process remaining
+        if batch_records:
+            cursor.executemany(sql, batch_records)
+            count = cursor.rowcount
+            imported += count
+            if mode == "merge":
+                skipped += len(batch_records) - count
 
         self._conn.commit()
         if imported > 0:
