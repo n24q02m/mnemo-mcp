@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -82,7 +83,29 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = {
+        "env_prefix": "",
+        "case_sensitive": False,
+        "validate_assignment": True,
+    }
+
+    @field_validator("sync_folder")
+    @classmethod
+    def validate_sync_folder(cls, v: str) -> str:
+        if ".." in v:
+            raise ValueError("sync_folder cannot contain '..'")
+        if v.startswith(("/", "\\")):
+            raise ValueError("sync_folder must be a relative path")
+        return v
+
+    @field_validator("sync_remote")
+    @classmethod
+    def validate_sync_remote(cls, v: str) -> str:
+        if v.startswith("-"):
+            raise ValueError("sync_remote cannot start with '-'")
+        if v and not all(c.isalnum() or c in "_.-" for c in v):
+            raise ValueError("sync_remote contains invalid characters")
+        return v
 
     def get_db_path(self) -> Path:
         """Get resolved database path."""
