@@ -7,7 +7,6 @@ Provides:
 - Hybrid search scoring (text + semantic + recency + frequency)
 """
 
-import io
 import json
 import math
 import sqlite3
@@ -580,18 +579,31 @@ class MemoryDB:
         Returns:
             Tuple of (jsonl_string, count_of_records).
         """
-        cursor = self._conn.execute("SELECT * FROM memories ORDER BY created_at")
-        output = io.StringIO()
-        count = 0
+        # Offload JSON construction directly to SQLite for performance.
+        # Note: If the memories table schema is expanded, the columns here
+        # must be manually updated to be included in the export.
+        cursor = self._conn.execute(
+            """SELECT json_object(
+                'id', id,
+                'content', content,
+                'category', category,
+                'tags', json(tags),
+                'source', source,
+                'created_at', created_at,
+                'updated_at', updated_at,
+                'access_count', access_count,
+                'last_accessed', last_accessed
+            )
+            FROM memories ORDER BY created_at"""
+        )
 
-        for row in cursor:
-            d = dict(row)
-            d["tags"] = json.loads(d["tags"])
-            output.write(json.dumps(d, ensure_ascii=False))
-            output.write("\n")
-            count += 1
+        # We use a list comprehension as it's typically faster than string appending in a loop
+        rows = [row[0] for row in cursor]
+        if not rows:
+            return "", 0
 
-        return output.getvalue(), count
+        # Join rows with newlines, ensuring a trailing newline for JSONL format
+        return "\n".join(rows) + "\n", len(rows)
 
     def import_jsonl(self, data: str, mode: str = "merge") -> dict:
         """Import memories from JSONL string.
