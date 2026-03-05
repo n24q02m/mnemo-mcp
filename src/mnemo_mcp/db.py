@@ -580,14 +580,26 @@ class MemoryDB:
         Returns:
             Tuple of (jsonl_string, count_of_records).
         """
-        cursor = self._conn.execute("SELECT * FROM memories ORDER BY created_at")
+        # Offload JSON construction to SQLite for performance
+        query = """
+            SELECT json_object(
+                'id', id,
+                'content', content,
+                'category', category,
+                'tags', json(tags),
+                'source', source,
+                'created_at', created_at,
+                'updated_at', updated_at,
+                'access_count', access_count,
+                'last_accessed', last_accessed
+            ) FROM memories ORDER BY created_at
+        """
+        cursor = self._conn.execute(query)
         output = io.StringIO()
         count = 0
 
         for row in cursor:
-            d = dict(row)
-            d["tags"] = json.loads(d["tags"])
-            output.write(json.dumps(d, ensure_ascii=False))
+            output.write(row[0])
             output.write("\n")
             count += 1
 
