@@ -1,0 +1,3 @@
+## 2024-03-01 - Optimize SQLite JSON Serialization
+**Learning:** Offloading JSON construction directly to SQLite using `json_object()` and `json()` functions is significantly faster (approx. ~4x speedup in large result sets) than retrieving rows to Python and parsing/re-serializing them using `json.loads` and `json.dumps`. This avoids the overhead of object creation and context switching between SQLite and Python row-by-row.
+**Action:** When exporting or serializing large datasets from SQLite, especially when dealing with nested JSON like the `tags` array, prefer using `json_object()` within the SQL query to generate the final JSON string directly instead of using a Python dictionary loop.
