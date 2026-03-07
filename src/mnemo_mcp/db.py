@@ -608,11 +608,11 @@ class MemoryDB:
 
         return output.getvalue(), count
 
-    def import_jsonl(self, data: str, mode: str = "merge") -> dict:
-        """Import memories from JSONL string.
+    def import_jsonl(self, data: str | list | dict, mode: str = "merge") -> dict:
+        """Import memories from JSONL string or parsed Python objects.
 
         Args:
-            data: JSONL string (one JSON object per line).
+            data: JSONL string, list of dicts, or single dict.
             mode: "merge" (skip existing) or "replace" (clear + import).
 
         Returns:
