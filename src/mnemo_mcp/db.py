@@ -637,8 +637,6 @@ class MemoryDB:
                 line = line.strip()
                 if line:
                     try:
-                        import json
-
                         iterator.append(json.loads(line))
                     except Exception:
                         rejected += 1

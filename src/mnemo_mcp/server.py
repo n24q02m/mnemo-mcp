@@ -414,15 +414,10 @@ async def _handle_import(
             {"error": "data (JSONL string or list of objects) is required for import"}
         )
 
-    # Normalize: accept both JSONL string and parsed list/dict from MCP clients
-    if isinstance(data, list):
-        import_data = "\n".join(json.dumps(item, ensure_ascii=False) for item in data)
-    elif isinstance(data, dict):
-        import_data = json.dumps(data, ensure_ascii=False)
-    else:
-        import_data = data
-
-    result = await asyncio.to_thread(db.import_jsonl, import_data, mode=mode)
+    # Bolt Performance Optimization: Pass parsed list/dict directly to db.import_jsonl
+    # instead of serializing to JSON string and deserializing again in db.py.
+    # This reduces import time for large datasets significantly.
+    result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
     return _json(
         {
             "status": "imported",

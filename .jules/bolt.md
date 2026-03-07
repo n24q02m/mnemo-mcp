@@ -1,0 +1,3 @@
+## 2024-03-07 - Redundant JSON Serialization in Import Tool
+**Learning:** The `import` tool was unnecessarily serializing parsed JSON arrays/objects from MCP clients back into JSONL strings before passing them to the database engine. Since `MemoryDB.import_jsonl` already supports processing raw Python lists and dicts, this intermediate step was an unnecessary O(n) operation that degraded import performance for large datasets.
+**Action:** Always check if the receiving function/API can accept the raw data types (lists/dicts) directly before defensively serializing them into strings. Eliminating unnecessary intermediate serialization/deserialization layers yields direct performance gains.
