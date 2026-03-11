@@ -310,6 +310,8 @@ async def _handle_search(
     if not query:
         return _json({"error": "query is required for search"})
 
+    limit = max(1, min(limit, 100))
+
     embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
     results = await asyncio.to_thread(
         db.search,
@@ -333,6 +335,7 @@ async def _handle_list(
     category: str | None,
     limit: int,
 ) -> str:
+    limit = max(1, min(limit, 100))
     results = await asyncio.to_thread(
         db.list_memories,
         category=category,
