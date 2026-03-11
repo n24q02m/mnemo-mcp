@@ -288,6 +288,9 @@ async def _handle_add(
         )
     except ValueError as e:
         return _json({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Internal error in _handle_add: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(
         {
             "id": memory_id,
@@ -311,14 +314,18 @@ async def _handle_search(
         return _json({"error": "query is required for search"})
 
     embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
-    results = await asyncio.to_thread(
-        db.search,
-        query=query,
-        embedding=embedding,
-        category=category,
-        tags=tags,
-        limit=limit,
-    )
+    try:
+        results = await asyncio.to_thread(
+            db.search,
+            query=query,
+            embedding=embedding,
+            category=category,
+            tags=tags,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.error(f"Internal error in _handle_search: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(
         {
             "count": len(results),
@@ -333,11 +340,15 @@ async def _handle_list(
     category: str | None,
     limit: int,
 ) -> str:
-    results = await asyncio.to_thread(
-        db.list_memories,
-        category=category,
-        limit=limit,
-    )
+    try:
+        results = await asyncio.to_thread(
+            db.list_memories,
+            category=category,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.error(f"Internal error in _handle_list: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(
         {
             "count": len(results),
@@ -373,6 +384,9 @@ async def _handle_update(
         )
     except ValueError as e:
         return _json({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Internal error in _handle_update: {e}")
+        return _json({"error": "An internal error occurred"})
     if ok:
         return _json({"status": "updated", "id": memory_id})
     return _json({"error": f"Memory {memory_id} not found"})
@@ -385,7 +399,11 @@ async def _handle_delete(
     if not memory_id:
         return _json({"error": "memory_id is required for delete"})
 
-    ok = await asyncio.to_thread(db.delete, memory_id)
+    try:
+        ok = await asyncio.to_thread(db.delete, memory_id)
+    except Exception as e:
+        logger.error(f"Internal error in _handle_delete: {e}")
+        return _json({"error": "An internal error occurred"})
     if ok:
         return _json({"status": "deleted", "id": memory_id})
     return _json({"error": f"Memory {memory_id} not found"})
@@ -394,7 +412,11 @@ async def _handle_delete(
 async def _handle_export(
     db: MemoryDB,
 ) -> str:
-    jsonl, count = await asyncio.to_thread(db.export_jsonl)
+    try:
+        jsonl, count = await asyncio.to_thread(db.export_jsonl)
+    except Exception as e:
+        logger.error(f"Internal error in _handle_export: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(
         {
             "format": "jsonl",
@@ -416,7 +438,11 @@ async def _handle_import(
 
     # Bolt Performance Optimization: Pass raw list/dict directly to database layer.
     # Avoids unnecessary JSON serialization and deserialization cycles for parsed inputs.
-    result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
+    try:
+        result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
+    except Exception as e:
+        logger.error(f"Internal error in _handle_import: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(
         {
             "status": "imported",
@@ -430,7 +456,11 @@ async def _handle_stats(
     embedding_model: str | None,
     embedding_dims: int,
 ) -> str:
-    s = await asyncio.to_thread(db.stats)
+    try:
+        s = await asyncio.to_thread(db.stats)
+    except Exception as e:
+        logger.error(f"Internal error in _handle_stats: {e}")
+        return _json({"error": "An internal error occurred"})
     s["embedding_model"] = embedding_model
     s["embedding_dims"] = embedding_dims
     s["sync_enabled"] = settings.sync_enabled
@@ -556,7 +586,11 @@ async def config(
 
     match action:
         case "status":
-            s = await asyncio.to_thread(db.stats)
+            try:
+                s = await asyncio.to_thread(db.stats)
+            except Exception as e:
+                logger.error(f"Internal error in config status: {e}")
+                return _json({"error": "An internal error occurred"})
             return _json(
                 {
                     "database": {
@@ -582,7 +616,11 @@ async def config(
         case "sync":
             from mnemo_mcp.sync import sync_full
 
-            result = await sync_full(db)
+            try:
+                result = await sync_full(db)
+            except Exception as e:
+                logger.error(f"Internal error in config sync: {e}")
+                return _json({"error": "An internal error occurred"})
             return _json(result)
 
         case "set":
@@ -688,7 +726,11 @@ async def help(topic: str = "memory") -> str:
 async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
     """Database statistics and server status."""
     db, embedding_model, embedding_dims = _get_ctx(ctx)
-    s = await asyncio.to_thread(db.stats)
+    try:
+        s = await asyncio.to_thread(db.stats)
+    except Exception as e:
+        logger.error(f"Internal error in stats_resource: {e}")
+        return _json({"error": "An internal error occurred"})
     s["embedding_model"] = embedding_model
     s["sync_enabled"] = settings.sync_enabled
     return _json(s)
@@ -698,7 +740,11 @@ async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment
 async def recent_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
     """10 most recently updated memories."""
     db, _, _ = _get_ctx(ctx)
-    results = await asyncio.to_thread(db.list_memories, limit=10)
+    try:
+        results = await asyncio.to_thread(db.list_memories, limit=10)
+    except Exception as e:
+        logger.error(f"Internal error in recent_resource: {e}")
+        return _json({"error": "An internal error occurred"})
     return _json(results)
 
 
