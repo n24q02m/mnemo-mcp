@@ -342,9 +342,11 @@ class TestPrompts:
         assert "machine learning" in result
         assert "search" in result.lower()
 
+
 class TestServerErrorHandling:
     async def test_handle_search_internal_error(self, ctx_with_db):
         from unittest.mock import patch
+
         ctx, db = ctx_with_db
         with patch.object(db, "search", side_effect=Exception("DB Error")):
             result = json.loads(
