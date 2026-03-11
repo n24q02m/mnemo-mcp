@@ -731,7 +731,21 @@ def recall_context(topic: str) -> str:
 def main() -> None:
     """Run the MCP server."""
     logger.remove()
-    logger.add(sys.stderr, level=settings.log_level)
+
+    level = settings.log_level.upper()
+    valid_levels = {
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "SUCCESS",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    }
+    if level not in valid_levels:
+        level = "INFO"
+
+    logger.add(sys.stderr, level=level)
     logger.info("Starting Mnemo MCP Server...")
 
     mcp.run()
