@@ -272,6 +272,58 @@ class TestSetupSync:
             assert "auto-decodes base64" in captured.out
 
 
+class TestSyncPush:
+    async def test_push_success(self, tmp_path):
+        """Push local database to remote successfully."""
+        from mnemo_mcp.sync import sync_push
+
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "db.sqlite"
+        db_path.touch()
+        remote = "myremote"
+        folder = "myfolder"
+
+        with patch("mnemo_mcp.sync.asyncio.to_thread") as mock_to_thread:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_to_thread.return_value = mock_result
+
+            result = await sync_push(rclone_path, db_path, remote, folder)
+
+            assert result is True
+            mock_to_thread.assert_called_once()
+            args, _ = mock_to_thread.call_args
+            assert args[1] == rclone_path
+            assert args[2] == [
+                "copy",
+                "--progress",
+                "--",
+                str(db_path),
+                f"{remote}:{folder}",
+            ]
+            assert args[3] == 300
+
+    async def test_push_failure(self, tmp_path):
+        """Push local database to remote fails gracefully."""
+        from mnemo_mcp.sync import sync_push
+
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "db.sqlite"
+        db_path.touch()
+        remote = "myremote"
+        folder = "myfolder"
+
+        with patch("mnemo_mcp.sync.asyncio.to_thread") as mock_to_thread:
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_result.stderr = "error message"
+            mock_to_thread.return_value = mock_result
+
+            result = await sync_push(rclone_path, db_path, remote, folder)
+
+            assert result is False
+
+
 class TestStartAutoSync:
     def teardown_method(self):
         """Ensure _sync_task is reset after each test."""
