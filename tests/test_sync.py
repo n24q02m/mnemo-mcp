@@ -13,6 +13,7 @@ from mnemo_mcp.sync import (
     setup_sync,
     start_auto_sync,
     sync_full,
+    sync_pull,
 )
 
 
@@ -339,3 +340,92 @@ class TestStartAutoSync:
             # Verify the global var was set
             assert mnemo_mcp.sync._sync_task == dummy_task
             mock_loop.assert_called_once_with(tmp_db)
+
+
+class TestSyncPull:
+    async def test_pull_success(self, tmp_path):
+        """Test successful sync_pull where rclone returns 0 and creates the temp file."""
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "memories.db"
+        remote = "gdrive"
+        folder = "mnemo-mcp"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        temp_dir = db_path.parent / "sync_temp"
+        temp_db = temp_dir / f"remote_{db_path.name}"
+
+        # We need to simulate rclone touching the temp_db file, otherwise sync_pull returns None
+        async def mock_to_thread(fn, *args, **kwargs):
+            if fn.__name__ == "_run_rclone":
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_db.touch()
+            return mock_result
+
+        with patch(
+            "mnemo_mcp.sync.asyncio.to_thread", side_effect=mock_to_thread
+        ) as mock_run:
+            result = await sync_pull(rclone_path, db_path, remote, folder)
+
+            assert result == temp_db
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0]
+            # args[0] is _run_rclone
+            assert args[1] == rclone_path
+            assert args[2] == [
+                "copyto",
+                "--progress",
+                "--",
+                f"{remote}:{folder}/{db_path.name}",
+                str(temp_db),
+            ]
+            assert args[3] == 300
+
+    async def test_pull_failure_returncode(self, tmp_path):
+        """Test sync_pull failure when rclone returns non-zero code."""
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "memories.db"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "Command failed"
+
+        with patch("mnemo_mcp.sync.asyncio.to_thread", return_value=mock_result):
+            result = await sync_pull(rclone_path, db_path, "gdrive", "mnemo-mcp")
+            assert result is None
+
+    async def test_pull_failure_missing_file(self, tmp_path):
+        """Test sync_pull failure when rclone returns 0 but file does not exist."""
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "memories.db"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        with patch("mnemo_mcp.sync.asyncio.to_thread", return_value=mock_result):
+            result = await sync_pull(rclone_path, db_path, "gdrive", "mnemo-mcp")
+            assert result is None
+
+    async def test_pull_cleans_up_temp_file_on_failure(self, tmp_path):
+        """Test sync_pull deletes the temp file if it exists but returncode != 0."""
+        rclone_path = tmp_path / "rclone"
+        db_path = tmp_path / "memories.db"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "Error"
+
+        temp_dir = db_path.parent / "sync_temp"
+        temp_db = temp_dir / f"remote_{db_path.name}"
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            if fn.__name__ == "_run_rclone":
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_db.touch()
+            return mock_result
+
+        with patch("mnemo_mcp.sync.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await sync_pull(rclone_path, db_path, "gdrive", "mnemo-mcp")
+            assert result is None
+            assert not temp_db.exists()
