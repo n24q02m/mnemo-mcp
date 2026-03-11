@@ -234,6 +234,32 @@ class TestQwen3EmbedBackend:
         result = await backend.embed_single("hello")
         assert result == [0.1, 0.2, 0.3]
 
+    @patch("mnemo_mcp.embedder.asyncio.to_thread")
+    async def test_embed_single_query(self, mock_to_thread):
+        mock_to_thread.return_value = [0.1, 0.2, 0.3]
+        backend = Qwen3EmbedBackend()
+        result = await backend.embed_single_query("hello")
+        assert result == [0.1, 0.2, 0.3]
+        mock_to_thread.assert_called_once()
+
+    @patch("mnemo_mcp.embedder.asyncio.to_thread")
+    @patch("mnemo_mcp.embedder.Qwen3EmbedBackend._get_model")
+    async def test_embed_single_query_closure(self, mock_get_model, mock_to_thread):
+        """Test internal closure passes arguments correctly via direct execution."""
+        mock_to_thread.side_effect = lambda f: f()
+
+        mock_model = MagicMock()
+        mock_result = MagicMock()
+        mock_result.tolist.return_value = [0.1, 0.2, 0.3]
+        mock_model.query_embed.return_value = iter([mock_result])
+        mock_get_model.return_value = mock_model
+
+        backend = Qwen3EmbedBackend()
+        result = await backend.embed_single_query("hello", dimensions=256)
+
+        assert result == [0.1, 0.2, 0.3]
+        mock_model.query_embed.assert_called_once_with("hello", dim=256)
+
     @patch("mnemo_mcp.embedder.Qwen3EmbedBackend._get_model")
     def test_check_available_not_installed(self, mock_get_model):
         """Returns 0 when qwen3-embed is not available."""
