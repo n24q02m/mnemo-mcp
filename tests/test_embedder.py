@@ -246,8 +246,10 @@ class TestQwen3EmbedBackend:
     async def test_embed_single_query(self, mock_get_model, mock_to_thread):
         mock_to_thread.side_effect = lambda f: f()
 
-        import numpy as np
         from unittest.mock import MagicMock
+
+        import numpy as np
+
         mock_model = MagicMock()
         mock_model.query_embed.return_value = iter([np.array([0.4, 0.5, 0.6])])
         mock_get_model.return_value = mock_model
@@ -260,11 +262,15 @@ class TestQwen3EmbedBackend:
 
     @patch("mnemo_mcp.embedder.asyncio.to_thread")
     @patch("mnemo_mcp.embedder.Qwen3EmbedBackend._get_model")
-    async def test_embed_single_query_with_dimensions(self, mock_get_model, mock_to_thread):
+    async def test_embed_single_query_with_dimensions(
+        self, mock_get_model, mock_to_thread
+    ):
         mock_to_thread.side_effect = lambda f: f()
 
-        import numpy as np
         from unittest.mock import MagicMock
+
+        import numpy as np
+
         mock_model = MagicMock()
         mock_model.query_embed.return_value = iter([np.array([0.7, 0.8])])
         mock_get_model.return_value = mock_model
@@ -274,7 +280,6 @@ class TestQwen3EmbedBackend:
 
         assert result == [0.7, 0.8]
         mock_model.query_embed.assert_called_once_with("test query", dim=128)
-
 
 
 class TestBackendFactory:
