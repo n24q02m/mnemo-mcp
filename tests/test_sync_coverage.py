@@ -180,10 +180,6 @@ class TestDownloadRclone:
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp,
             patch("builtins.open", new_callable=MagicMock),
-            patch.dict("mnemo_mcp.sync._RCLONE_CHECKSUMS", {}, clear=True),
-            patch(
-                "mnemo_mcp.sync._extract_zip_sync", return_value=True
-            ) as mock_extract,
             patch(
                 "mnemo_mcp.sync.asyncio.to_thread", side_effect=lambda fn, *a: fn(*a)
             ),
@@ -193,9 +189,9 @@ class TestDownloadRclone:
             mock_temp.return_value.__enter__.return_value = mock_temp_file
             mock_temp_file.name = str(tmp_path / "fake.zip")
 
-            await _download_rclone()
-            # Should continue and try to extract (no checksum check)
-            mock_extract.assert_called_once()
+            result = await _download_rclone()
+            # Under new policy, it fails closed if no checksum is found.
+            assert result is None
 
     async def test_binary_not_found_in_archive(self, tmp_path):
         """Returns None when binary not found in downloaded archive."""
@@ -204,7 +200,7 @@ class TestDownloadRclone:
         from mnemo_mcp.sync import _download_rclone
 
         dummy_content = b"fake zip content"
-        dummy_hash = hashlib.sha256(dummy_content).hexdigest()
+        hashlib.sha256(dummy_content).hexdigest()
 
         mock_response = MagicMock()
         mock_response.content = dummy_content
@@ -226,7 +222,7 @@ class TestDownloadRclone:
             patch("mnemo_mcp.sync.settings") as mock_settings,
             patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp,
             patch("builtins.open", new_callable=MagicMock) as mock_open,
-            patch.dict("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": dummy_hash}),
+            # Removed patch.dict for _RCLONE_CHECKSUMS
             patch("mnemo_mcp.sync._extract_zip_sync", return_value=False),
             patch(
                 "mnemo_mcp.sync.asyncio.to_thread", side_effect=lambda fn, *a: fn(*a)

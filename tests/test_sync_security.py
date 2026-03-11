@@ -13,18 +13,22 @@ async def test_download_verification_fails_on_checksum_mismatch():
     """Verify that _download_rclone fails when SHA256 checksum mismatches."""
     # Mock content
     dummy_content = b"fake zip content"
-    # The real code expects a specific hash for linux-amd64.
-    # We guarantee mismatch by using random content.
+    dummy_checksums_content = "1111111111111111111111111111111111111111111111111111111111111111  rclone-v1.68.2-linux-amd64.zip\n"
 
-    # Mock httpx response
-    mock_response = MagicMock()
-    mock_response.content = dummy_content
-    mock_response.raise_for_status = MagicMock()
+    # Mock httpx responses (one for SHA256SUMS, one for zip)
+    mock_checksums_response = MagicMock()
+    mock_checksums_response.text = dummy_checksums_content
+    mock_checksums_response.raise_for_status = MagicMock()
+
+    mock_zip_response = MagicMock()
+    mock_zip_response.content = dummy_content
+    mock_zip_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.__aenter__.return_value = mock_client
     mock_client.__aexit__.return_value = None
-    mock_client.get.return_value = mock_response
+    # First call is SHA256SUMS, second call is the zip file
+    mock_client.get.side_effect = [mock_checksums_response, mock_zip_response]
 
     # Mock temp file context manager
     mock_temp = MagicMock()
@@ -64,16 +68,22 @@ async def test_download_verification_succeeds_with_correct_checksum():
     # Mock content
     dummy_content = b"valid zip content"
     dummy_hash = hashlib.sha256(dummy_content).hexdigest()
+    dummy_checksums_content = f"{dummy_hash}  rclone-v1.68.2-linux-amd64.zip\n"
 
-    # Mock httpx response
-    mock_response = MagicMock()
-    mock_response.content = dummy_content
-    mock_response.raise_for_status = MagicMock()
+    # Mock httpx responses
+    mock_checksums_response = MagicMock()
+    mock_checksums_response.text = dummy_checksums_content
+    mock_checksums_response.raise_for_status = MagicMock()
+
+    mock_zip_response = MagicMock()
+    mock_zip_response.content = dummy_content
+    mock_zip_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.__aenter__.return_value = mock_client
     mock_client.__aexit__.return_value = None
-    mock_client.get.return_value = mock_response
+    # First call is SHA256SUMS, second call is the zip file
+    mock_client.get.side_effect = [mock_checksums_response, mock_zip_response]
 
     # Mock ZipFile
     mock_zip_instance = MagicMock()
@@ -89,15 +99,12 @@ async def test_download_verification_succeeds_with_correct_checksum():
     mock_zip_cls = MagicMock()
     mock_zip_cls.return_value.__enter__.return_value = mock_zip_instance
 
-    # Mock _RCLONE_CHECKSUMS to match our dummy content
-    # We patch the dictionary in the module
     with (
         patch("mnemo_mcp.sync.httpx.AsyncClient", return_value=mock_client),
         patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
         patch("mnemo_mcp.sync.zipfile.ZipFile", mock_zip_cls),
         patch("mnemo_mcp.sync.tempfile.NamedTemporaryFile") as mock_temp,
         patch("builtins.open", new_callable=MagicMock) as mock_open,
-        patch.dict("mnemo_mcp.sync._RCLONE_CHECKSUMS", {"linux-amd64": dummy_hash}),
         patch("pathlib.Path.mkdir"),
         patch("pathlib.Path.chmod"),
         patch("pathlib.Path.exists", return_value=False),
@@ -170,3 +177,29 @@ def test_sync_remote_starts_with_hyphen():
 
     with pytest.raises(ValidationError, match="must not start with a hyphen"):
         s.sync_remote = "--config"
+
+
+@pytest.mark.asyncio
+async def test_download_verification_fails_on_missing_checksum():
+    """Verify that _download_rclone fails when SHA256 checksum is missing from the file."""
+    dummy_checksums_content = "1111111111111111111111111111111111111111111111111111111111111111  some-other-file.zip\n"
+
+    # Mock httpx response (only SHA256SUMS is called)
+    mock_checksums_response = MagicMock()
+    mock_checksums_response.text = dummy_checksums_content
+    mock_checksums_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.get.return_value = mock_checksums_response
+
+    with (
+        patch("mnemo_mcp.sync.httpx.AsyncClient", return_value=mock_client),
+        patch("mnemo_mcp.sync._get_platform_info", return_value=("linux", "amd64", "")),
+        patch("pathlib.Path.exists", return_value=False),
+        patch("pathlib.Path.mkdir"),
+    ):
+        result = await _download_rclone()
+
+        assert result is None, "Should fail (return None) on missing checksum"
