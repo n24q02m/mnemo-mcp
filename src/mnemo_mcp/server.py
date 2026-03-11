@@ -288,6 +288,9 @@ async def _handle_add(
         )
     except ValueError as e:
         return _json({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Error handling memory addition: {e}")
+        return _json({"error": "An internal error occurred while adding memory."})
     return _json(
         {
             "id": memory_id,
@@ -373,6 +376,9 @@ async def _handle_update(
         )
     except ValueError as e:
         return _json({"error": str(e)})
+    except Exception as e:
+        logger.error(f"Error handling memory update: {e}")
+        return _json({"error": "An internal error occurred while updating memory."})
     if ok:
         return _json({"status": "updated", "id": memory_id})
     return _json({"error": f"Memory {memory_id} not found"})
