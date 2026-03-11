@@ -13,6 +13,7 @@ import json
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from importlib import resources as pkg_resources
 
 from loguru import logger
@@ -207,10 +208,23 @@ mcp = FastMCP(
 # --- Helper ---
 
 
-def _get_ctx(ctx: Context) -> tuple[MemoryDB, str | None, int]:
+@dataclass
+class ServerContext:
+    """Encapsulates server state passed to handlers."""
+
+    db: MemoryDB
+    embedding_model: str | None
+    embedding_dims: int
+
+
+def _get_ctx(ctx: Context) -> ServerContext:
     """Extract db, model, dims from context."""
     lc = ctx.request_context.lifespan_context
-    return lc["db"], lc["embedding_model"], lc["embedding_dims"]
+    return ServerContext(
+        db=lc["db"],
+        embedding_model=lc["embedding_model"],
+        embedding_dims=lc["embedding_dims"],
+    )
 
 
 def _json(obj: object) -> str:
@@ -267,20 +281,18 @@ async def _embed(
 
 
 async def _handle_add(
-    db: MemoryDB,
+    ctx: ServerContext,
     content: str | None,
     category: str | None,
     tags: list[str] | None,
-    embedding_model: str | None,
-    embedding_dims: int,
 ) -> str:
     if not content:
         return _json({"error": "content is required for add"})
 
-    embedding = await _embed(content, embedding_model, embedding_dims)
+    embedding = await _embed(content, ctx.embedding_model, ctx.embedding_dims)
     try:
         memory_id = await asyncio.to_thread(
-            db.add,
+            ctx.db.add,
             content=content,
             category=category or "general",
             tags=tags,
@@ -299,20 +311,20 @@ async def _handle_add(
 
 
 async def _handle_search(
-    db: MemoryDB,
+    ctx: ServerContext,
     query: str | None,
     category: str | None,
     tags: list[str] | None,
     limit: int,
-    embedding_model: str | None,
-    embedding_dims: int,
 ) -> str:
     if not query:
         return _json({"error": "query is required for search"})
 
-    embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
+    embedding = await _embed(
+        query, ctx.embedding_model, ctx.embedding_dims, is_query=True
+    )
     results = await asyncio.to_thread(
-        db.search,
+        ctx.db.search,
         query=query,
         embedding=embedding,
         category=category,
@@ -329,12 +341,12 @@ async def _handle_search(
 
 
 async def _handle_list(
-    db: MemoryDB,
+    ctx: ServerContext,
     category: str | None,
     limit: int,
 ) -> str:
     results = await asyncio.to_thread(
-        db.list_memories,
+        ctx.db.list_memories,
         category=category,
         limit=limit,
     )
@@ -347,24 +359,22 @@ async def _handle_list(
 
 
 async def _handle_update(
-    db: MemoryDB,
+    ctx: ServerContext,
     memory_id: str | None,
     content: str | None,
     category: str | None,
     tags: list[str] | None,
-    embedding_model: str | None,
-    embedding_dims: int,
 ) -> str:
     if not memory_id:
         return _json({"error": "memory_id is required for update"})
 
     embedding = None
     if content:
-        embedding = await _embed(content, embedding_model, embedding_dims)
+        embedding = await _embed(content, ctx.embedding_model, ctx.embedding_dims)
 
     try:
         ok = await asyncio.to_thread(
-            db.update,
+            ctx.db.update,
             memory_id=memory_id,
             content=content,
             category=category,
@@ -379,22 +389,22 @@ async def _handle_update(
 
 
 async def _handle_delete(
-    db: MemoryDB,
+    ctx: ServerContext,
     memory_id: str | None,
 ) -> str:
     if not memory_id:
         return _json({"error": "memory_id is required for delete"})
 
-    ok = await asyncio.to_thread(db.delete, memory_id)
+    ok = await asyncio.to_thread(ctx.db.delete, memory_id)
     if ok:
         return _json({"status": "deleted", "id": memory_id})
     return _json({"error": f"Memory {memory_id} not found"})
 
 
 async def _handle_export(
-    db: MemoryDB,
+    ctx: ServerContext,
 ) -> str:
-    jsonl, count = await asyncio.to_thread(db.export_jsonl)
+    jsonl, count = await asyncio.to_thread(ctx.db.export_jsonl)
     return _json(
         {
             "format": "jsonl",
@@ -405,7 +415,7 @@ async def _handle_export(
 
 
 async def _handle_import(
-    db: MemoryDB,
+    ctx: ServerContext,
     data: str | list | None,
     mode: str,
 ) -> str:
@@ -416,7 +426,7 @@ async def _handle_import(
 
     # Bolt Performance Optimization: Pass raw list/dict directly to database layer.
     # Avoids unnecessary JSON serialization and deserialization cycles for parsed inputs.
-    result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
+    result = await asyncio.to_thread(ctx.db.import_jsonl, data, mode=mode)
     return _json(
         {
             "status": "imported",
@@ -426,13 +436,11 @@ async def _handle_import(
 
 
 async def _handle_stats(
-    db: MemoryDB,
-    embedding_model: str | None,
-    embedding_dims: int,
+    ctx: ServerContext,
 ) -> str:
-    s = await asyncio.to_thread(db.stats)
-    s["embedding_model"] = embedding_model
-    s["embedding_dims"] = embedding_dims
+    s = await asyncio.to_thread(ctx.db.stats)
+    s["embedding_model"] = ctx.embedding_model
+    s["embedding_dims"] = ctx.embedding_dims
     s["sync_enabled"] = settings.sync_enabled
     s["sync_remote"] = settings.sync_remote
     return _json(s)
@@ -479,7 +487,7 @@ async def memory(
     - import: Import from JSONL (data required, mode: merge|replace)
     - stats: Database statistics
     """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    server_ctx = _get_ctx(ctx)
 
     # Clamp limit to reasonable bounds to prevent DoS
     if isinstance(limit, int):
@@ -487,27 +495,21 @@ async def memory(
 
     match action:
         case "add":
-            return await _handle_add(
-                db, content, category, tags, embedding_model, embedding_dims
-            )
+            return await _handle_add(server_ctx, content, category, tags)
         case "search":
-            return await _handle_search(
-                db, query, category, tags, limit, embedding_model, embedding_dims
-            )
+            return await _handle_search(server_ctx, query, category, tags, limit)
         case "list":
-            return await _handle_list(db, category, limit)
+            return await _handle_list(server_ctx, category, limit)
         case "update":
-            return await _handle_update(
-                db, memory_id, content, category, tags, embedding_model, embedding_dims
-            )
+            return await _handle_update(server_ctx, memory_id, content, category, tags)
         case "delete":
-            return await _handle_delete(db, memory_id)
+            return await _handle_delete(server_ctx, memory_id)
         case "export":
-            return await _handle_export(db)
+            return await _handle_export(server_ctx)
         case "import":
-            return await _handle_import(db, data, mode)
+            return await _handle_import(server_ctx, data, mode)
         case "stats":
-            return await _handle_stats(db, embedding_model, embedding_dims)
+            return await _handle_stats(server_ctx)
         case _:
             return _json(
                 {
@@ -552,11 +554,11 @@ async def config(
     - sync: Trigger manual sync (requires sync_enabled + sync_remote)
     - set: Update setting (key + value required)
     """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    server_ctx = _get_ctx(ctx)
 
     match action:
         case "status":
-            s = await asyncio.to_thread(db.stats)
+            s = await asyncio.to_thread(server_ctx.db.stats)
             return _json(
                 {
                     "database": {
@@ -566,9 +568,9 @@ async def config(
                         "vec_enabled": s["vec_enabled"],
                     },
                     "embedding": {
-                        "model": embedding_model,
-                        "dims": embedding_dims,
-                        "available": embedding_model is not None,
+                        "model": server_ctx.embedding_model,
+                        "dims": server_ctx.embedding_dims,
+                        "available": server_ctx.embedding_model is not None,
                     },
                     "sync": {
                         "enabled": settings.sync_enabled,
@@ -582,7 +584,7 @@ async def config(
         case "sync":
             from mnemo_mcp.sync import sync_full
 
-            result = await sync_full(db)
+            result = await sync_full(server_ctx.db)
             return _json(result)
 
         case "set":
@@ -687,9 +689,9 @@ async def help(topic: str = "memory") -> str:
 @mcp.resource("mnemo://stats")
 async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
     """Database statistics and server status."""
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
-    s = await asyncio.to_thread(db.stats)
-    s["embedding_model"] = embedding_model
+    server_ctx = _get_ctx(ctx)
+    s = await asyncio.to_thread(server_ctx.db.stats)
+    s["embedding_model"] = server_ctx.embedding_model
     s["sync_enabled"] = settings.sync_enabled
     return _json(s)
 
@@ -697,8 +699,8 @@ async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment
 @mcp.resource("mnemo://recent")
 async def recent_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
     """10 most recently updated memories."""
-    db, _, _ = _get_ctx(ctx)
-    results = await asyncio.to_thread(db.list_memories, limit=10)
+    server_ctx = _get_ctx(ctx)
+    results = await asyncio.to_thread(server_ctx.db.list_memories, limit=10)
     return _json(results)
 
 
