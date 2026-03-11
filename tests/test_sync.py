@@ -339,3 +339,62 @@ class TestStartAutoSync:
             # Verify the global var was set
             assert mnemo_mcp.sync._sync_task == dummy_task
             mock_loop.assert_called_once_with(tmp_db)
+
+
+class TestCheckRemoteConfigured:
+    @patch("mnemo_mcp.sync.asyncio.to_thread")
+    async def test_success(self, mock_to_thread):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "remote1:\nmy_remote:\n"
+        mock_to_thread.return_value = mock_result
+
+        from pathlib import Path
+
+        from mnemo_mcp.sync import check_remote_configured
+
+        result = await check_remote_configured(Path("/tmp/rclone"), "my_remote")
+        assert result is True
+        mock_to_thread.assert_called_once()
+
+    @patch("mnemo_mcp.sync.asyncio.to_thread")
+    async def test_not_found(self, mock_to_thread):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "remote1:\nother_remote:\n"
+        mock_to_thread.return_value = mock_result
+
+        from pathlib import Path
+
+        from mnemo_mcp.sync import check_remote_configured
+
+        result = await check_remote_configured(Path("/tmp/rclone"), "my_remote")
+        assert result is False
+
+    @patch("mnemo_mcp.sync.asyncio.to_thread")
+    async def test_failure(self, mock_to_thread):
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_to_thread.return_value = mock_result
+
+        from pathlib import Path
+
+        from mnemo_mcp.sync import check_remote_configured
+
+        result = await check_remote_configured(Path("/tmp/rclone"), "my_remote")
+        assert result is False
+
+    @patch("mnemo_mcp.sync.asyncio.to_thread")
+    async def test_empty_output(self, mock_to_thread):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "\n  \n"
+        mock_to_thread.return_value = mock_result
+
+        from pathlib import Path
+
+        from mnemo_mcp.sync import check_remote_configured
+
+        result = await check_remote_configured(Path("/tmp/rclone"), "my_remote")
+        assert result is False
