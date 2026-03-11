@@ -341,3 +341,20 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+
+class TestServerErrorHandling:
+    async def test_handle_search_internal_error(self, ctx_with_db):
+        from unittest.mock import patch
+
+        ctx, db = ctx_with_db
+        with patch.object(db, "search", side_effect=Exception("DB Error")):
+            result = json.loads(
+                await memory(
+                    action="search",
+                    query="Python",
+                    ctx=ctx,
+                )
+            )
+            assert "error" in result
+            assert result["error"] == "An internal error occurred"
