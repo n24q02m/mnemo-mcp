@@ -149,19 +149,26 @@ async def _download_rclone() -> Path | None:
             response = await client.get(url, timeout=120.0)
             response.raise_for_status()
 
-            # Write to temp file
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp_path = Path(tmp.name)
+            # Write to temp file asynchronously
+            def _write_temp(content: bytes) -> Path:
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                    tmp.write(content)
+                    return Path(tmp.name)
 
-        # Verify SHA256 checksum
+            tmp_path = await asyncio.to_thread(_write_temp, response.content)
+
+        # Verify SHA256 checksum asynchronously
         expected_hash = _RCLONE_CHECKSUMS.get(f"{os_name}-{arch}")
         if expected_hash:
-            sha256 = hashlib.sha256()
-            with open(tmp_path, "rb") as f:
-                while chunk := f.read(8192):
-                    sha256.update(chunk)
-            file_hash = sha256.hexdigest()
+
+            def _calc_hash(path: Path) -> str:
+                sha256 = hashlib.sha256()
+                with open(path, "rb") as f:
+                    while chunk := f.read(8192):
+                        sha256.update(chunk)
+                return sha256.hexdigest()
+
+            file_hash = await asyncio.to_thread(_calc_hash, tmp_path)
 
             if file_hash != expected_hash:
                 tmp_path.unlink(missing_ok=True)
