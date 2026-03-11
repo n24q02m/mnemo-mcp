@@ -294,12 +294,17 @@ class TestCheckAvailableApiKeyValidation:
         backend = LiteLLMBackend("model")
         assert backend.check_available() == 0
 
+    @patch("mnemo_mcp.embedder.logger")
     @patch("litellm.embedding")
-    def test_non_auth_error_logged_at_debug(self, mock_embed):
+    def test_non_auth_error_logged_at_debug(self, mock_embed, mock_logger):
         """Non-auth errors (e.g. model not found) go to debug level."""
-        mock_embed.side_effect = Exception("Model not found: xyz")
+        error_msg = "Model not found: xyz"
+        mock_embed.side_effect = Exception(error_msg)
         backend = LiteLLMBackend("model")
         assert backend.check_available() == 0
+        mock_logger.debug.assert_called_once_with(
+            f"Embedding model model not available: {error_msg}"
+        )
 
 
 class TestQwen3GetModelWarning:
