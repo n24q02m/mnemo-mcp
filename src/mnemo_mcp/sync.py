@@ -537,7 +537,12 @@ def setup_sync(remote_type: str = "drive") -> None:
     Token is saved to ~/.mnemo-mcp/tokens/<type>.json so no env vars
     are needed for sync — just set SYNC_ENABLED=true.
     """
+    from mnemo_mcp.config import RCLONE_PROVIDERS
     from mnemo_mcp.token_store import save_token
+
+    if remote_type not in RCLONE_PROVIDERS:
+        print(f"ERROR: Invalid provider '{remote_type}'", file=sys.stderr)
+        sys.exit(1)
 
     print(f"=== Mnemo MCP: Setup Sync ({remote_type}) ===\n")
 
