@@ -170,3 +170,29 @@ def test_sync_remote_starts_with_hyphen():
 
     with pytest.raises(ValidationError, match="must not start with a hyphen"):
         s.sync_remote = "--config"
+
+
+def test_sync_provider_valid():
+    """Valid sync_provider values should be accepted."""
+    s = Settings(sync_provider="drive")
+    assert s.sync_provider == "drive"
+
+    s.sync_provider = "dropbox"
+    assert s.sync_provider == "dropbox"
+
+
+def test_sync_provider_invalid():
+    """Invalid sync_provider values should be rejected to prevent argument injection."""
+    invalid_providers = [
+        "invalid",
+        "drive --config=malicious",
+        "drive; rm -rf /",
+        "-malicious",
+    ]
+    for provider in invalid_providers:
+        with pytest.raises(ValidationError, match="sync_provider must be one of"):
+            Settings(sync_provider=provider)
+
+        s = Settings()
+        with pytest.raises(ValidationError, match="sync_provider must be one of"):
+            s.sync_provider = provider
