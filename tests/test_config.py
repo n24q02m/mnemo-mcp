@@ -210,6 +210,7 @@ class TestSyncProviderValidation:
     def test_valid_sync_provider(self):
         """Valid sync_provider values should be accepted."""
         from mnemo_mcp.config import RCLONE_PROVIDERS
+
         for provider in list(RCLONE_PROVIDERS)[:3]:
             s = Settings(sync_provider=provider, api_keys=None)
             assert s.sync_provider == provider
@@ -220,5 +221,7 @@ class TestSyncProviderValidation:
 
         invalid_providers = ["invalid_provider", "drive; rm -rf /", "-drive"]
         for provider in invalid_providers:
-            with __import__("pytest").raises(ValidationError, match="Invalid sync_provider"):
+            with __import__("pytest").raises(
+                ValidationError, match="Invalid sync_provider"
+            ):
                 Settings(sync_provider=provider, api_keys=None)
