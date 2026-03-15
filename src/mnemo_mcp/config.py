@@ -44,6 +44,32 @@ def _resolve_local_model(onnx_name: str, gguf_name: str) -> str:
     return onnx_name
 
 
+# Allowlist for rclone providers to prevent argument injection
+RCLONE_PROVIDERS = {
+    "drive",
+    "dropbox",
+    "s3",
+    "b2",
+    "azureblob",
+    "box",
+    "onedrive",
+    "pcloud",
+    "webdav",
+    "swift",
+    "google cloud storage",
+    "gcs",
+    "mega",
+    "opendrive",
+    "koofr",
+    "yandex",
+    "hidrive",
+    "mailru",
+    "ftp",
+    "sftp",
+    "local",
+}
+
+
 class Settings(BaseSettings):
     """Mnemo MCP Server configuration.
 
@@ -105,6 +131,18 @@ class Settings(BaseSettings):
         "case_sensitive": False,
         "validate_assignment": True,
     }
+
+    @field_validator("sync_provider")
+    @classmethod
+    def validate_sync_provider(cls, v: str) -> str:
+        """Validate sync_provider to prevent argument injection."""
+        if not v:
+            return v
+        if v not in RCLONE_PROVIDERS:
+            # Sort providers for deterministic error messages
+            providers = sorted(RCLONE_PROVIDERS)
+            raise ValueError(f"sync_provider must be one of {providers}")
+        return v
 
     @field_validator("sync_remote")
     @classmethod

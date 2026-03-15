@@ -133,6 +133,24 @@ def test_sync_remote_valid():
     assert s.sync_remote == "another.valid-remote_name"
 
 
+def test_sync_provider_validates_against_allowlist():
+    """sync_provider should be validated against RCLONE_PROVIDERS allowlist."""
+    with pytest.raises(ValidationError, match="must be one of"):
+        Settings(sync_provider="-drive")
+
+    with pytest.raises(ValidationError, match="must be one of"):
+        Settings(sync_provider="--config")
+
+    with pytest.raises(ValidationError, match="must be one of"):
+        Settings(sync_provider="invalid_provider")
+
+    s = Settings()
+    with pytest.raises(ValidationError, match="must be one of"):
+        s.sync_provider = "-drive"
+
+    with pytest.raises(ValidationError, match="must be one of"):
+        s.sync_provider = "--config"
+
 def test_sync_remote_invalid_characters():
     """Invalid characters should be rejected to prevent injection."""
     invalid_remotes = [
