@@ -268,15 +268,15 @@ class TestSetupSync:
             assert "SUCCESS" in captured.out
             assert "SYNC_ENABLED" in captured.out
 
-
-
     def test_json_decode_error(self, tmp_path, capsys):
         """setup_sync falls back to manual base64 token if JSON parsing fails."""
         rclone_path = tmp_path / "rclone"
         rclone_path.touch()
 
         # This string looks like the right format but contains invalid JSON
-        invalid_json = '{"access_token":"ya29.abc", "token_type":Bearer"}' # Missing quote
+        invalid_json = (
+            '{"access_token":"ya29.abc", "token_type":Bearer"}'  # Missing quote
+        )
         token_output = f"--------------------\n{invalid_json}\n--------------------\n"
 
         with (
