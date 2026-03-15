@@ -574,10 +574,10 @@ class TestDBInitSecurity:
         db_path = tmp_path / "test.sqlite"
 
         with pytest.raises(ValueError, match="embedding_dims must be an integer"):
-            MemoryDB(db_path, embedding_dims="1536]; DROP TABLE memories; --")
+            MemoryDB(db_path, embedding_dims="1536]; DROP TABLE memories; --")  # type: ignore
 
         with pytest.raises(ValueError, match="embedding_dims must be an integer"):
             MemoryDB(db_path, embedding_dims=True)
 
         with pytest.raises(ValueError, match="embedding_dims must be an integer"):
-            MemoryDB(db_path, embedding_dims=1536.5)
+            MemoryDB(db_path, embedding_dims=1536.5)  # type: ignore
