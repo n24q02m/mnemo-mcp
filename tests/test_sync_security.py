@@ -133,6 +133,46 @@ def test_sync_remote_valid():
     assert s.sync_remote == "another.valid-remote_name"
 
 
+def test_sync_provider_valid():
+    """Valid sync_provider values should be accepted."""
+    s = Settings(sync_provider="drive")
+    assert s.sync_provider == "drive"
+
+    s = Settings(sync_provider="s3")
+    assert s.sync_provider == "s3"
+
+    s.sync_provider = "dropbox"
+    assert s.sync_provider == "dropbox"
+
+
+def test_sync_provider_invalid():
+    """Invalid sync_provider values should be rejected."""
+    invalid_providers = [
+        "invalid-provider",
+        "--config",
+        "-drive",
+        "drive; ls",
+    ]
+    for provider in invalid_providers:
+        with pytest.raises(ValidationError, match="Invalid sync_provider"):
+            Settings(sync_provider=provider)
+
+        s = Settings()
+        with pytest.raises(ValidationError, match="Invalid sync_provider"):
+            s.sync_provider = provider
+
+
+@patch("sys.exit")
+@patch("sys.stderr", new_callable=MagicMock)
+def test_setup_sync_invalid_provider(mock_stderr, mock_exit):
+    """setup_sync should reject invalid remote types."""
+    from mnemo_mcp.sync import setup_sync
+
+    setup_sync("invalid-provider")
+    mock_stderr.write.assert_called()
+    mock_exit.assert_called_with(1)
+
+
 def test_sync_remote_invalid_characters():
     """Invalid characters should be rejected to prevent injection."""
     invalid_remotes = [
