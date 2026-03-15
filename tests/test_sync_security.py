@@ -151,6 +151,7 @@ def test_sync_provider_validates_against_allowlist():
     with pytest.raises(ValidationError, match="must be one of"):
         s.sync_provider = "--config"
 
+
 def test_sync_remote_invalid_characters():
     """Invalid characters should be rejected to prevent injection."""
     invalid_remotes = [
