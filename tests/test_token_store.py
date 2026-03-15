@@ -103,9 +103,9 @@ class TestSaveToken:
         assert saved["access_token"] == "new"
 
     def test_save_chmod_oserror(self, token_dir):
-        from mnemo_mcp.token_store import save_token
-        import os
         from pathlib import Path
+
+        from mnemo_mcp.token_store import save_token
 
         token = {"access_token": "abc"}
         with (
