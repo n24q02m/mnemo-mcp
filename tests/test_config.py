@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from mnemo_mcp.config import Settings
 
 
@@ -204,3 +206,18 @@ class TestRcloneVersion:
         monkeypatch.setenv("RCLONE_VERSION", "v1.99.9")
         s = Settings(api_keys=None)
         assert s.rclone_version == "v1.99.9"
+
+
+def test_sync_provider_injection_prevention():
+    """Test that sync_provider rejects invalid values to prevent command injection."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Settings(sync_provider="-option")
+
+    with pytest.raises(ValidationError):
+        Settings(sync_provider="inject; rm -rf /")
+
+    # Should pass for valid providers
+    assert Settings(sync_provider="drive").sync_provider == "drive"
+    assert Settings(sync_provider="dropbox").sync_provider == "dropbox"
