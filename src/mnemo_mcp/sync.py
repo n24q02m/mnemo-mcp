@@ -389,6 +389,7 @@ async def sync_full(db: MemoryDB) -> dict:
     remote_db_path = await sync_pull(rclone_path, db_path, remote, folder)
     if remote_db_path:
         try:
+
             def _merge_dbs() -> dict:
                 _remote_db = MemoryDB(remote_db_path, embedding_dims=0)
                 _remote_jsonl, _ = _remote_db.export_jsonl()
