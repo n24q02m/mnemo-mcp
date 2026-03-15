@@ -429,4 +429,6 @@ class TestWarmupInitEmbeddingBackend:
         await _init_embedding_backend("local", ctx)
 
         assert ctx["embedding_model"] is None
-        mock_logger.error.assert_called_with("Local embedding init failed: Init Backend Failed")
+        mock_logger.error.assert_called_with(
+            "Local embedding init failed: Init Backend Failed"
+        )
