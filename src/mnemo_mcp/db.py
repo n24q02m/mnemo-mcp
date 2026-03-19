@@ -310,6 +310,7 @@ class MemoryDB:
         Returns:
             List of memory dicts sorted by relevance.
         """
+        limit = max(1, min(limit, 100))
         # 1. FTS5 search
         results = self._search_fts(query, category, tags, limit)
 
@@ -521,6 +522,7 @@ class MemoryDB:
         offset: int = 0,
     ) -> list[dict]:
         """List memories with optional category filter."""
+        limit = max(1, min(limit, 100))
         if category:
             rows = self._conn.execute(
                 """SELECT * FROM memories
@@ -842,6 +844,7 @@ class MemoryDB:
 
     def list_archived(self, limit: int = 20) -> list[dict]:
         """List archived memories."""
+        limit = max(1, min(limit, 100))
         cursor = self._conn.cursor()
         rows = cursor.execute(
             "SELECT id, content, category, tags, importance, archived_at "

@@ -35,3 +35,36 @@ async def test_list_limit_clamping():
         args, kwargs = mock_db.list_memories.call_args
         actual_limit = kwargs.get("limit")
         assert actual_limit == 100, f"Limit expected to be 100, got {actual_limit}"
+
+
+@pytest.mark.asyncio
+async def test_archived_limit_enforced_in_db():
+    """Verify that the db method actually receives the clamped limit."""
+    from pathlib import Path
+
+    from mnemo_mcp.db import MemoryDB
+
+    # Create an in-memory db
+    db = MemoryDB(Path(":memory:"), embedding_dims=0)
+
+    for i in range(105):
+        db._conn.execute(
+            "INSERT INTO archived_memories (id, content, category, tags, importance, archived_at, created_at, updated_at, access_count, last_accessed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                f"old_{i}",
+                "x",
+                "test",
+                "[]",
+                0.1,
+                "2000-01-01",
+                "2000-01-01",
+                "2000-01-01",
+                1,
+                "2000-01-01",
+                None,
+            ),
+        )
+    db._conn.commit()
+
+    results = db.list_archived(limit=1000)
+    assert len(results) == 100, f"Expected clamped 100, got {len(results)}"
