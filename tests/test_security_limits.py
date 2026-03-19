@@ -36,6 +36,7 @@ async def test_list_limit_clamping():
         actual_limit = kwargs.get("limit")
         assert actual_limit == 100, f"Limit expected to be 100, got {actual_limit}"
 
+
 @pytest.mark.asyncio
 async def test_archived_limit_clamping():
     """Verify that archived limit is clamped to prevent DoS."""
@@ -49,6 +50,7 @@ async def test_archived_limit_clamping():
         args, kwargs = mock_db.list_archived.call_args
         actual_limit = args[0]
         assert actual_limit == 100, f"Limit expected to be 100, got {actual_limit}"
+
 
 @pytest.mark.asyncio
 async def test_archived_limit_enforced_in_db():
