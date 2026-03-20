@@ -8,7 +8,6 @@ from mnemo_mcp.embedder import (
     LiteLLMBackend,
     Qwen3EmbedBackend,
     check_embedding_available,
-    embed_single,
     embed_texts,
     get_backend,
     init_backend,
@@ -334,14 +333,6 @@ class TestLegacyCompat:
         mock_embed.return_value = MagicMock(data=[{"index": 0, "embedding": [0.1]}])
         result = await embed_texts(["test"], "model")
         assert result == [[0.1]]
-
-    @patch("litellm.aembedding")
-    async def test_embed_single_legacy(self, mock_embed):
-        mock_embed.return_value = MagicMock(
-            data=[{"index": 0, "embedding": [0.1, 0.2]}]
-        )
-        result = await embed_single("test", "model")
-        assert result == [0.1, 0.2]
 
     @patch("litellm.embedding")
     def test_check_available_legacy(self, mock_embed):

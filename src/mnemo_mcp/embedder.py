@@ -395,18 +395,6 @@ async def embed_texts(
     return await backend.embed_texts(texts, dimensions)
 
 
-async def embed_single(
-    text: str,
-    model: str,
-    dimensions: int | None = None,
-    api_base: str | None = None,
-    api_key: str | None = None,
-) -> list[float]:
-    """Embed a single text (legacy interface)."""
-    backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
-    return await backend.embed_single(text, dimensions)
-
-
 def check_embedding_available(
     model: str, api_base: str | None = None, api_key: str | None = None
 ) -> int:
