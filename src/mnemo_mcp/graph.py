@@ -146,26 +146,66 @@ def upsert_entities(conn, entities: list[dict]) -> list[str]:
     """Insert or update entities. Returns list of entity IDs."""
     now = datetime.now(UTC).isoformat()
     ids = []
+
+    seen = {}
+    valid_ents = []
+
     for ent in entities:
         name = ent.get("name", "").strip()
         etype = ent.get("type", "concept").strip().lower()
         if not name:
             continue
-        row = conn.execute(
-            "SELECT id FROM entities WHERE name = ? AND entity_type = ?",
-            (name, etype),
-        ).fetchone()
-        if row:
-            eid = row[0]
-            conn.execute("UPDATE entities SET updated_at = ? WHERE id = ?", (now, eid))
+
+        key = (name, etype)
+        if key not in seen:
+            seen[key] = True
+            valid_ents.append((name, etype))
+
+    if not valid_ents:
+        return []
+
+    id_map = {}
+
+    # 1. Fetch existing simply with IN syntax
+    chunk_size = 400
+    for i in range(0, len(valid_ents), chunk_size):
+        chunk = valid_ents[i : i + chunk_size]
+        placeholders = ",".join(["(?, ?)"] * len(chunk))
+        params = [item for row in chunk for item in row]
+        query = f"SELECT name, entity_type, id FROM entities WHERE (name, entity_type) IN (VALUES {placeholders})"
+        for row in conn.execute(query, params).fetchall():
+            id_map[(row[0], row[1])] = row[2]
+
+    # 2. Split into inserts and updates
+    updates = []
+    inserts = []
+
+    for name, etype in valid_ents:
+        key = (name, etype)
+        if key in id_map:
+            updates.append((now, id_map[key]))
         else:
             eid = str(uuid.uuid4())
-            conn.execute(
-                "INSERT INTO entities (id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (eid, name, etype, now, now),
-            )
-        ids.append(eid)
+            inserts.append((eid, name, etype, now, now))
+            id_map[key] = eid
+
+    # 3. Bulk insert/update using executemany
+    if updates:
+        conn.executemany("UPDATE entities SET updated_at = ? WHERE id = ?", updates)
+
+    if inserts:
+        conn.executemany(
+            "INSERT INTO entities (id, name, entity_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            inserts,
+        )
+
+    for ent in entities:
+        name = ent.get("name", "").strip()
+        etype = ent.get("type", "concept").strip().lower()
+        if not name:
+            continue
+        ids.append(id_map[(name, etype)])
+
     return ids
 
 
@@ -174,6 +214,9 @@ def create_relations(
 ) -> None:
     """Create relations between entities."""
     now = datetime.now(UTC).isoformat()
+    seen = {}
+    valid_rels = []
+
     for rel in relations:
         src_name = rel.get("source", "").strip()
         tgt_name = rel.get("target", "").strip()
@@ -182,28 +225,49 @@ def create_relations(
         tgt_id = entity_name_to_id.get(tgt_name)
         if not src_id or not tgt_id or src_id == tgt_id:
             continue
-        existing = conn.execute(
+
+        key = (src_id, tgt_id, rtype)
+        if key not in seen:
+            seen[key] = True
+            valid_rels.append((src_id, tgt_id, rtype))
+
+    if not valid_rels:
+        return
+
+    id_map = {}
+    # Use simple loops for fetching, since IN (x,y,z) is slower in Python and might throw due to limit.
+    for src_id, tgt_id, rtype in valid_rels:
+        row = conn.execute(
             "SELECT id FROM relations WHERE source_id = ? AND target_id = ? AND relation_type = ?",
             (src_id, tgt_id, rtype),
         ).fetchone()
-        if not existing:
-            conn.execute(
-                "INSERT INTO relations (id, source_id, target_id, relation_type, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), src_id, tgt_id, rtype, now),
-            )
+        if row:
+            id_map[(src_id, tgt_id, rtype)] = row[0]
+
+    inserts = []
+    for src_id, tgt_id, rtype in valid_rels:
+        if (src_id, tgt_id, rtype) not in id_map:
+            inserts.append((str(uuid.uuid4()), src_id, tgt_id, rtype, now))
+
+    if inserts:
+        conn.executemany(
+            "INSERT INTO relations (id, source_id, target_id, relation_type, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            inserts,
+        )
 
 
 def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
     """Link a memory to entities."""
-    for eid in entity_ids:
-        try:
-            conn.execute(
-                "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
-                (memory_id, eid),
-            )
-        except Exception:
-            pass
+    if not entity_ids:
+        return
+
+    # Use executemany for bulk insertion, ensuring unique combinations to avoid constraint errors
+    unique_eids = list(set(entity_ids))
+    conn.executemany(
+        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
+        [(memory_id, eid) for eid in unique_eids],
+    )
 
 
 def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[str]:
