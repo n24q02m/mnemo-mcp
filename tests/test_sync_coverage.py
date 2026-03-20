@@ -827,8 +827,6 @@ class TestInteractiveAuth:
             result = await _interactive_auth(rclone_path, "drive")
             assert result is None
 
-
-
     async def test_auth_invalid_extracted_json(self, tmp_path):
         from mnemo_mcp.sync import _interactive_auth
 
