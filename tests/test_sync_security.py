@@ -179,3 +179,15 @@ async def test_interactive_auth_invalid_provider():
 
     result = await _interactive_auth(MagicMock(), "invalid_provider")
     assert result is None
+
+
+def test_setup_sync_invalid_provider():
+    """Verify that setup_sync fails fast when an invalid provider is given, preventing injection."""
+    import pytest
+
+    from mnemo_mcp.sync import setup_sync
+
+    with pytest.raises(SystemExit) as exc_info:
+        setup_sync("invalid-provider-injection-test")
+
+    assert exc_info.value.code == 1

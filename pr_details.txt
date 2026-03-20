@@ -1,0 +1,5 @@
+Title: 🔒 Sentinel: [HIGH] Fix Potential Command Injection in subprocess.run
+Description:
+🎯 **What:** The reported potential command injection via `remote_type` in `setup_sync`'s `subprocess.run` call.
+⚠️ **Risk:** If an attacker could control `remote_type` and bypass validation, arbitrary arguments could be injected into `subprocess.run`, potentially leading to unauthorized operations or command execution.
+🛡️ **Solution:** Verified that strict allowlist validation (`RCLONE_PROVIDERS`) already exists for `remote_type` before it is passed to `subprocess.run`. I added unit tests to confirm the validation works as expected and fails quickly when an invalid provider is supplied, ensuring the codebase is safe and the validation is not accidentally removed in the future.
