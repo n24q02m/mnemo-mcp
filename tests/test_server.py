@@ -712,3 +712,25 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+
+class TestServerInit:
+    async def test_init_embedding_backend_exception(self):
+        ctx = {"embedding_dims": 0, "embedding_model": None}
+
+        with patch("mnemo_mcp.embedder.init_backend") as mock_init:
+            mock_init.side_effect = Exception("Test init exception")
+
+            # Use log capture or patch logger to verify the log occurs
+            with patch("mnemo_mcp.server.logger.error") as mock_error:
+                from mnemo_mcp.server import _init_embedding_backend
+
+                await _init_embedding_backend("local", ctx)
+
+                # Should not update ctx
+                assert ctx["embedding_model"] is None
+
+                # Should have logged the error
+                mock_error.assert_called_with(
+                    "Local embedding init failed: Test init exception"
+                )
