@@ -415,28 +415,3 @@ def init_backend(
         raise ValueError(f"Unknown backend type: {backend_type}")
 
     return _backend
-
-
-# ---------------------------------------------------------------------------
-# Legacy module-level functions for backward compatibility
-# ---------------------------------------------------------------------------
-
-
-async def embed_single(
-    text: str,
-    model: str,
-    dimensions: int | None = None,
-    api_base: str | None = None,
-    api_key: str | None = None,
-) -> list[float]:
-    """Embed a single text (legacy interface)."""
-    backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
-    return await backend.embed_single(text, dimensions)
-
-
-def check_embedding_available(
-    model: str, api_base: str | None = None, api_key: str | None = None
-) -> int:
-    """Check if an embedding model is available (legacy interface)."""
-    backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
-    return backend.check_available()
