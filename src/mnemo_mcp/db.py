@@ -257,11 +257,12 @@ class MemoryDB:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
             ).fetchone()
             if not row:
+                dims = int(self._embedding_dims)
                 self._conn.execute(f"""
                     CREATE VIRTUAL TABLE memories_vec
                     USING vec0(
                         id TEXT PRIMARY KEY,
-                        embedding float[{int(self._embedding_dims)}]
+                        embedding float[{dims}]
                     )
                 """)
                 logger.debug("Created memories_vec table")
