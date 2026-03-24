@@ -119,11 +119,14 @@ class TestSaveToken:
         with (
             patch("mnemo_mcp.token_store.settings") as m,
             patch("mnemo_mcp.token_store.os.name", "posix"),
-            patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+            patch.object(
+                Path, "chmod", side_effect=mock_chmod, autospec=True
+            ) as mock_path_chmod,
         ):
             m.get_data_dir.return_value = token_dir.parent
             # This should ignore the OSError from token_dir.chmod
             save_token("drive", token)
+            assert mock_path_chmod.call_count == 2
 
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "abc"
@@ -145,11 +148,14 @@ class TestSaveToken:
         with (
             patch("mnemo_mcp.token_store.settings") as m,
             patch("mnemo_mcp.token_store.os.name", "posix"),
-            patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+            patch.object(
+                Path, "chmod", side_effect=mock_chmod, autospec=True
+            ) as mock_path_chmod,
         ):
             m.get_data_dir.return_value = token_dir.parent
             # This should ignore the OSError from path.chmod
             save_token("drive", token)
+            assert mock_path_chmod.call_count == 2
 
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "abc"
