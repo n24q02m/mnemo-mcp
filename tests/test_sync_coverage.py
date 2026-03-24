@@ -844,6 +844,40 @@ class TestInteractiveAuth:
             result = await _interactive_auth(rclone_path, "drive")
             assert result is None
 
+    async def test_auth_invalid_extracted_json_logs_error(self, tmp_path, caplog):
+        import logging
+
+        from loguru import logger
+
+        from mnemo_mcp.sync import _interactive_auth
+
+        rclone_path = tmp_path / "rclone"
+
+        # The output has dashes but the JSON inside is invalid (e.g., missing quotes)
+        # This will pass _extract_token but fail json.loads()
+        invalid_json_output = "----\n{access_token: no_quotes}\n----"
+
+        class PropagateHandler(logging.Handler):
+            def emit(self, record):
+                logging.getLogger(record.name).handle(record)
+
+        handler_id = logger.add(PropagateHandler(), format="{message}")
+
+        with caplog.at_level(logging.ERROR):
+            with patch(
+                "mnemo_mcp.sync.asyncio.to_thread",
+                new_callable=AsyncMock,
+                return_value=MagicMock(returncode=0, stdout=invalid_json_output),
+            ):
+                result = await _interactive_auth(rclone_path, "drive")
+                assert result is None
+                assert any(
+                    "Invalid token JSON from rclone" in record.message
+                    for record in caplog.records
+                )
+
+        logger.remove(handler_id)
+
 
 # ---------------------------------------------------------------------------
 # _has_token_available
