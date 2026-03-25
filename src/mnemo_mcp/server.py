@@ -173,7 +173,12 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         if relay_config:
             import os
 
-            for key in ("JINA_AI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "COHERE_API_KEY"):
+            for key in (
+                "JINA_AI_API_KEY",
+                "GEMINI_API_KEY",
+                "OPENAI_API_KEY",
+                "COHERE_API_KEY",
+            ):
                 if relay_config.get(key) and not os.environ.get(key):
                     os.environ[key] = relay_config[key]
             logger.info("Cloud API keys loaded from relay config file")

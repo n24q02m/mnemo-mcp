@@ -95,9 +95,7 @@ class TestEnsureConfig:
     @patch("mnemo_mcp.relay_setup.poll_for_result", new_callable=AsyncMock)
     @patch("mnemo_mcp.relay_setup.create_session", new_callable=AsyncMock)
     @patch("mnemo_mcp.relay_setup.resolve_config")
-    async def test_relay_setup_timeout(
-        self, mock_resolve, mock_session, mock_poll
-    ):
+    async def test_relay_setup_timeout(self, mock_resolve, mock_session, mock_poll):
         mock_resolve.return_value = MagicMock(config=None, source=None)
         mock_session.return_value = MagicMock(relay_url="https://example.com")
         mock_poll.side_effect = RuntimeError("Timeout")
