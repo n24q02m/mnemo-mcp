@@ -18,11 +18,10 @@ class TestConstants:
         assert DEFAULT_RELAY_URL == "https://mnemo-mcp.n24q02m.com"
 
     def test_required_fields(self):
-        assert REQUIRED_FIELDS == ["LITELLM_PROXY_URL"]
+        assert REQUIRED_FIELDS == ["API_KEYS"]
 
     def test_all_possible_fields(self):
-        assert "LITELLM_PROXY_URL" in ALL_POSSIBLE_FIELDS
-        assert "LITELLM_PROXY_KEY" in ALL_POSSIBLE_FIELDS
+        assert "API_KEYS" in ALL_POSSIBLE_FIELDS
 
 
 class TestLoadRelayConfig:
@@ -31,11 +30,11 @@ class TestLoadRelayConfig:
     @patch("mnemo_mcp.relay_setup.resolve_config")
     def test_returns_config_from_file(self, mock_resolve):
         mock_resolve.return_value = MagicMock(
-            config={"LITELLM_PROXY_URL": "http://proxy:4000"},
+            config={"API_KEYS": "JINA_AI_API_KEY:jina_test"},
             source="file",
         )
         result = load_relay_config()
-        assert result == {"LITELLM_PROXY_URL": "http://proxy:4000"}
+        assert result == {"API_KEYS": "JINA_AI_API_KEY:jina_test"}
         mock_resolve.assert_called_once_with("mnemo-mcp", REQUIRED_FIELDS)
 
     @patch("mnemo_mcp.relay_setup.resolve_config")
@@ -51,11 +50,11 @@ class TestEnsureConfig:
     @patch("mnemo_mcp.relay_setup.resolve_config")
     async def test_returns_config_from_file(self, mock_resolve):
         mock_resolve.return_value = MagicMock(
-            config={"LITELLM_PROXY_URL": "http://proxy:4000"},
+            config={"API_KEYS": "GEMINI_API_KEY:AIza_test"},
             source="file",
         )
         result = await ensure_config()
-        assert result == {"LITELLM_PROXY_URL": "http://proxy:4000"}
+        assert result == {"API_KEYS": "GEMINI_API_KEY:AIza_test"}
 
     @patch("mnemo_mcp.relay_setup.create_session", new_callable=AsyncMock)
     @patch("mnemo_mcp.relay_setup.resolve_config")
@@ -77,20 +76,15 @@ class TestEnsureConfig:
             relay_url="https://mnemo-mcp.n24q02m.com/#k=abc&p=xyz"
         )
         mock_poll.return_value = {
-            "LITELLM_PROXY_URL": "http://proxy:4000",
-            "LITELLM_PROXY_KEY": "sk-test",
+            "API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test",
         }
         result = await ensure_config()
         assert result == {
-            "LITELLM_PROXY_URL": "http://proxy:4000",
-            "LITELLM_PROXY_KEY": "sk-test",
+            "API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test",
         }
         mock_write.assert_called_once_with(
             "mnemo-mcp",
-            {
-                "LITELLM_PROXY_URL": "http://proxy:4000",
-                "LITELLM_PROXY_KEY": "sk-test",
-            },
+            {"API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test"},
         )
 
     @patch("mnemo_mcp.relay_setup.poll_for_result", new_callable=AsyncMock)

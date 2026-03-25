@@ -21,18 +21,12 @@ class TestRelaySchema:
         assert local["id"] == "local"
         assert local["fields"] == []
 
-    def test_proxy_mode(self):
-        proxy = RELAY_SCHEMA["modes"][1]
-        assert proxy["id"] == "proxy"
-        assert len(proxy["fields"]) == 2
+    def test_cloud_mode(self):
+        cloud = RELAY_SCHEMA["modes"][1]
+        assert cloud["id"] == "cloud"
+        assert len(cloud["fields"]) == 1
 
-    def test_proxy_mode_url_field(self):
-        url_field = RELAY_SCHEMA["modes"][1]["fields"][0]
-        assert url_field["key"] == "LITELLM_PROXY_URL"
-        assert url_field["type"] == "url"
-
-    def test_proxy_mode_key_field(self):
-        key_field = RELAY_SCHEMA["modes"][1]["fields"][1]
-        assert key_field["key"] == "LITELLM_PROXY_KEY"
-        assert key_field["type"] == "password"
-        assert key_field.get("required") is False
+    def test_cloud_mode_api_keys_field(self):
+        api_keys_field = RELAY_SCHEMA["modes"][1]["fields"][0]
+        assert api_keys_field["key"] == "API_KEYS"
+        assert api_keys_field["type"] == "password"

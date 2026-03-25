@@ -5,8 +5,7 @@ config file or triggers the relay page setup to collect credentials from the
 user via a browser-based form.
 
 For mnemo-mcp, relay is optional -- local mode works without any config.
-Proxy mode credentials are resolved via relay when LITELLM_PROXY_URL is not
-set in env but the user wants cloud embeddings.
+Cloud mode credentials (API_KEYS) are resolved via relay when not set in env.
 """
 
 from __future__ import annotations
@@ -21,19 +20,18 @@ from mcp_relay_core.storage.resolver import resolve_config
 from .relay_schema import RELAY_SCHEMA
 
 DEFAULT_RELAY_URL = "https://mnemo-mcp.n24q02m.com"
-REQUIRED_FIELDS = ["LITELLM_PROXY_URL"]
-ALL_POSSIBLE_FIELDS = ["LITELLM_PROXY_URL", "LITELLM_PROXY_KEY"]
+REQUIRED_FIELDS = ["API_KEYS"]
+ALL_POSSIBLE_FIELDS = ["API_KEYS"]
 
 
 def load_relay_config() -> dict[str, str] | None:
-    """Try to load proxy config from encrypted config file.
+    """Try to load cloud config from encrypted config file.
 
     Only checks the config file -- env vars are handled by pydantic-settings
     in Settings. This is a synchronous, non-blocking check.
 
     Returns:
-        Config dict with LITELLM_PROXY_URL (and optionally LITELLM_PROXY_KEY),
-        or None if no config file found.
+        Config dict with API_KEYS, or None if no config file found.
     """
     result = resolve_config("mnemo-mcp", REQUIRED_FIELDS)
     if result.config is not None:
@@ -43,7 +41,7 @@ def load_relay_config() -> dict[str, str] | None:
 
 
 async def ensure_config() -> dict[str, str] | None:
-    """Resolve proxy config or trigger relay setup.
+    """Resolve cloud config or trigger relay setup.
 
     Resolution order:
     1. Encrypted config file (~/.config/mcp/config.enc)
@@ -55,7 +53,7 @@ async def ensure_config() -> dict[str, str] | None:
     Note:
         Environment variables are NOT checked here -- pydantic-settings in
         Settings already handles that. This function is only called when
-        the user explicitly wants to configure proxy mode via the setup tool.
+        the user explicitly wants to configure cloud mode via the setup tool.
     """
     # Check config file
     config = load_relay_config()
@@ -63,7 +61,7 @@ async def ensure_config() -> dict[str, str] | None:
         return config
 
     # No config found -- trigger relay setup
-    logger.info("No proxy credentials found. Starting relay setup...")
+    logger.info("No cloud credentials found. Starting relay setup...")
 
     relay_url = DEFAULT_RELAY_URL
     try:
@@ -71,7 +69,7 @@ async def ensure_config() -> dict[str, str] | None:
     except Exception:
         logger.warning(
             "Cannot reach relay server at {}. "
-            "Set LITELLM_PROXY_URL manually or use local mode (default).",
+            "Set API_KEYS manually or use local mode (default).",
             relay_url,
         )
         return None
@@ -92,5 +90,5 @@ async def ensure_config() -> dict[str, str] | None:
 
     # Save to config file
     write_config("mnemo-mcp", config)
-    logger.info("Proxy config saved successfully")
+    logger.info("Cloud config saved successfully")
     return config
