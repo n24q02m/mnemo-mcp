@@ -165,6 +165,20 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     connections immediately. Tools gracefully degrade to FTS5-only search
     until the embedding model is ready.
     """
+    # 0. Try relay config if no proxy/SDK env vars are set
+    try:
+        from mnemo_mcp.relay_setup import load_relay_config
+
+        relay_config = load_relay_config()
+        if relay_config:
+            if relay_config.get("LITELLM_PROXY_URL"):
+                settings.litellm_proxy_url = relay_config["LITELLM_PROXY_URL"]
+            if relay_config.get("LITELLM_PROXY_KEY"):
+                settings.litellm_proxy_key = relay_config["LITELLM_PROXY_KEY"]
+            logger.info("Proxy config loaded from relay config file")
+    except Exception as e:
+        logger.debug(f"Relay config not available: {e}")
+
     # 1. Setup provider mode (sdk/local)
     mode = settings.setup_providers()
 

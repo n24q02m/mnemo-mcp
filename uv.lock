@@ -563,6 +563,16 @@ cli = [
 ]
 
 [[package]]
+name = "mcp-relay-core"
+version = "0.1.0"
+source = { git = "https://github.com/n24q02m/mcp-relay-core.git?subdirectory=packages%2Fcore-py&rev=main#10db0fa5555c6357e3a2711d83ef10320362ebe6" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "platformdirs" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -573,7 +583,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "1.11.0b1"
+version = "1.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "cohere" },
@@ -581,6 +591,7 @@ dependencies = [
     { name = "httpx" },
     { name = "loguru" },
     { name = "mcp", extra = ["cli"] },
+    { name = "mcp-relay-core" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -608,6 +619,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "loguru" },
     { name = "mcp", extras = ["cli"] },
+    { name = "mcp-relay-core", git = "https://github.com/n24q02m/mcp-relay-core.git?subdirectory=packages%2Fcore-py&rev=main" },
     { name = "openai", specifier = ">=1.50" },
     { name = "pydantic" },
     { name = "pydantic-settings" },

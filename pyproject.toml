@@ -36,6 +36,8 @@ dependencies = [
     "sqlite-vec",
     # Local ONNX embedding (auto-fallback when no cloud API)
     "qwen3-embed>=1.5.1",
+    # Zero-env-config credential relay
+    "mcp-relay-core @ git+https://github.com/n24q02m/mcp-relay-core.git@main#subdirectory=packages/core-py",
 ]
 
 [dependency-groups]
@@ -62,6 +64,9 @@ Issues = "https://github.com/n24q02m/mnemo-mcp/issues"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mnemo_mcp"]
