@@ -70,7 +70,13 @@ def save_token(provider: str, token: dict) -> None:
             pass
 
     path = get_token_path(provider)
-    path.write_text(json.dumps(token, indent=2), encoding="utf-8")
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    mode = stat.S_IRUSR | stat.S_IWUSR  # 0600
+
+    fd = os.open(path, flags, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(token, f, indent=2)
 
     # Secure file permissions (Unix only)
     if os.name != "nt":
