@@ -301,43 +301,26 @@ def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
 
 def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[str]:
     """Find memory IDs related via shared entities (up to max_depth hops)."""
-    entity_ids = [
-        r[0]
-        for r in conn.execute(
-            "SELECT entity_id FROM memory_entities WHERE memory_id = ?",
-            (memory_id,),
-        ).fetchall()
-    ]
-
-    if not entity_ids:
-        return []
-
-    visited_entities = set(entity_ids)
-    all_entity_ids = list(entity_ids)
-
-    # Walk relations up to max_depth hops
-    for _depth in range(max_depth - 1):
-        if not all_entity_ids:
-            break
-        placeholders = ",".join("?" * len(all_entity_ids))
-        neighbor_rows = conn.execute(
-            f"SELECT target_id FROM relations WHERE source_id IN ({placeholders}) "
-            f"UNION SELECT source_id FROM relations WHERE target_id IN ({placeholders})",
-            (*all_entity_ids, *all_entity_ids),
-        ).fetchall()
-        new_ids = [r[0] for r in neighbor_rows if r[0] not in visited_entities]
-        if not new_ids:
-            break
-        visited_entities.update(new_ids)
-        all_entity_ids = new_ids
-
-    # Find memories sharing any of the discovered entities
-    all_eids = list(visited_entities)
-    placeholders = ",".join("?" * len(all_eids))
-    rows = conn.execute(
-        f"SELECT DISTINCT memory_id FROM memory_entities "
-        f"WHERE entity_id IN ({placeholders}) AND memory_id != ?",
-        (*all_eids, memory_id),
-    ).fetchall()
-
+    # Bolt Performance Optimization:
+    # Replaced N+1 loop with a single WITH RECURSIVE query to traverse the relation
+    # graph directly in SQLite. This eliminates multiple Python-to-SQLite round-trips,
+    # significantly improving retrieval speed for deep or heavily connected memory webs.
+    query = """
+        WITH RECURSIVE
+          entity_hops(id, depth) AS (
+            SELECT entity_id, 0 FROM memory_entities WHERE memory_id = ?
+            UNION
+            SELECT
+              CASE WHEN r.source_id = eh.id THEN r.target_id ELSE r.source_id END,
+              eh.depth + 1
+            FROM entity_hops eh
+            JOIN relations r ON eh.id IN (r.source_id, r.target_id)
+            WHERE eh.depth < ?
+          )
+        SELECT DISTINCT me.memory_id
+        FROM memory_entities me
+        JOIN entity_hops eh ON me.entity_id = eh.id
+        WHERE me.memory_id != ?
+    """
+    rows = conn.execute(query, (memory_id, max_depth - 1, memory_id)).fetchall()
     return [r[0] for r in rows]
