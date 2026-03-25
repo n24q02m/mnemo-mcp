@@ -170,12 +170,13 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         from mnemo_mcp.relay_setup import load_relay_config
 
         relay_config = load_relay_config()
-        if relay_config and relay_config.get("API_KEYS"):
+        if relay_config:
             import os
 
-            if not os.environ.get("API_KEYS"):
-                os.environ["API_KEYS"] = relay_config["API_KEYS"]
-                logger.info("Cloud API keys loaded from relay config file")
+            for key in ("JINA_AI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "COHERE_API_KEY"):
+                if relay_config.get(key) and not os.environ.get(key):
+                    os.environ[key] = relay_config[key]
+            logger.info("Cloud API keys loaded from relay config file")
     except Exception as e:
         logger.debug(f"Relay config not available: {e}")
 

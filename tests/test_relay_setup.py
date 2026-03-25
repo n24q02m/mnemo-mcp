@@ -18,10 +18,13 @@ class TestConstants:
         assert DEFAULT_RELAY_URL == "https://mnemo-mcp.n24q02m.com"
 
     def test_required_fields(self):
-        assert REQUIRED_FIELDS == ["API_KEYS"]
+        assert REQUIRED_FIELDS == ["JINA_AI_API_KEY"]
 
     def test_all_possible_fields(self):
-        assert "API_KEYS" in ALL_POSSIBLE_FIELDS
+        assert "JINA_AI_API_KEY" in ALL_POSSIBLE_FIELDS
+        assert "GEMINI_API_KEY" in ALL_POSSIBLE_FIELDS
+        assert "OPENAI_API_KEY" in ALL_POSSIBLE_FIELDS
+        assert "COHERE_API_KEY" in ALL_POSSIBLE_FIELDS
 
 
 class TestLoadRelayConfig:
@@ -30,11 +33,11 @@ class TestLoadRelayConfig:
     @patch("mnemo_mcp.relay_setup.resolve_config")
     def test_returns_config_from_file(self, mock_resolve):
         mock_resolve.return_value = MagicMock(
-            config={"API_KEYS": "JINA_AI_API_KEY:jina_test"},
+            config={"JINA_AI_API_KEY": "jina_test"},
             source="file",
         )
         result = load_relay_config()
-        assert result == {"API_KEYS": "JINA_AI_API_KEY:jina_test"}
+        assert result == {"JINA_AI_API_KEY": "jina_test"}
         mock_resolve.assert_called_once_with("mnemo-mcp", REQUIRED_FIELDS)
 
     @patch("mnemo_mcp.relay_setup.resolve_config")
@@ -50,11 +53,11 @@ class TestEnsureConfig:
     @patch("mnemo_mcp.relay_setup.resolve_config")
     async def test_returns_config_from_file(self, mock_resolve):
         mock_resolve.return_value = MagicMock(
-            config={"API_KEYS": "GEMINI_API_KEY:AIza_test"},
+            config={"GEMINI_API_KEY": "AIza_test"},
             source="file",
         )
         result = await ensure_config()
-        assert result == {"API_KEYS": "GEMINI_API_KEY:AIza_test"}
+        assert result == {"GEMINI_API_KEY": "AIza_test"}
 
     @patch("mnemo_mcp.relay_setup.create_session", new_callable=AsyncMock)
     @patch("mnemo_mcp.relay_setup.resolve_config")
@@ -76,15 +79,17 @@ class TestEnsureConfig:
             relay_url="https://mnemo-mcp.n24q02m.com/#k=abc&p=xyz"
         )
         mock_poll.return_value = {
-            "API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test",
+            "JINA_AI_API_KEY": "jina_test",
+            "GEMINI_API_KEY": "AIza_test",
         }
         result = await ensure_config()
         assert result == {
-            "API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test",
+            "JINA_AI_API_KEY": "jina_test",
+            "GEMINI_API_KEY": "AIza_test",
         }
         mock_write.assert_called_once_with(
             "mnemo-mcp",
-            {"API_KEYS": "JINA_AI_API_KEY:jina_test,GEMINI_API_KEY:AIza_test"},
+            {"JINA_AI_API_KEY": "jina_test", "GEMINI_API_KEY": "AIza_test"},
         )
 
     @patch("mnemo_mcp.relay_setup.poll_for_result", new_callable=AsyncMock)

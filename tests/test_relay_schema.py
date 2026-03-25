@@ -24,9 +24,15 @@ class TestRelaySchema:
     def test_cloud_mode(self):
         cloud = RELAY_SCHEMA["modes"][1]
         assert cloud["id"] == "cloud"
-        assert len(cloud["fields"]) == 1
+        assert len(cloud["fields"]) == 4
 
-    def test_cloud_mode_api_keys_field(self):
-        api_keys_field = RELAY_SCHEMA["modes"][1]["fields"][0]
-        assert api_keys_field["key"] == "API_KEYS"
-        assert api_keys_field["type"] == "password"
+    def test_cloud_mode_provider_keys(self):
+        fields = RELAY_SCHEMA["modes"][1]["fields"]
+        keys = [f["key"] for f in fields]
+        assert "JINA_AI_API_KEY" in keys
+        assert "GEMINI_API_KEY" in keys
+        assert "OPENAI_API_KEY" in keys
+        assert "COHERE_API_KEY" in keys
+        # All optional (user provides whichever they have)
+        for f in fields:
+            assert f.get("required") is False

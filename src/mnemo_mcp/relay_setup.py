@@ -5,7 +5,7 @@ config file or triggers the relay page setup to collect credentials from the
 user via a browser-based form.
 
 For mnemo-mcp, relay is optional -- local mode works without any config.
-Cloud mode credentials (API_KEYS) are resolved via relay when not set in env.
+Cloud mode credentials (provider API keys) are resolved via relay when not set in env.
 """
 
 from __future__ import annotations
@@ -20,8 +20,13 @@ from mcp_relay_core.storage.resolver import resolve_config
 from .relay_schema import RELAY_SCHEMA
 
 DEFAULT_RELAY_URL = "https://mnemo-mcp.n24q02m.com"
-REQUIRED_FIELDS = ["API_KEYS"]
-ALL_POSSIBLE_FIELDS = ["API_KEYS"]
+REQUIRED_FIELDS = ["JINA_AI_API_KEY"]  # At least one provider key needed
+ALL_POSSIBLE_FIELDS = [
+    "JINA_AI_API_KEY",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "COHERE_API_KEY",
+]
 
 
 def load_relay_config() -> dict[str, str] | None:
@@ -69,7 +74,7 @@ async def ensure_config() -> dict[str, str] | None:
     except Exception:
         logger.warning(
             "Cannot reach relay server at {}. "
-            "Set API_KEYS manually or use local mode (default).",
+            "Set provider API keys manually or use local mode (default).",
             relay_url,
         )
         return None
