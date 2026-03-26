@@ -342,26 +342,33 @@ class MemoryDB:
         # 2. Semantic search (if embedding provided)
         if embedding and self._vec_enabled:
             try:
-                vec_sql = """
+                # Bolt Performance Optimization:
+                # Use list joins instead of `+=` string concatenation for faster execution.
+                vec_sql_parts = [
+                    """
                     SELECT v.id, v.distance
                     FROM memories_vec v
                     JOIN memories m ON v.id = m.id
                     WHERE v.embedding MATCH ?
                 """
+                ]
                 vec_params: list = [_serialize_f32(embedding)]
 
                 if category:
-                    vec_sql += " AND m.category = ?"
+                    vec_sql_parts.append(" AND m.category = ?")
                     vec_params.append(category)
 
                 if tags:
                     tag_placeholders = ",".join("?" for _ in tags)
-                    vec_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+                    vec_sql_parts.append(
+                        f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+                    )
                     vec_params.extend(tags)
 
-                vec_sql += " ORDER BY distance LIMIT ?"
+                vec_sql_parts.append(" ORDER BY distance LIMIT ?")
                 vec_params.append(limit * 3)
 
+                vec_sql = "".join(vec_sql_parts)
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
 
                 missing_ids = []
@@ -420,30 +427,41 @@ class MemoryDB:
         results: dict[str, dict] = {}
         fts_queries = _build_fts_queries(query)
 
-        for fts_query in fts_queries:
-            try:
-                fts_sql = """
+        # Bolt Performance Optimization:
+        # Pre-build common SQL fragments and parameters outside the tiered loop to avoid
+        # redundant string allocations and construction logic parsing. Using list joins
+        # instead of `+=` concatenation provides faster execution in Python loops.
+        sql_parts = [
+            """
                     SELECT m.*,
                            bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score
                     FROM memories_fts f
                     JOIN memories m ON f.id = m.id
                     WHERE memories_fts MATCH ?
                 """
-                fts_params: list = [fts_query]
+        ]
+        shared_params: list = []
 
-                if category:
-                    fts_sql += " AND m.category = ?"
-                    fts_params.append(category)
+        if category:
+            sql_parts.append(" AND m.category = ?")
+            shared_params.append(category)
 
-                if tags:
-                    tag_placeholders = ",".join("?" for _ in tags)
-                    fts_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
-                    fts_params.extend(tags)
+        if tags:
+            tag_placeholders = ",".join("?" for _ in tags)
+            sql_parts.append(
+                f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+            )
+            shared_params.extend(tags)
 
-                fts_sql += " ORDER BY bm25_score LIMIT ?"
-                fts_params.append(limit * 3)
+        sql_parts.append(" ORDER BY bm25_score LIMIT ?")
+        shared_params.append(limit * 3)
+        base_sql = "".join(sql_parts)
 
-                rows = self._conn.execute(fts_sql, fts_params).fetchall()
+        for fts_query in fts_queries:
+            try:
+                fts_params = [fts_query, *shared_params]
+
+                rows = self._conn.execute(base_sql, fts_params).fetchall()
                 if rows:
                     for row in rows:
                         mid = row["id"]

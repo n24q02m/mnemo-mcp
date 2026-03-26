@@ -212,28 +212,50 @@ async def score_importance(content: str) -> float:
 def upsert_entities(conn, entities: list[dict]) -> list[str]:
     """Insert or update entities. Returns list of entity IDs."""
     now = datetime.now(UTC).isoformat()
-    ids = []
+
+    # Extract unique valid entities to preserve order
+    valid_entities = []
+    seen = set()
     for ent in entities:
         name = ent.get("name", "").strip()
         etype = ent.get("type", "concept").strip().lower()
         if not name:
             continue
-        row = conn.execute(
-            "SELECT id FROM entities WHERE name = ? AND entity_type = ?",
-            (name, etype),
-        ).fetchone()
-        if row:
-            eid = row[0]
-            conn.execute("UPDATE entities SET updated_at = ? WHERE id = ?", (now, eid))
-        else:
-            eid = str(uuid.uuid4())
-            conn.execute(
-                "INSERT INTO entities (id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (eid, name, etype, now, now),
-            )
-        ids.append(eid)
-    return ids
+        key = (name, etype)
+        if key not in seen:
+            seen.add(key)
+            valid_entities.append((str(uuid.uuid4()), name, etype, now, now))
+
+    if not valid_entities:
+        return []
+
+    # Bolt Performance Optimization:
+    # Use a single `executemany` with `UPSERT` to eliminate N+1 query overhead.
+    # Reduces SQLite virtual machine preparation and execution time significantly.
+    conn.executemany(
+        """
+        INSERT INTO entities (id, name, entity_type, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(name, entity_type) DO UPDATE SET updated_at = excluded.updated_at
+        """,
+        valid_entities,
+    )
+
+    # Bulk fetch the resulting IDs using VALUES clause for composite keys
+    query_params = []
+    values_clause = []
+    for _, name, etype, _, _ in valid_entities:
+        query_params.extend([name, etype])
+        values_clause.append("(?, ?)")
+
+    # Values clause syntax requires a comma-separated list of tuples
+    placeholders = ",".join(values_clause)
+    rows = conn.execute(
+        f"SELECT id FROM entities WHERE (name, entity_type) IN (VALUES {placeholders})",
+        query_params,
+    ).fetchall()
+
+    return [r[0] for r in rows]
 
 
 def create_relations(
