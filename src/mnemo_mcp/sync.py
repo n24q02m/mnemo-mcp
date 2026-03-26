@@ -510,7 +510,7 @@ async def _interactive_auth(rclone_path: Path, provider: str) -> dict | None:
 
     result = await asyncio.to_thread(
         lambda: subprocess.run(
-            [str(rclone_path), "authorize", "--", shlex.quote(provider)],
+            [str(rclone_path), "authorize", "--", provider],
             stdout=subprocess.PIPE,
             text=True,
             timeout=300,
@@ -576,7 +576,7 @@ def setup_sync(remote_type: str = "drive") -> None:
     # Capture stdout (contains token JSON), let stderr pass through
     # so user sees rclone progress messages in real-time
     result = subprocess.run(
-        [str(rclone_path), "authorize", "--", shlex.quote(remote_type)],
+        [str(rclone_path), "authorize", "--", remote_type],
         stdout=subprocess.PIPE,
         text=True,
         timeout=300,
