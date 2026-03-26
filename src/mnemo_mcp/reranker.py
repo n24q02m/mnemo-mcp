@@ -1,4 +1,4 @@
-"""Dual-backend reranking: LiteLLM (cloud) + qwen3-embed (local ONNX).
+"""Dual-backend reranking: Cloud (Jina/Cohere) + qwen3-embed (local ONNX).
 
 Reranker takes search results and re-scores them with a cross-encoder
 for better precision. Pipeline: retrieve top-N*3 -> rerank -> return top-N.
@@ -6,11 +6,32 @@ for better precision. Pipeline: retrieve top-N*3 -> rerank -> return top-N.
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Protocol
 
 from loguru import logger
+
+
+def _detect_rerank_provider(model: str) -> str:
+    """Detect reranker provider from model name.
+
+    Returns 'jina' or 'cohere'.
+    """
+    lower = model.lower()
+    if lower.startswith("jina_ai/") or lower.startswith("jina"):
+        return "jina"
+    # Fallback: check env vars in priority order
+    if not (lower.startswith("rerank") or lower.startswith("cohere/")):
+        if os.getenv("JINA_AI_API_KEY"):
+            return "jina"
+    return "cohere"
+
+
+def _strip_provider(model: str) -> str:
+    """Strip provider prefix (e.g. 'jina_ai/model' -> 'model')."""
+    if "/" in model:
+        return model.split("/", 1)[1]
+    return model
 
 
 class RerankerBackend(Protocol):
@@ -30,75 +51,98 @@ class RerankerBackend(Protocol):
         ...
 
 
-class LiteLLMReranker:
-    """Cloud reranking via LiteLLM rerank() API."""
+class CloudReranker:
+    """Cloud reranking via Jina AI or Cohere SDK."""
 
     def __init__(
         self,
-        model: str,
+        model: str | None = None,
         api_base: str | None = None,
         api_key: str | None = None,
     ):
-        self.model = model
+        self.model = model or "rerank-v4.0-pro"
         self.api_base = api_base
         self.api_key = api_key
-        self._setup_litellm()
-
-    def _setup_litellm(self) -> None:
-        """Silence LiteLLM logging."""
-        os.environ.setdefault("LITELLM_LOG", "ERROR")
-        import litellm
-
-        litellm.suppress_debug_info = True  # type: ignore[assignment]
-        litellm.set_verbose = False
-        logging.getLogger("LiteLLM").setLevel(logging.ERROR)
-        logging.getLogger("LiteLLM").handlers = [logging.NullHandler()]
-
-    def _build_kwargs(self, query: str, documents: list[str], top_n: int) -> dict:
-        """Build kwargs dict for litellm.rerank()."""
-        kwargs: dict = {
-            "model": self.model,
-            "query": query,
-            "documents": documents,
-            "top_n": top_n,
-        }
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
-        return kwargs
+        self._provider = _detect_rerank_provider(self.model)
+        self._bare_model = _strip_provider(self.model)
 
     def rerank(
         self, query: str, documents: list[str], top_n: int = 10
     ) -> list[tuple[int, float]]:
-        """Rerank documents via LiteLLM cloud API."""
+        """Rerank documents via cloud API (Jina or Cohere)."""
         if not documents:
             return []
         try:
-            import litellm
-
-            kwargs = self._build_kwargs(query, documents, top_n)
-            response = litellm.rerank(**kwargs)
-            results: list[tuple[int, float]] = []
-            for item in response.results:
-                if isinstance(item, dict):
-                    results.append((item["index"], item["relevance_score"]))
-                else:
-                    results.append((item.index, item.relevance_score))
-            results.sort(key=lambda x: x[1], reverse=True)
-            return results[:top_n]
+            if self._provider == "jina":
+                return self._rerank_jina(query, documents, top_n)
+            return self._rerank_cohere(query, documents, top_n)
         except Exception as e:
-            logger.warning(f"LiteLLM reranking failed: {e}")
+            logger.warning(f"Cloud reranking failed ({self._provider}): {e}")
             return []
+
+    def _rerank_jina(
+        self, query: str, documents: list[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        """Rerank via Jina AI REST API."""
+        import httpx
+
+        key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
+        payload: dict = {
+            "model": self._bare_model,
+            "query": query,
+            "documents": documents,
+            "top_n": top_n,
+        }
+
+        response = httpx.post(
+            "https://api.jina.ai/v1/rerank",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()["results"]
+
+        results: list[tuple[int, float]] = []
+        for item in data:
+            results.append((item["index"], item["relevance_score"]))
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_n]
+
+    def _rerank_cohere(
+        self, query: str, documents: list[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        """Rerank via Cohere SDK."""
+        import cohere
+
+        key = (
+            self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
+        )
+        client = cohere.ClientV2(api_key=key)
+        response = client.rerank(
+            model=self._bare_model,
+            query=query,
+            documents=documents,
+            top_n=top_n,
+        )
+        results: list[tuple[int, float]] = []
+        for item in response.results:
+            if isinstance(item, dict):
+                results.append((item["index"], item["relevance_score"]))
+            else:
+                results.append((item.index, item.relevance_score))
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_n]
 
     def check_available(self) -> bool:
         """Check if the cloud reranker model is reachable."""
         try:
-            import litellm
-
-            kwargs = self._build_kwargs("test", ["test"], 1)
-            response = litellm.rerank(**kwargs)
-            return bool(response.results)
+            if self._provider == "jina":
+                return self._check_jina()
+            return self._check_cohere()
         except Exception as e:
             msg = str(e).lower()
             if any(
@@ -108,6 +152,49 @@ class LiteLLMReranker:
             else:
                 logger.debug(f"Reranker {self.model} not available: {e}")
             return False
+
+    def _check_jina(self) -> bool:
+        """Check Jina reranker availability."""
+        import httpx
+
+        key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
+        response = httpx.post(
+            "https://api.jina.ai/v1/rerank",
+            json={
+                "model": self._bare_model,
+                "query": "test",
+                "documents": ["test"],
+                "top_n": 1,
+            },
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        return bool(response.json().get("results"))
+
+    def _check_cohere(self) -> bool:
+        """Check Cohere reranker availability."""
+        import cohere
+
+        key = (
+            self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
+        )
+        client = cohere.ClientV2(api_key=key)
+        response = client.rerank(
+            model=self._bare_model,
+            query="test",
+            documents=["test"],
+            top_n=1,
+        )
+        return bool(response.results)
+
+
+# Backward compatibility aliases
+CohereReranker = CloudReranker
+LiteLLMReranker = CloudReranker
 
 
 class Qwen3Reranker:
@@ -183,20 +270,18 @@ def init_reranker(
     """Initialize and cache the reranker backend.
 
     Args:
-        backend_type: 'litellm' or 'local'
-        model: Model name (required for litellm, optional for local)
-        api_base: Custom API base URL (for litellm backend)
-        api_key: Custom API key (for litellm backend)
+        backend_type: 'cloud', 'litellm' (backward compat), or 'local'
+        model: Model name (optional for cloud, optional for local)
+        api_base: Custom API base URL (for cloud backend)
+        api_key: Custom API key (for cloud backend)
 
     Returns:
         Initialized backend instance.
     """
     global _backend
 
-    if backend_type == "litellm":
-        if not model:
-            raise ValueError("model is required for litellm reranker")
-        _backend = LiteLLMReranker(model, api_base=api_base, api_key=api_key)
+    if backend_type in ("cloud", "litellm"):
+        _backend = CloudReranker(model, api_base=api_base, api_key=api_key)
     elif backend_type == "local":
         _backend = Qwen3Reranker(model)
     else:

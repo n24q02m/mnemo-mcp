@@ -29,7 +29,7 @@ class TestWarmupInitEmbeddingBackend:
     )
     @patch("mnemo_mcp.embedder.init_backend")
     @patch("mnemo_mcp.server.settings")
-    async def test_litellm_explicit_model_success(
+    async def test_cloud_explicit_model_success(
         self, mock_settings, mock_init, _mock_thread
     ):
         """When explicit model works, ctx is updated in-place."""
@@ -39,7 +39,7 @@ class TestWarmupInitEmbeddingBackend:
 
         mock_settings.resolve_embedding_model.return_value = "gemini/model"
         mock_settings.resolve_embedding_dims.return_value = 0
-        mock_settings.resolve_embedding_backend.return_value = "litellm"
+        mock_settings.resolve_embedding_backend.return_value = "cloud"
 
         mock_backend = MagicMock()
         mock_backend.check_available.return_value = 3072
@@ -61,7 +61,7 @@ class TestWarmupInitEmbeddingBackend:
     )
     @patch("mnemo_mcp.embedder.init_backend")
     @patch("mnemo_mcp.server.settings")
-    async def test_litellm_auto_detect_candidates(
+    async def test_cloud_auto_detect_candidates(
         self, mock_settings, mock_init, _mock_thread
     ):
         """Auto-detect iterates through _EMBEDDING_CANDIDATES."""
@@ -71,7 +71,7 @@ class TestWarmupInitEmbeddingBackend:
 
         mock_settings.resolve_embedding_model.return_value = None
         mock_settings.resolve_embedding_dims.return_value = 0
-        mock_settings.resolve_embedding_backend.return_value = "litellm"
+        mock_settings.resolve_embedding_backend.return_value = "cloud"
 
         # First candidate fails, second succeeds
         backend_fail = MagicMock()
@@ -103,7 +103,7 @@ class TestWarmupInitEmbeddingBackend:
 
         mock_settings.resolve_embedding_model.return_value = "model"
         mock_settings.resolve_embedding_dims.return_value = 0
-        mock_settings.resolve_embedding_backend.return_value = "litellm"
+        mock_settings.resolve_embedding_backend.return_value = "cloud"
         mock_settings.resolve_local_embedding_model.return_value = "local/model"
 
         # Cloud fails, local succeeds

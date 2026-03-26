@@ -44,7 +44,7 @@ def _validate_cloud_models(settings_obj) -> dict:
 
     for candidate in candidates:
         try:
-            backend = init_backend("litellm", candidate)
+            backend = init_backend("cloud", candidate)
             dims = backend.check_available()
             if dims > 0:
                 return {
@@ -158,8 +158,12 @@ async def run_setup_sync(provider: str = "drive") -> dict:
 
     Returns a structured dict with setup results.
     """
+    from mnemo_mcp.config import RCLONE_PROVIDERS
     from mnemo_mcp.sync import _download_rclone, _extract_token, _get_rclone_path
     from mnemo_mcp.token_store import get_token_path, save_token
+
+    if provider not in RCLONE_PROVIDERS:
+        return {"status": "error", "error": f"Invalid provider: {provider}"}
 
     rclone_path = _get_rclone_path()
     if not rclone_path:

@@ -38,8 +38,31 @@ mcp-name: io.github.n24q02m/mnemo-mcp
 
 ### Claude Code Plugin (Recommended)
 
+Via marketplace (includes skills: /session-handoff, /knowledge-audit):
+
 ```bash
-claude plugin add n24q02m/mnemo-mcp
+/plugin marketplace add n24q02m/claude-plugins
+/plugin install mnemo-mcp@n24q02m-plugins
+```
+
+
+
+Configure env vars in `~/.claude/settings.local.json` or shell profile. See [Environment Variables](#environment-variables).
+
+### Gemini CLI Extension
+
+```bash
+gemini extensions install https://github.com/n24q02m/mnemo-mcp
+```
+
+### Codex CLI
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.mnemo]
+command = "uvx"
+args = ["--python", "3.13", "mnemo-mcp"]
 ```
 
 ### MCP Server
@@ -51,19 +74,7 @@ claude plugin add n24q02m/mnemo-mcp
   "mcpServers": {
     "mnemo": {
       "command": "uvx",
-      "args": ["mnemo-mcp@latest"],
-      "env": {
-        // -- optional: cloud embedding + reranking (Jina AI recommended)
-        "API_KEYS": "JINA_AI_API_KEY:jina_...",
-        // -- or: "API_KEYS": "GOOGLE_API_KEY:AIza...,COHERE_API_KEY:co-...",
-        // -- without API_KEYS, uses built-in local Qwen3 ONNX models (CPU, ~570MB first download)
-        // -- optional: LiteLLM Proxy (production, selfhosted gateway)
-        // "LITELLM_PROXY_URL": "http://10.0.0.20:4000",
-        // "LITELLM_PROXY_KEY": "sk-your-virtual-key",
-        // -- optional: sync memories across machines via rclone
-        "SYNC_ENABLED": "true",                    // default: false
-        "SYNC_INTERVAL": "300"                     // auto-sync every 5min (0 = manual only)
-      }
+      "args": ["--python", "3.13", "mnemo-mcp@latest"]
     }
   }
 }
@@ -82,54 +93,14 @@ claude plugin add n24q02m/mnemo-mcp
         "-v", "mnemo-data:/data",
         "-e", "API_KEYS",
         "-e", "SYNC_ENABLED",
-        "-e", "SYNC_INTERVAL",
         "n24q02m/mnemo-mcp:latest"
-      ],
-      "env": {
-        "API_KEYS": "JINA_AI_API_KEY:jina_...",
-        "SYNC_ENABLED": "true",
-        "SYNC_INTERVAL": "300"
-      }
+      ]
     }
   }
 }
 ```
 
-### Pre-install (optional)
-
-Pre-download the embedding model (~570 MB) to avoid first-run delays.
-Use the `setup` MCP tool after connecting:
-
-```
-setup(action="warmup")
-```
-
-Or with cloud embedding (validates API key, skips local download if cloud works):
-
-```jsonc
-{
-  "env": { "API_KEYS": "JINA_AI_API_KEY:jina_..." }
-}
-// Then: setup(action="warmup")
-```
-
-### Sync setup
-
-Sync is fully automatic. Just set `SYNC_ENABLED=true` and the server handles everything:
-
-1. **First sync**: rclone is auto-downloaded, a browser opens for OAuth authentication
-2. **Token saved**: OAuth token is stored locally at `~/.mnemo-mcp/tokens/` (600 permissions)
-3. **Subsequent runs**: Token is loaded automatically -- no manual steps needed
-
-For non-Google Drive providers, set `SYNC_PROVIDER` and `SYNC_REMOTE`:
-
-```jsonc
-{
-  "SYNC_ENABLED": "true",
-  "SYNC_PROVIDER": "dropbox",
-  "SYNC_REMOTE": "dropbox"
-}
-```
+Configure env vars in `~/.claude/settings.local.json` or your shell profile. See [Environment Variables](#environment-variables) below.
 
 ## Tools
 
@@ -154,22 +125,66 @@ For non-Google Drive providers, set `SYNC_PROVIDER` and `SYNC_REMOTE`:
 | `save_summary` | `summary` | Generate prompt to save a conversation summary as memory |
 | `recall_context` | `topic` | Generate prompt to recall relevant memories about a topic |
 
+## Zero-Config Setup
+
+No environment variables needed. On first start, the server opens a setup page in your browser:
+
+1. Start the server (via plugin, `uvx`, or Docker)
+2. A setup URL appears -- open it in any browser
+3. Fill in your credentials on the guided form
+4. Credentials are encrypted and stored locally
+
+Your credentials never leave your machine. The relay server only sees encrypted data.
+
+For CI/automation, you can still use environment variables (see below).
+
 ## Configuration
+
+### Pre-install (optional)
+
+Pre-download the embedding model (~570 MB) to avoid first-run delays.
+Use the `setup` MCP tool after connecting:
+
+```
+setup(action="warmup")
+```
+
+### Sync setup
+
+Sync is fully automatic. Just set `SYNC_ENABLED=true` and the server handles everything:
+
+1. **First sync**: rclone is auto-downloaded, a browser opens for OAuth authentication
+2. **Token saved**: OAuth token is stored locally at `~/.mnemo-mcp/tokens/` (600 permissions)
+3. **Subsequent runs**: Token is loaded automatically -- no manual steps needed
+
+For non-Google Drive providers, set `SYNC_PROVIDER` and `SYNC_REMOTE`:
+
+```jsonc
+{
+  "SYNC_ENABLED": "true",
+  "SYNC_PROVIDER": "dropbox",
+  "SYNC_REMOTE": "dropbox"
+}
+```
+
+### Environment Variables
 
 | Variable | Required | Default | Description |
 |:---------|:---------|:--------|:------------|
 | `API_KEYS` | No | -- | API keys (`ENV:key,ENV:key`). Enables cloud embedding + reranking |
-| `LITELLM_PROXY_URL` | No | -- | LiteLLM Proxy URL. Enables proxy mode |
-| `LITELLM_PROXY_KEY` | No | -- | LiteLLM Proxy virtual key |
+| `COHERE_API_KEY` | No | -- | Cohere API key (embedding + reranking) |
+| `JINA_AI_API_KEY` | No | -- | Jina AI API key (embedding + reranking) |
+| `GEMINI_API_KEY` | No | -- | Google Gemini API key (LLM + embedding) |
+| `OPENAI_API_KEY` | No | -- | OpenAI API key (LLM + embedding) |
 | `DB_PATH` | No | `~/.mnemo-mcp/memories.db` | Database location |
-| `EMBEDDING_BACKEND` | No | auto-detect | `litellm` (cloud) or `local` (Qwen3) |
-| `EMBEDDING_MODEL` | No | auto-detect | LiteLLM embedding model name |
+| `EMBEDDING_BACKEND` | No | auto-detect | `cloud` (auto-detect from API keys: Jina > Gemini > OpenAI > Cohere) or `local` (Qwen3) |
+| `EMBEDDING_MODEL` | No | auto-detect | Cloud embedding model name |
 | `EMBEDDING_DIMS` | No | `0` (auto=768) | Embedding dimensions |
 | `RERANK_ENABLED` | No | `true` | Enable reranking (improves search precision) |
-| `RERANK_BACKEND` | No | auto-detect | `litellm` (cloud) or `local` (Qwen3) |
-| `RERANK_MODEL` | No | auto-detect | LiteLLM reranker model name |
+| `RERANK_BACKEND` | No | auto-detect | `cloud` (auto-detect from API keys: Jina > Cohere) or `local` (Qwen3) |
+| `RERANK_MODEL` | No | auto-detect | Cloud reranker model name |
 | `RERANK_TOP_N` | No | `10` | Number of top results to keep after reranking |
-| `LLM_MODELS` | No | `gemini/gemini-3-flash-preview` | LLM model for graph extraction, importance scoring, consolidation |
+| `LLM_MODELS` | No | `gemini-3-flash-preview` | LLM model for graph extraction, importance scoring, consolidation (google-genai or openai) |
 | `ARCHIVE_ENABLED` | No | `true` | Enable auto-archiving of old low-importance memories |
 | `ARCHIVE_AFTER_DAYS` | No | `90` | Days before a memory is eligible for auto-archive |
 | `ARCHIVE_IMPORTANCE_THRESHOLD` | No | `0.3` | Memories below this importance score are auto-archived |
@@ -193,6 +208,13 @@ Both embedding and reranking are **always available** -- local models are built-
 - **GPU auto-detection**: CUDA/DirectML auto-detected, uses GGUF models for better performance
 - All embeddings stored at **768 dims**. Switching providers never breaks the vector table
 
+## Security
+
+- **Graceful fallbacks** -- Cloud → Local embedding, no cross-mode fallback
+- **Sync token security** -- OAuth tokens stored at `~/.mnemo-mcp/tokens/` with 600 permissions
+- **Input validation** -- Sync provider, folder, remote validated against allowlists
+- **Error sanitization** -- No credentials in error messages
+
 ## Build from Source
 
 ```bash
@@ -201,32 +223,6 @@ cd mnemo-mcp
 uv sync
 uv run mnemo-mcp
 ```
-
-## Compatible With
-
-[![Claude Code](https://img.shields.io/badge/Claude_Code-000000?logo=anthropic&logoColor=white)](#quick-start)
-[![Claude Desktop](https://img.shields.io/badge/Claude_Desktop-F9DC7C?logo=anthropic&logoColor=black)](#quick-start)
-[![Cursor](https://img.shields.io/badge/Cursor-000000?logo=cursor&logoColor=white)](#quick-start)
-[![VS Code Copilot](https://img.shields.io/badge/VS_Code_Copilot-007ACC?logo=visualstudiocode&logoColor=white)](#quick-start)
-[![Antigravity](https://img.shields.io/badge/Antigravity-4285F4?logo=google&logoColor=white)](#quick-start)
-[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-8E75B2?logo=googlegemini&logoColor=white)](#quick-start)
-[![OpenAI Codex](https://img.shields.io/badge/Codex-412991?logo=openai&logoColor=white)](#quick-start)
-[![OpenCode](https://img.shields.io/badge/OpenCode-F7DF1E?logoColor=black)](#quick-start)
-
-## Also by n24q02m
-
-| Server | Description |
-|--------|-------------|
-| [wet-mcp](https://github.com/n24q02m/wet-mcp) | Web search, content extraction, and documentation indexing |
-| [better-notion-mcp](https://github.com/n24q02m/better-notion-mcp) | Markdown-first Notion API with 9 composite tools |
-| [better-email-mcp](https://github.com/n24q02m/better-email-mcp) | Email (IMAP/SMTP) with multi-account and auto-discovery |
-| [better-godot-mcp](https://github.com/n24q02m/better-godot-mcp) | Godot Engine 4.x with 18 tools for scenes, scripts, and shaders |
-| [better-telegram-mcp](https://github.com/n24q02m/better-telegram-mcp) | Telegram dual-mode (Bot API + MTProto) with 6 composite tools |
-| [better-code-review-graph](https://github.com/n24q02m/better-code-review-graph) | Knowledge graph for token-efficient code reviews |
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

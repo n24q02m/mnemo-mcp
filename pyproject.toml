@@ -1,6 +1,6 @@
 [project]
 name = "mnemo-mcp"
-version = "1.10.0"
+version = "1.12.0"
 description = "Open-source MCP Server for persistent AI memory with embedded sync"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,12 +27,17 @@ dependencies = [
     "pydantic-settings",
     # Logging
     "loguru",
-    # LLM (for auto-detecting providers + embedding)
-    "litellm",
+    # Cloud embedding + reranking (Cohere SDK)
+    "cohere>=5.21.1",
+    # LLM completion (native SDKs)
+    "google-genai>=1.68.0",
+    "openai>=1.109.1",
     # SQLite vector search
     "sqlite-vec",
     # Local ONNX embedding (auto-fallback when no cloud API)
     "qwen3-embed>=1.5.1",
+    # Zero-env-config credential relay
+    "mcp-relay-core>=0.1.0",
 ]
 
 [dependency-groups]
@@ -91,6 +96,7 @@ rules = { unresolved-import = "ignore", unresolved-attribute = "ignore", possibl
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
+version_variables = [".claude-plugin/plugin.json:version", "gemini-extension.json:version", "server.json:version"]
 tag_format = "v{version}"
 commit_message = "chore(release): v{version}"
 major_on_zero = false

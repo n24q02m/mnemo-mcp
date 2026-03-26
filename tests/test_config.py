@@ -116,7 +116,7 @@ class TestApiKeys:
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     def test_alias_google_to_gemini(self, monkeypatch):
-        """GOOGLE_API_KEY should also set GEMINI_API_KEY for LiteLLM embeddings."""
+        """GOOGLE_API_KEY should also set GEMINI_API_KEY for Gemini SDK."""
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         s = Settings(api_keys="GOOGLE_API_KEY:test-key")
         s.setup_api_keys()
@@ -171,28 +171,37 @@ class TestEmbeddingDims:
 class TestEmbeddingBackend:
     def test_explicit_litellm(self):
         s = Settings(embedding_backend="litellm", api_keys=None)
-        assert s.resolve_embedding_backend() == "litellm"
+        assert s.resolve_embedding_backend() == "cloud"
 
     def test_explicit_local(self):
         s = Settings(embedding_backend="local", api_keys=None)
         assert s.resolve_embedding_backend() == "local"
 
-    def test_auto_detect_litellm_with_keys(self):
-        """Falls back to litellm when qwen3-embed not installed but keys provided."""
+    def test_auto_detect_cloud_with_keys(self):
+        """Falls back to cloud when keys provided."""
         s = Settings(api_keys="GOOGLE_API_KEY:key")
-        assert s.resolve_embedding_backend() in ("litellm", "local")
+        assert s.resolve_embedding_backend() in ("cloud", "local")
 
-    def test_auto_detect_no_keys_no_local(self):
-        """Returns '' when no keys and no local model."""
+    def test_auto_detect_no_keys_no_local(self, monkeypatch):
+        """Returns 'local' when no keys configured."""
+        for k in (
+            "JINA_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
         s = Settings(api_keys=None)
-        # Only if qwen3-embed is not installed
         result = s.resolve_embedding_backend()
-        assert result in ("", "local")  # local if qwen3-embed installed in env
+        assert result == "local"
 
     def test_explicit_overrides_auto(self):
         """Explicit backend takes priority over auto-detection."""
         s = Settings(embedding_backend="litellm", api_keys=None)
-        assert s.resolve_embedding_backend() == "litellm"
+        assert s.resolve_embedding_backend() == "cloud"
 
 
 class TestRerankSettings:
@@ -218,24 +227,20 @@ class TestRerankSettings:
 
     def test_resolve_rerank_backend_explicit(self):
         s = Settings(rerank_backend="litellm", api_keys=None)
-        assert s.resolve_rerank_backend() == "litellm"
-
-    def test_resolve_rerank_backend_proxy(self):
-        s = Settings(litellm_proxy_url="http://proxy:4000", api_keys=None)
-        assert s.resolve_rerank_backend() == "litellm"
+        assert s.resolve_rerank_backend() == "cloud"
 
     def test_resolve_rerank_backend_model_set(self):
         s = Settings(rerank_model="custom/reranker", api_keys=None)
-        assert s.resolve_rerank_backend() == "litellm"
+        assert s.resolve_rerank_backend() == "cloud"
 
-    def test_resolve_rerank_backend_jina_env(self, monkeypatch):
-        monkeypatch.setenv("JINA_AI_API_KEY", "test-key")
+    def test_resolve_rerank_backend_cohere_env(self, monkeypatch):
+        monkeypatch.setenv("COHERE_API_KEY", "test-key")
         s = Settings(api_keys=None)
-        assert s.resolve_rerank_backend() == "litellm"
+        assert s.resolve_rerank_backend() == "cloud"
 
-    def test_resolve_rerank_backend_jina_in_api_keys(self):
-        s = Settings(api_keys="JINA_AI_API_KEY:test-key")
-        assert s.resolve_rerank_backend() == "litellm"
+    def test_resolve_rerank_backend_cohere_in_api_keys(self):
+        s = Settings(api_keys="COHERE_API_KEY:test-key")
+        assert s.resolve_rerank_backend() == "cloud"
 
     def test_resolve_rerank_backend_local_fallback(self):
         s = Settings(api_keys=None)
@@ -245,19 +250,14 @@ class TestRerankSettings:
         s = Settings(rerank_model="custom/reranker", api_keys=None)
         assert s.resolve_rerank_model() == "custom/reranker"
 
-    def test_resolve_rerank_model_jina_env(self, monkeypatch):
-        monkeypatch.setenv("JINA_AI_API_KEY", "test-key")
-        s = Settings(api_keys=None)
-        assert s.resolve_rerank_model() == "jina_ai/jina-reranker-v3"
-
     def test_resolve_rerank_model_cohere_env(self, monkeypatch):
         monkeypatch.setenv("COHERE_API_KEY", "test-key")
         s = Settings(api_keys=None)
-        assert s.resolve_rerank_model() == "cohere/rerank-multilingual-v3.0"
+        assert s.resolve_rerank_model() == "rerank-v4.0-pro"
 
-    def test_resolve_rerank_model_jina_in_api_keys(self):
-        s = Settings(api_keys="JINA_AI_API_KEY:test-key")
-        assert s.resolve_rerank_model() == "jina_ai/jina-reranker-v3"
+    def test_resolve_rerank_model_cohere_in_api_keys(self):
+        s = Settings(api_keys="COHERE_API_KEY:test-key")
+        assert s.resolve_rerank_model() == "rerank-v4.0-pro"
 
     def test_resolve_rerank_model_none_no_keys(self):
         s = Settings(api_keys=None)

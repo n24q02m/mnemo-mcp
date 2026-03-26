@@ -1,14 +1,14 @@
-"""Dual-backend embedding: LiteLLM (cloud) + qwen3-embed (local).
+"""Dual-backend embedding: Cloud (multi-provider) + qwen3-embed (local).
 
 Supports two backends:
-- **litellm**: Cloud providers via LiteLLM (OpenAI, Gemini, Mistral, Cohere).
-  Requires API keys. Auto-detects provider from API_KEYS config.
+- **cloud**: Cloud embedding via native SDKs (Jina > Gemini > OpenAI > Cohere).
+  Auto-detects provider from model name or API keys in environment.
 - **local**: Local inference via qwen3-embed. GGUF if GPU + llama-cpp-python,
   ONNX otherwise. No API keys needed, ~0.5GB model download on first use.
 
 Backend selection (always returns a valid backend):
 1. Explicit EMBEDDING_BACKEND env var
-2. 'litellm' if API keys are configured
+2. 'cloud' if API keys are configured
 3. 'local' (default, always available)
 
 Embeddings are truncated to fixed dims in server._embed().
@@ -17,7 +17,6 @@ Embeddings are truncated to fixed dims in server._embed().
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from typing import Protocol
 
@@ -109,33 +108,181 @@ class EmbeddingBackend(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# LiteLLM Backend (cloud)
+# Provider detection for embedding models
 # ---------------------------------------------------------------------------
 
 
-class LiteLLMBackend:
-    """Cloud embedding via LiteLLM (OpenAI, Gemini, Mistral, Cohere)."""
+def _detect_embedding_provider(model: str) -> str:
+    """Detect provider from model name.
 
-    # Gemini API: max 100 texts per batch request.
-    MAX_BATCH_SIZE = 100
+    Returns 'jina', 'gemini', 'openai', or 'cohere'.
+    """
+    lower = model.lower()
+    if lower.startswith("jina_ai/") or lower.startswith("jina"):
+        return "jina"
+    if lower.startswith("gemini/") or "gemini" in lower:
+        return "gemini"
+    if lower.startswith("embed-") or lower.startswith("cohere/"):
+        return "cohere"
+    if lower.startswith("text-embedding") or lower.startswith("openai/"):
+        return "openai"
+    # Fallback: check env vars in priority order
+    if os.getenv("JINA_AI_API_KEY"):
+        return "jina"
+    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+        return "gemini"
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    return "cohere"
+
+
+def _strip_provider(model: str) -> str:
+    """Strip provider prefix (e.g. 'gemini/model' -> 'model')."""
+    if "/" in model:
+        return model.split("/", 1)[1]
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Cloud Embedding Backend (multi-provider: Jina, Gemini, OpenAI, Cohere)
+# ---------------------------------------------------------------------------
+
+
+class CloudEmbeddingBackend:
+    """Cloud embedding via native SDKs (Jina, Gemini, OpenAI, Cohere)."""
+
+    # Max texts per batch request (safe for all providers).
+    MAX_BATCH_SIZE = 96
 
     def __init__(
-        self, model: str, api_base: str | None = None, api_key: str | None = None
+        self,
+        model: str | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
     ):
-        self.model = model
-        self.api_base = api_base
+        self.model = model or os.getenv("EMBEDDING_MODEL", "embed-multilingual-v3.0")
         self.api_key = api_key
-        self._setup_litellm()
+        self.api_base = api_base
+        self._provider = _detect_embedding_provider(self.model)
+        self._bare_model = _strip_provider(self.model)
 
-    def _setup_litellm(self) -> None:
-        """Silence LiteLLM logging."""
-        os.environ.setdefault("LITELLM_LOG", "ERROR")
-        import litellm
+    def _call_provider(
+        self, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        """Route to the correct provider SDK."""
+        if self._provider == "jina":
+            return self._embed_jina(texts, dimensions)
+        elif self._provider == "gemini":
+            return self._embed_gemini(texts, dimensions)
+        elif self._provider == "openai":
+            return self._embed_openai(texts, dimensions)
+        else:
+            return self._embed_cohere(texts, dimensions)
 
-        litellm.suppress_debug_info = True  # type: ignore[assignment]
-        litellm.set_verbose = False
-        logging.getLogger("LiteLLM").setLevel(logging.ERROR)
-        logging.getLogger("LiteLLM").handlers = [logging.NullHandler()]
+    def _embed_jina(
+        self, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        """Embed via Jina AI (httpx, REST API)."""
+        import httpx
+
+        key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
+        payload: dict = {
+            "model": self._bare_model,
+            "input": texts,
+        }
+        if dimensions:
+            payload["dimensions"] = dimensions
+
+        response = httpx.post(
+            "https://api.jina.ai/v1/embeddings",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()["data"]
+        data_sorted = sorted(data, key=lambda x: x["index"])
+        return [d["embedding"] for d in data_sorted]
+
+    def _embed_gemini(
+        self, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        """Embed via Google Gemini (google-genai SDK)."""
+        from google import genai
+        from google.genai import types
+
+        key = (
+            self.api_key
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+            or ""
+        )
+        client = genai.Client(api_key=key)
+
+        config_kwargs: dict = {}
+        if dimensions:
+            config_kwargs["output_dimensionality"] = dimensions
+
+        result = client.models.embed_content(
+            model=self._bare_model,
+            contents=texts,
+            config=types.EmbedContentConfig(**config_kwargs) if config_kwargs else None,
+        )
+
+        embeddings = result.embeddings or []
+        return [list(e.values or []) for e in embeddings]
+
+    def _embed_openai(
+        self, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        """Embed via OpenAI SDK."""
+        from openai import OpenAI
+
+        key = self.api_key or os.getenv("OPENAI_API_KEY") or ""
+        base = self.api_base or "https://api.openai.com/v1"
+        client = OpenAI(api_key=key, base_url=base)
+
+        kwargs: dict = {
+            "model": self._bare_model,
+            "input": texts,
+        }
+        if dimensions:
+            kwargs["dimensions"] = dimensions
+
+        response = client.embeddings.create(**kwargs)
+        data = sorted(response.data, key=lambda x: x.index)
+        return [d.embedding for d in data]
+
+    def _embed_cohere(
+        self, texts: list[str], dimensions: int | None = None
+    ) -> list[list[float]]:
+        """Embed via Cohere SDK (v5.20+, ClientV2)."""
+        import cohere
+
+        key = (
+            self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
+        )
+        client = cohere.ClientV2(api_key=key)
+        kwargs: dict = {
+            "model": self._bare_model,
+            "texts": texts,
+            "input_type": "search_document",
+            "embedding_types": ["float"],
+            "truncate": "END",
+        }
+        if dimensions:
+            kwargs["output_dimension"] = dimensions
+
+        response = client.embed(**kwargs)
+        embeddings = response.embeddings.float_
+
+        # Truncate locally if server returned more dims than requested
+        if dimensions and embeddings and len(embeddings[0]) > dimensions:
+            embeddings = [e[:dimensions] for e in embeddings]
+        return embeddings or []
 
     async def _embed_batch_inner(
         self,
@@ -146,28 +293,17 @@ class LiteLLMBackend:
 
         Tries server-side MRL truncation first (``dimensions`` param).
         If the provider rejects ``dimensions``, retries without it and
-        truncates locally. This ensures Gemini, Cohere, and other
-        providers that don't support ``dimensions`` still work.
+        truncates locally.
         """
-        from litellm import aembedding as litellm_aembedding
-
-        kwargs: dict = {
-            "model": self.model,
-            "input": texts,
-        }
-        if dimensions:
-            kwargs["dimensions"] = dimensions
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
+        use_dimensions = dimensions
 
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES):
             try:
-                response = await litellm_aembedding(**kwargs)
-                data = sorted(response.data, key=lambda x: x["index"])
-                embeddings = [d["embedding"] for d in data]
+                embeddings = await asyncio.to_thread(
+                    self._call_provider, texts, use_dimensions
+                )
+
                 # Truncate locally if server returned more dims than requested
                 if dimensions and embeddings and len(embeddings[0]) > dimensions:
                     embeddings = [e[:dimensions] for e in embeddings]
@@ -176,7 +312,7 @@ class LiteLLMBackend:
                 # If the provider rejects `dimensions`, retry without it
                 # and truncate locally instead.
                 if (
-                    "dimensions" in kwargs
+                    use_dimensions
                     and not _is_retryable(e)
                     and _is_unsupported_param(e, "dimensions")
                 ):
@@ -184,7 +320,7 @@ class LiteLLMBackend:
                         f"Provider does not support dimensions param, "
                         f"will truncate locally: {e}"
                     )
-                    kwargs.pop("dimensions")
+                    use_dimensions = None
                     continue
 
                 last_exc = e
@@ -199,7 +335,9 @@ class LiteLLMBackend:
                     break
 
         logger.error(f"Embedding failed ({self.model}): {last_exc}")
-        raise last_exc  # type: ignore[misc]
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"Embedding failed ({self.model}): no retries attempted")
 
     async def embed_texts(
         self,
@@ -242,22 +380,15 @@ class LiteLLMBackend:
         return results[0]
 
     def check_available(self) -> int:
-        """Check if the LiteLLM model is available via test request.
+        """Check if the cloud model is available via test request.
 
         Distinguishes between invalid API keys (warning) and other
         failures (debug) so users know when their keys are wrong.
         """
         try:
-            from litellm import embedding as litellm_embedding
-
-            kwargs = {"model": self.model, "input": ["test"]}
-            if self.api_base:
-                kwargs["api_base"] = self.api_base
-            if self.api_key:
-                kwargs["api_key"] = self.api_key
-            response = litellm_embedding(**kwargs)
-            if response.data:
-                dim = len(response.data[0]["embedding"])
+            embeddings = self._call_provider(["test"])
+            if embeddings:
+                dim = len(embeddings[0])
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
                 return dim
             return 0
@@ -273,6 +404,10 @@ class LiteLLMBackend:
             else:
                 logger.debug(f"Embedding model {self.model} not available: {e}")
             return 0
+
+
+# Backward compatibility alias
+LiteLLMBackend = CloudEmbeddingBackend
 
 
 # ---------------------------------------------------------------------------
@@ -395,20 +530,18 @@ def init_backend(
     """Initialize and cache the embedding backend.
 
     Args:
-        backend_type: 'litellm' or 'local'
-        model: Model name (required for litellm, optional for local)
-        api_base: Custom API base URL (for litellm backend)
-        api_key: Custom API key (for litellm backend)
+        backend_type: 'cloud', 'litellm' (backward compat), or 'local'
+        model: Model name (optional for cloud, optional for local)
+        api_base: Custom API base URL (for cloud backend)
+        api_key: Custom API key (for cloud backend)
 
     Returns:
         Initialized backend instance.
     """
     global _backend
 
-    if backend_type == "litellm":
-        if not model:
-            raise ValueError("model is required for litellm backend")
-        _backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
+    if backend_type in ("cloud", "litellm"):
+        _backend = CloudEmbeddingBackend(model, api_base=api_base, api_key=api_key)
     elif backend_type == "local":
         _backend = Qwen3EmbedBackend(model)
     else:
@@ -430,7 +563,7 @@ async def embed_single(
     api_key: str | None = None,
 ) -> list[float]:
     """Embed a single text (legacy interface)."""
-    backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
+    backend = CloudEmbeddingBackend(model, api_base=api_base, api_key=api_key)
     return await backend.embed_single(text, dimensions)
 
 
@@ -438,5 +571,5 @@ def check_embedding_available(
     model: str, api_base: str | None = None, api_key: str | None = None
 ) -> int:
     """Check if an embedding model is available (legacy interface)."""
-    backend = LiteLLMBackend(model, api_base=api_base, api_key=api_key)
+    backend = CloudEmbeddingBackend(model, api_base=api_base, api_key=api_key)
     return backend.check_available()

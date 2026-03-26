@@ -36,7 +36,7 @@ async def _init_embedding_backend(
 ) -> None:
     """Initialize embedding backend in background.
 
-    Tries cloud (LiteLLM) first if API keys are available, then falls back
+    Tries cloud providers first if API keys are available, then falls back
     to local (qwen3-embed ONNX). Updates ``ctx`` dict in-place so tools
     pick up the model/dims as soon as they are ready.
 
@@ -49,12 +49,12 @@ async def _init_embedding_backend(
     embedding_dims = settings.resolve_embedding_dims()
     embedding_backend_type = settings.resolve_embedding_backend()
 
-    if embedding_backend_type == "litellm":
+    if embedding_backend_type in ("cloud", "litellm"):
         if embedding_model:
             # Explicit model -- validate it
             try:
                 backend = await asyncio.to_thread(
-                    init_backend, "litellm", embedding_model
+                    init_backend, "cloud", embedding_model
                 )
                 native_dims = await asyncio.to_thread(backend.check_available)
                 if native_dims > 0:
@@ -73,13 +73,11 @@ async def _init_embedding_backend(
             except Exception as e:
                 logger.warning(f"Embedding model {embedding_model} not available: {e}")
                 embedding_model = None
-        elif mode in ("proxy", "sdk"):
+        elif mode == "sdk":
             # Auto-detect: try candidate models
             for candidate in _EMBEDDING_CANDIDATES:
                 try:
-                    backend = await asyncio.to_thread(
-                        init_backend, "litellm", candidate
-                    )
+                    backend = await asyncio.to_thread(init_backend, "cloud", candidate)
                     native_dims = await asyncio.to_thread(backend.check_available)
                     if native_dims > 0:
                         embedding_model = candidate
@@ -122,7 +120,7 @@ async def _init_embedding_backend(
 async def _init_reranker_backend(mode: str) -> None:
     """Initialize reranker backend in background.
 
-    Tries cloud (LiteLLM) first if API keys are available, then falls back
+    Tries cloud providers first if API keys are available, then falls back
     to local (qwen3-embed cross-encoder). Best-effort: if both fail, search
     still works without reranking.
     """
@@ -133,11 +131,11 @@ async def _init_reranker_backend(mode: str) -> None:
         logger.debug("Reranking disabled")
         return
 
-    if backend_type == "litellm":
+    if backend_type in ("cloud", "litellm"):
         model = settings.resolve_rerank_model()
         if model:
             try:
-                backend = await asyncio.to_thread(init_reranker, "litellm", model)
+                backend = await asyncio.to_thread(init_reranker, "cloud", model)
                 available = await asyncio.to_thread(backend.check_available)
                 if available:
                     logger.info(f"Reranker: {model}")
@@ -167,8 +165,28 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     connections immediately. Tools gracefully degrade to FTS5-only search
     until the embedding model is ready.
     """
-    # 1. Setup LiteLLM mode (proxy/sdk/local)
-    mode = settings.setup_litellm()
+    # 0. Try relay config if no cloud API keys are set
+    try:
+        from mnemo_mcp.relay_setup import load_relay_config
+
+        relay_config = load_relay_config()
+        if relay_config:
+            import os
+
+            for key in (
+                "JINA_AI_API_KEY",
+                "GEMINI_API_KEY",
+                "OPENAI_API_KEY",
+                "COHERE_API_KEY",
+            ):
+                if relay_config.get(key) and not os.environ.get(key):
+                    os.environ[key] = relay_config[key]
+            logger.info("Cloud API keys loaded from relay config file")
+    except Exception as e:
+        logger.debug(f"Relay config not available: {e}")
+
+    # 1. Setup provider mode (sdk/local)
+    mode = settings.setup_providers()
 
     # 2. Resolve initial embedding dims (may be refined by background task)
     embedding_dims = settings.resolve_embedding_dims()
@@ -246,7 +264,7 @@ mcp = FastMCP(
 # --- Helper ---
 
 
-def _get_ctx(ctx: Context) -> tuple[MemoryDB, str | None, int]:
+def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
     """Extract db, model, dims from context."""
     lc = ctx.request_context.lifespan_context
     return lc["db"], lc["embedding_model"], lc["embedding_dims"]
@@ -591,6 +609,7 @@ async def _handle_import(
 
     # Bolt Performance Optimization: Pass raw list/dict directly to database layer.
     # Avoids unnecessary JSON serialization and deserialization cycles for parsed inputs.
+    assert data is not None  # guarded above
     result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
     return _json(
         {
@@ -652,9 +671,11 @@ async def _handle_consolidate(
     category: str | None,
 ) -> str:
     """Consolidate similar memories in a category using LLM summarization."""
-    mode = settings.resolve_litellm_mode()
-    if mode == "local":
-        return _json({"error": "Consolidation requires LLM (proxy or SDK mode)"})
+    from mnemo_mcp.graph import _has_llm_provider
+
+    mode = settings.resolve_provider_mode()
+    if mode == "local" and not _has_llm_provider():
+        return _json({"error": "Consolidation requires LLM (SDK mode with API keys)"})
 
     if not category:
         return _json({"error": "category is required for consolidate"})
@@ -666,22 +687,15 @@ async def _handle_consolidate(
         )
 
     try:
-        from litellm import acompletion
+        from mnemo_mcp.graph import _llm_completion, _resolve_llm_model
 
-        llm_kwargs: dict = {}
-        if settings.litellm_proxy_url:
-            llm_kwargs["api_base"] = settings.litellm_proxy_url
-            if settings.litellm_proxy_key:
-                llm_kwargs["api_key"] = settings.litellm_proxy_key
-
-        models = [m.strip() for m in settings.llm_models.split(",") if m.strip()]
-        model = models[0] if models else "gemini/gemini-3-flash-preview"
+        model = _resolve_llm_model(settings)
 
         content_list = "\n---\n".join(
             f"[{m['id'][:8]}] {m['content']}" for m in memories[:20]
         )
 
-        response = await acompletion(
+        summary = await _llm_completion(
             model=model,
             messages=[
                 {
@@ -695,16 +709,14 @@ async def _handle_consolidate(
             ],
             temperature=0,
             max_tokens=1000,
-            **llm_kwargs,
         )
 
-        summary = response.choices[0].message.content.strip()
         return _json(
             {
                 "status": "consolidated",
                 "category": category,
                 "original_count": len(memories),
-                "summary": summary,
+                "summary": summary.strip(),
                 "note": "Review the summary and use add/delete to apply changes.",
             }
         )
@@ -751,7 +763,7 @@ async def memory(
     limit: int = 5,
     data: str | list | None = None,
     mode: str = "merge",
-    ctx: Context = None,  # type: ignore[assignment]
+    ctx: Context | None = None,
 ) -> str:
     """Execute a memory action.
 
@@ -850,7 +862,7 @@ async def config(
     action: str,
     key: str | None = None,
     value: str | None = None,
-    ctx: Context = None,  # type: ignore[assignment]
+    ctx: Context | None = None,
 ) -> str:
     """Server configuration and sync control.
 
@@ -1057,7 +1069,7 @@ async def help(topic: str = "memory") -> str:
 
 
 @mcp.resource("mnemo://stats")
-async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
+async def stats_resource(ctx: Context | None = None) -> str:
     """Database statistics and server status."""
     db, embedding_model, embedding_dims = _get_ctx(ctx)
     s = await asyncio.to_thread(db.stats)
@@ -1067,7 +1079,7 @@ async def stats_resource(ctx: Context = None) -> str:  # type: ignore[assignment
 
 
 @mcp.resource("mnemo://recent")
-async def recent_resource(ctx: Context = None) -> str:  # type: ignore[assignment]
+async def recent_resource(ctx: Context | None = None) -> str:
     """10 most recently updated memories."""
     db, _, _ = _get_ctx(ctx)
     results = await asyncio.to_thread(db.list_memories, limit=10)
