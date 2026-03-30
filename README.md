@@ -34,6 +34,10 @@ mcp-name: io.github.n24q02m/mnemo-mcp
 - **Multi-machine sync** -- JSONL-based merge sync via embedded rclone (Google Drive, S3, Dropbox)
 - **Proactive memory** -- Tool descriptions guide AI to save preferences, decisions, facts
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/n24q02m-mnemo-mcp).
+
 ## Quick Start
 
 ### Claude Code Plugin (Recommended)
