@@ -352,8 +352,7 @@ def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[st
     """
 
     rows = conn.execute(
-        query,
-        (memory_id, max_depth - 1, max_depth - 1, memory_id)
+        query, (memory_id, max_depth - 1, max_depth - 1, memory_id)
     ).fetchall()
 
     return [r[0] for r in rows]
