@@ -166,6 +166,15 @@ class CloudEmbeddingBackend:
         self._provider = _detect_embedding_provider(self.model)
         self._bare_model = _strip_provider(self.model)
 
+    def _get_provider_errors(self) -> tuple[type[Exception], ...]:
+        """Lazy-import base exception classes for each provider."""
+        import httpx
+        from cohere.core.api_error import ApiError
+        from google.genai.errors import ClientError
+        from openai import OpenAIError
+
+        return (httpx.HTTPError, OpenAIError, ClientError, ApiError)
+
     def _call_provider(
         self, texts: list[str], dimensions: int | None = None
     ) -> list[list[float]]:
@@ -308,7 +317,7 @@ class CloudEmbeddingBackend:
                 if dimensions and embeddings and len(embeddings[0]) > dimensions:
                     embeddings = [e[:dimensions] for e in embeddings]
                 return embeddings
-            except Exception as e:
+            except self._get_provider_errors() as e:
                 # If the provider rejects `dimensions`, retry without it
                 # and truncate locally instead.
                 if (
@@ -392,7 +401,7 @@ class CloudEmbeddingBackend:
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
                 return dim
             return 0
-        except Exception as e:
+        except self._get_provider_errors() as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")

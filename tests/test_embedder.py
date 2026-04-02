@@ -52,10 +52,14 @@ class TestCloudEmbeddingBackend:
     @patch("cohere.ClientV2")
     async def test_dimensions_fallback_on_unsupported(self, mock_client_cls):
         """Falls back to local truncation when provider rejects dimensions."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.embeddings.float_ = [[0.1] * 1024]
-        unsupported_err = Exception("output_dimension is not supported for this model")
+        unsupported_err = ApiError(
+            status_code=400, body="output_dimension is not supported for this model"
+        )
         mock_client.embed.side_effect = [unsupported_err, mock_response]
         mock_client_cls.return_value = mock_client
 
@@ -101,8 +105,12 @@ class TestCloudEmbeddingBackend:
 
     @patch("cohere.ClientV2")
     def test_check_available_error(self, mock_client_cls):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Model not found")
+        mock_client.embed.side_effect = ApiError(
+            status_code=404, body="Model not found"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
@@ -110,12 +118,16 @@ class TestCloudEmbeddingBackend:
 
     @patch("cohere.ClientV2")
     async def test_raises_on_non_retryable_error(self, mock_client_cls):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key")
+        mock_client.embed.side_effect = ApiError(
+            status_code=401, body="Invalid API key"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="Invalid API key"):
+        with pytest.raises(ApiError, match="Invalid API key"):
             await backend.embed_texts(["test"])
 
     @patch("cohere.ClientV2")
@@ -199,11 +211,13 @@ class TestRetryLogic:
     @patch("mnemo_mcp.embedder.asyncio.sleep", new_callable=AsyncMock)
     @patch("cohere.ClientV2")
     async def test_retries_on_rate_limit(self, mock_client_cls, mock_sleep):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.1]]
         mock_client.embed.side_effect = [
-            Exception("429 rate limit exceeded"),
+            ApiError(status_code=429, body="rate limit exceeded"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -216,11 +230,13 @@ class TestRetryLogic:
     @patch("mnemo_mcp.embedder.asyncio.sleep", new_callable=AsyncMock)
     @patch("cohere.ClientV2")
     async def test_retries_on_server_error(self, mock_client_cls, mock_sleep):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.2]]
         mock_client.embed.side_effect = [
-            Exception("503 temporarily unavailable"),
+            ApiError(status_code=503, body="temporarily unavailable"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -232,24 +248,30 @@ class TestRetryLogic:
     @patch("mnemo_mcp.embedder.asyncio.sleep", new_callable=AsyncMock)
     @patch("cohere.ClientV2")
     async def test_no_retry_on_non_retryable(self, mock_client_cls, mock_sleep):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key")
+        mock_client.embed.side_effect = ApiError(
+            status_code=401, body="Invalid API key"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="Invalid API key"):
+        with pytest.raises(ApiError, match="Invalid API key"):
             await backend.embed_texts(["test"])
         mock_sleep.assert_not_called()
 
     @patch("mnemo_mcp.embedder.asyncio.sleep", new_callable=AsyncMock)
     @patch("cohere.ClientV2")
     async def test_exponential_backoff(self, mock_client_cls, mock_sleep):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.1]]
         mock_client.embed.side_effect = [
-            Exception("429 rate limit"),
-            Exception("429 rate limit"),
+            ApiError(status_code=429, body="rate limit"),
+            ApiError(status_code=429, body="rate limit"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -261,12 +283,14 @@ class TestRetryLogic:
     @patch("mnemo_mcp.embedder.asyncio.sleep", new_callable=AsyncMock)
     @patch("cohere.ClientV2")
     async def test_max_retries_exhausted(self, mock_client_cls, mock_sleep):
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("429 rate limit")
+        mock_client.embed.side_effect = ApiError(status_code=429, body="rate limit")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="429 rate limit"):
+        with pytest.raises(ApiError, match="rate limit"):
             await backend.embed_texts(["test"])
         assert mock_sleep.call_count == 2
 
@@ -339,8 +363,12 @@ class TestCheckAvailableApiKeyValidation:
     @patch("cohere.ClientV2")
     def test_api_key_401_logs_warning(self, mock_client_cls):
         """401 errors are logged at warning level (not debug)."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("401 Unauthorized: Invalid API key")
+        mock_client.embed.side_effect = ApiError(
+            status_code=401, body="Unauthorized: Invalid API key"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -350,8 +378,10 @@ class TestCheckAvailableApiKeyValidation:
     @patch("cohere.ClientV2")
     def test_api_key_403_logs_warning(self, mock_client_cls):
         """403 forbidden errors are logged at warning level."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("403 Forbidden")
+        mock_client.embed.side_effect = ApiError(status_code=403, body="Forbidden")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -360,8 +390,12 @@ class TestCheckAvailableApiKeyValidation:
     @patch("cohere.ClientV2")
     def test_invalid_key_detected(self, mock_client_cls):
         """'invalid' keyword in error triggers warning path."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key provided")
+        mock_client.embed.side_effect = ApiError(
+            status_code=400, body="Invalid API key provided"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -370,8 +404,12 @@ class TestCheckAvailableApiKeyValidation:
     @patch("cohere.ClientV2")
     def test_unauthorized_detected(self, mock_client_cls):
         """'unauthorized' keyword in error triggers warning path."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Unauthorized access")
+        mock_client.embed.side_effect = ApiError(
+            status_code=400, body="Unauthorized access"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -380,8 +418,12 @@ class TestCheckAvailableApiKeyValidation:
     @patch("cohere.ClientV2")
     def test_non_auth_error_logged_at_debug(self, mock_client_cls):
         """Non-auth errors (e.g. model not found) go to debug level."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Model not found: xyz")
+        mock_client.embed.side_effect = ApiError(
+            status_code=404, body="Model not found: xyz"
+        )
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
