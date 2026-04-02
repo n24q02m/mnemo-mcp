@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 import mnemo_mcp.reranker as reranker_mod
@@ -87,7 +88,7 @@ class TestCohereReranker:
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("API error")
+            mock_client.rerank.side_effect = RuntimeError("API error")
             mock_client_cls.return_value = mock_client
 
             results = reranker.rerank("query", ["doc"])
@@ -114,7 +115,7 @@ class TestCohereReranker:
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("connection error")
+            mock_client.rerank.side_effect = RuntimeError("connection error")
             mock_client_cls.return_value = mock_client
 
             assert reranker.check_available() is False
@@ -125,7 +126,11 @@ class TestCohereReranker:
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("401 unauthorized")
+            mock_client.rerank.side_effect = httpx.HTTPStatusError(
+                "401 unauthorized",
+                request=MagicMock(),
+                response=MagicMock(status_code=401),
+            )
             mock_client_cls.return_value = mock_client
 
             assert reranker.check_available() is False
