@@ -1,4 +1,4 @@
-"""Shared test fixtures for Mnemo MCP Server."""
+"""Shared test setup for Mnemo MCP Server."""
 
 from collections.abc import Generator
 from pathlib import Path
