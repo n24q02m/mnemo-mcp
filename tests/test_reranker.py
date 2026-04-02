@@ -89,9 +89,7 @@ class TestCohereReranker:
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = ApiError(
-                body="API error", status_code=500
-            )
+            mock_client.rerank.side_effect = ApiError(body="API error", status_code=500)
             mock_client_cls.return_value = mock_client
 
             results = reranker.rerank("query", ["doc"])
