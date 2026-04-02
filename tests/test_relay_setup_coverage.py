@@ -89,7 +89,7 @@ class TestLoadRelayConfigCoverage:
     @patch("mcp_relay_core.storage.config_file.read_config")
     def test_returns_none_on_generic_exception(self, mock_read):
         """Returns None on any exception."""
-        mock_read.side_effect = RuntimeError("Unexpected error")
+        mock_read.side_effect = OSError("Unexpected error")
         result = load_relay_config()
         assert result is None
 
@@ -246,7 +246,7 @@ class TestEnsureConfigCoverage:
             patch(
                 "mnemo_mcp.sync.setup_google_auth",
                 new_callable=AsyncMock,
-                side_effect=Exception("GDrive OAuth failed"),
+                side_effect=RuntimeError("GDrive OAuth failed"),
             ),
         ):
             mock_client = AsyncMock()
@@ -267,7 +267,7 @@ class TestEnsureConfigCoverage:
         for key in CLOUD_KEYS:
             monkeypatch.delenv(key, raising=False)
         mock_read.return_value = None
-        mock_session.side_effect = Exception("DNS resolution failed")
+        mock_session.side_effect = ConnectionError("DNS resolution failed")
 
         result = await ensure_config()
         assert result is None
@@ -295,8 +295,10 @@ class TestEnsureConfigCoverage:
             patch("httpx.AsyncClient") as mock_httpx,
             patch("mnemo_mcp.config.settings") as mock_settings,
         ):
+            import httpx
+
             mock_client = AsyncMock()
-            mock_client.post.side_effect = Exception("Network error")
+            mock_client.post.side_effect = httpx.ConnectError("Network error")
             mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
             mock_settings.google_drive_client_id = ""

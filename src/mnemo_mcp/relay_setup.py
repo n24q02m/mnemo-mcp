@@ -46,7 +46,7 @@ def load_relay_config() -> dict[str, str] | None:
             logger.info("Config loaded from file")
             return saved
         return None
-    except Exception:
+    except (ImportError, OSError, ValueError):
         return None
 
 
@@ -87,7 +87,7 @@ async def ensure_config() -> dict[str, str] | None:
         from .relay_schema import RELAY_SCHEMA
 
         session = await create_session(relay_url, SERVER_NAME, RELAY_SCHEMA)  # ty: ignore[invalid-argument-type]
-    except Exception:
+    except (ImportError, ConnectionError, RuntimeError):
         logger.debug("Cannot reach relay server at {}. Using local mode.", relay_url)
         return None
 
@@ -125,7 +125,7 @@ async def ensure_config() -> dict[str, str] | None:
                         "text": "API keys saved. Starting Google Drive sync setup...",
                     },
                 )
-        except Exception:
+        except (ImportError, httpx.HTTPError):
             pass
 
         # Trigger GDrive OAuth Device Code using default client ID from settings
@@ -141,11 +141,13 @@ async def ensure_config() -> dict[str, str] | None:
                     relay_url=relay_url,
                     session_id=session.session_id,
                 )
-            except Exception as e:
+            except (ImportError, RuntimeError, ValueError) as e:
                 logger.warning(f"GDrive OAuth setup failed: {e}")
 
         # NOW send complete (after GDrive OAuth finishes or skips)
         try:
+            import httpx
+
             async with httpx.AsyncClient() as http:
                 msg = (
                     "Setup complete!"
@@ -156,7 +158,7 @@ async def ensure_config() -> dict[str, str] | None:
                     f"{relay_url}/api/sessions/{session.session_id}/messages",
                     json={"type": "complete", "text": msg},
                 )
-        except Exception:
+        except (ImportError, httpx.HTTPError):
             pass
 
         return config
