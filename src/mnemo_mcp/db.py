@@ -116,7 +116,7 @@ class MemoryDB:
                 self._conn.enable_load_extension(False)
                 self._vec_enabled = True
                 logger.debug(f"sqlite-vec loaded (dims={embedding_dims})")
-            except Exception as e:
+            except (RuntimeError, sqlite3.Error, ImportError) as e:
                 logger.warning(f"sqlite-vec load failed: {e}")
 
         self._init_schema()
