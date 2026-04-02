@@ -137,7 +137,7 @@ async def test_lifespan_explicit_cloud_exception_fallback(
     backend_local = MagicMock()
     backend_local.check_available.return_value = 384
 
-    mock_embedder.side_effect = [Exception("API Error"), backend_local]
+    mock_embedder.side_effect = [RuntimeError("API Error"), backend_local]
 
     server = MagicMock()
     async with lifespan(server) as ctx:
@@ -155,7 +155,7 @@ async def test_lifespan_all_backends_fail(
     mock_settings.resolve_embedding_model.return_value = "crash-model"
 
     # Cloud raises, Local raises
-    mock_embedder.side_effect = [Exception("Cloud fail"), Exception("Local fail")]
+    mock_embedder.side_effect = [RuntimeError("Cloud fail"), RuntimeError("Local fail")]
 
     server = MagicMock()
     async with lifespan(server) as ctx:

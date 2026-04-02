@@ -66,7 +66,7 @@ class TestExtractEntities:
             patch(
                 "mnemo_mcp.graph._llm_completion",
                 new_callable=AsyncMock,
-                side_effect=Exception("API error"),
+                side_effect=RuntimeError("API error"),
             ),
         ):
             mock_settings.resolve_provider_mode.return_value = "sdk"
@@ -183,7 +183,7 @@ class TestScoreImportance:
             patch(
                 "mnemo_mcp.graph._llm_completion",
                 new_callable=AsyncMock,
-                side_effect=Exception("API error"),
+                side_effect=RuntimeError("API error"),
             ),
         ):
             mock_settings.resolve_provider_mode.return_value = "sdk"

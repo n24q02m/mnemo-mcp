@@ -167,7 +167,7 @@ class TestWarmupInitEmbeddingBackend:
         mock_settings.resolve_local_embedding_model.return_value = "local/m"
 
         mock_backend = MagicMock()
-        mock_backend.check_available.side_effect = Exception("import error")
+        mock_backend.check_available.side_effect = RuntimeError("import error")
         mock_init.return_value = mock_backend
 
         ctx: dict = {"embedding_model": None, "embedding_dims": 768}
@@ -194,7 +194,7 @@ class TestWarmupInitEmbeddingBackend:
         mock_settings.resolve_embedding_backend.return_value = "local"
         mock_settings.resolve_local_embedding_model.return_value = "local/m"
 
-        mock_init.side_effect = Exception("Init Backend Failed")
+        mock_init.side_effect = RuntimeError("Init Backend Failed")
 
         ctx: dict = {"embedding_model": None, "embedding_dims": 768}
         await _init_embedding_backend("local", ctx)

@@ -241,7 +241,7 @@ class TestSyncFullCoverage:
             with patch(
                 "mnemo_mcp.sync.asyncio.to_thread",
                 new_callable=AsyncMock,
-                side_effect=Exception("merge error"),
+                side_effect=RuntimeError("merge error"),
             ):
                 result = await sync_full(tmp_db)
 
@@ -370,7 +370,7 @@ class TestCheckHealthCoverage:
             patch(
                 "mnemo_mcp.sync._drive_request",
                 new_callable=AsyncMock,
-                side_effect=Exception("connection error"),
+                side_effect=RuntimeError("connection error"),
             ),
         ):
             result = await check_health()

@@ -246,7 +246,7 @@ class TestEnsureConfigCoverage:
             patch(
                 "mnemo_mcp.sync.setup_google_auth",
                 new_callable=AsyncMock,
-                side_effect=Exception("GDrive OAuth failed"),
+                side_effect=RuntimeError("GDrive OAuth failed"),
             ),
         ):
             mock_client = AsyncMock()
