@@ -32,65 +32,29 @@ class TestDetectGPU:
             assert _detect_gpu() is False
 
     def test_import_error(self):
+        """Covers the ImportError/ModuleNotFoundError case."""
         with patch.dict(sys.modules, {"onnxruntime": None}):
             assert _detect_gpu() is False
 
     def test_runtime_exception(self):
+        """Covers the general Exception case in _detect_gpu."""
         mock_ort = MagicMock()
         mock_ort.get_available_providers.side_effect = Exception("Runtime error")
         with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
             assert _detect_gpu() is False
 
-    def test_import_exception(self):
-        import builtins
-
-        orig_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "onnxruntime":
-                raise Exception("Mocked Exception")
-            return orig_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            with patch.dict(sys.modules):
-                if "onnxruntime" in sys.modules:
-                    del sys.modules["onnxruntime"]
-                assert _detect_gpu() is False
-
 
 class TestHasGGUFSupport:
     def test_llama_cpp_installed(self):
+        """Covers the success branch of _has_gguf_support."""
         mock_llama = MagicMock()
         with patch.dict(sys.modules, {"llama_cpp": mock_llama}):
             assert _has_gguf_support() is True
 
     def test_llama_cpp_missing(self):
+        """Covers the ImportError branch of _has_gguf_support."""
         with patch.dict(sys.modules, {"llama_cpp": None}):
             assert _has_gguf_support() is False
-
-    def test_llama_cpp_import_error(self):
-        import builtins
-
-        orig_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "llama_cpp":
-                raise ImportError("Mocked ImportError")
-            return orig_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            # Ensure sys.modules does not prevent the import call
-            original_module = sys.modules.get("llama_cpp", None)
-
-            if "llama_cpp" in sys.modules:
-                del sys.modules["llama_cpp"]
-
-            try:
-                assert _has_gguf_support() is False
-
-            finally:
-                if original_module is not None:
-                    sys.modules["llama_cpp"] = original_module
 
 
 class TestResolveLocalModel:
