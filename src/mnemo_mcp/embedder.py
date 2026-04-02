@@ -308,7 +308,7 @@ class CloudEmbeddingBackend:
                 if dimensions and embeddings and len(embeddings[0]) > dimensions:
                     embeddings = [e[:dimensions] for e in embeddings]
                 return embeddings
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 # If the provider rejects `dimensions`, retry without it
                 # and truncate locally instead.
                 if (
@@ -392,7 +392,7 @@ class CloudEmbeddingBackend:
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
                 return dim
             return 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -504,7 +504,7 @@ class Qwen3EmbedBackend:
                 )
                 return dim
             return 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Local embedding not available: {e}")
             return 0
 
