@@ -247,7 +247,7 @@ class MemoryDB:
             self._conn.execute(
                 "ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.5"
             )
-        except Exception:
+        except sqlite3.OperationalError:
             pass  # Column already exists
 
         # sqlite-vec virtual table (only if enabled)
@@ -457,7 +457,7 @@ class MemoryDB:
                             "vec_score": 0.0,
                         }
                     break
-            except Exception:
+            except sqlite3.Error:
                 continue
 
         fts_vals = [m["fts_score"] for m in results.values() if m["fts_score"] > 0]
@@ -735,7 +735,7 @@ class MemoryDB:
                 if line:
                     try:
                         iterator.append(json.loads(line))
-                    except Exception:
+                    except json.JSONDecodeError:
                         rejected += 1
         else:
             iterator = []
@@ -762,7 +762,7 @@ class MemoryDB:
                         continue
 
                     parsed_batch.append((memory_id, mem, content))
-                except Exception:
+                except (AttributeError, TypeError):
                     rejected += 1
                     continue
 
