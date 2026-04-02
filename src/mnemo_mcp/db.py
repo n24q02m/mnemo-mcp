@@ -424,29 +424,37 @@ class MemoryDB:
         results: dict[str, dict] = {}
         fts_queries = _build_fts_queries(query)
 
+        # Build common SQL suffix once
+        suffix_parts = []
+        suffix_params = []
+
+        if category:
+            suffix_parts.append("AND m.category = ?")
+            suffix_params.append(category)
+
+        if tags:
+            tag_placeholders = ",".join("?" for _ in tags)
+            suffix_parts.append(
+                f"AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+            )
+            suffix_params.extend(tags)
+
+        suffix_parts.append("ORDER BY bm25_score LIMIT ?")
+        suffix_params.append(limit * 3)
+
+        suffix_sql = " ".join(suffix_parts)
+
         for fts_query in fts_queries:
             try:
-                fts_sql = """
+                fts_sql = f"""
                     SELECT m.*,
                            bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score
                     FROM memories_fts f
                     JOIN memories m ON f.id = m.id
                     WHERE memories_fts MATCH ?
+                    {suffix_sql}
                 """
-                fts_params: list = [fts_query]
-
-                if category:
-                    fts_sql += " AND m.category = ?"
-                    fts_params.append(category)
-
-                if tags:
-                    tag_placeholders = ",".join("?" for _ in tags)
-                    fts_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
-                    fts_params.extend(tags)
-
-                fts_sql += " ORDER BY bm25_score LIMIT ?"
-                fts_params.append(limit * 3)
-
+                fts_params = [fts_query, *suffix_params]
                 rows = self._conn.execute(fts_sql, fts_params).fetchall()
                 if rows:
                     for row in rows:
