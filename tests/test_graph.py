@@ -232,6 +232,32 @@ class TestUpsertEntities:
         ).fetchone()
         assert row["entity_type"] == "concept"
 
+    def test_upsert_entities_large_batch(self, tmp_db: MemoryDB):
+        """Verify upsert_entities handles large batches and maintains order/duplicates."""
+        conn = tmp_db._conn
+        # Create 500 unique entities + some duplicates
+        entities = []
+        for i in range(500):
+            entities.append({"name": f"Entity-{i}", "type": "concept"})
+
+        # Add duplicates and out-of-order entities
+        entities.append({"name": "Entity-0", "type": "concept"})
+        entities.append({"name": "Entity-499", "type": "concept"})
+        entities.append({"name": "New-Entity", "type": "person"})
+
+        ids = upsert_entities(conn, entities)
+
+        assert len(ids) == 503
+        assert ids[0] == ids[500]  # First duplicate
+        assert ids[499] == ids[501]  # Second duplicate
+        assert len(set(ids)) == 501  # 500 unique concepts + 1 unique person
+
+        # Verify last entity
+        row = conn.execute(
+            "SELECT entity_type FROM entities WHERE id = ?", (ids[502],)
+        ).fetchone()
+        assert row["entity_type"] == "person"
+
 
 class TestCreateRelations:
     def test_creates_relation(self, tmp_db: MemoryDB):
