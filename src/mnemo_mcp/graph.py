@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 import uuid
 from datetime import UTC, datetime
 
@@ -157,17 +158,20 @@ async def extract_entities(content: str) -> dict | None:
             e
             for e in data.get("entities", [])
             if isinstance(e, dict)
+            and isinstance(e.get("type"), str)
             and e.get("type", "").lower() in _VALID_TYPES
-            and isinstance(e.get("name", ""), str)
+            and isinstance(e.get("name"), str)
             and len(e["name"]) <= 200
         ]
         data["relations"] = [
             r
             for r in data.get("relations", [])
-            if isinstance(r, dict) and r.get("type", "").lower() in _VALID_RELS
+            if isinstance(r, dict)
+            and isinstance(r.get("type"), str)
+            and r.get("type", "").lower() in _VALID_RELS
         ]
         return data
-    except Exception as e:
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
         logger.debug(f"Entity extraction failed: {e}")
         return None
 
@@ -204,7 +208,7 @@ async def score_importance(content: str) -> float:
 
         score = float(text.strip())
         return max(0.0, min(1.0, score))
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         logger.debug(f"Importance scoring failed: {e}")
         return 0.5
 
@@ -318,7 +322,7 @@ def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
             "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
             params,
         )
-    except Exception as e:
+    except sqlite3.Error as e:
         logger.debug(f"Failed to link memory entities: {e}")
 
 
