@@ -324,43 +324,35 @@ def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
 
 def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[str]:
     """Find memory IDs related via shared entities (up to max_depth hops)."""
-    entity_ids = [
-        r[0]
-        for r in conn.execute(
-            "SELECT entity_id FROM memory_entities WHERE memory_id = ?",
-            (memory_id,),
-        ).fetchall()
-    ]
-
-    if not entity_ids:
-        return []
-
-    visited_entities = set(entity_ids)
-    all_entity_ids = list(entity_ids)
-
-    # Walk relations up to max_depth hops
-    for _depth in range(max_depth - 1):
-        if not all_entity_ids:
-            break
-        placeholders = ",".join("?" * len(all_entity_ids))
-        neighbor_rows = conn.execute(
-            f"SELECT target_id FROM relations WHERE source_id IN ({placeholders}) "
-            f"UNION SELECT source_id FROM relations WHERE target_id IN ({placeholders})",
-            (*all_entity_ids, *all_entity_ids),
-        ).fetchall()
-        new_ids = [r[0] for r in neighbor_rows if r[0] not in visited_entities]
-        if not new_ids:
-            break
-        visited_entities.update(new_ids)
-        all_entity_ids = new_ids
-
-    # Find memories sharing any of the discovered entities
-    all_eids = list(visited_entities)
-    placeholders = ",".join("?" * len(all_eids))
+    # Bolt Performance Optimization:
+    # Use a recursive CTE to traverse the knowledge graph in a single query.
+    # This eliminates the N+1 loop in Python and pushes the recursion to SQLite.
+    # We use multiple UNION blocks to correctly follow undirected relations
+    # without expensive OR conditions or exponential path explosion.
+    query = """
+        WITH RECURSIVE traverse(entity_id, depth) AS (
+            -- Seed with initial entities linked to the memory
+            SELECT entity_id, 1 FROM memory_entities WHERE memory_id = ?
+            UNION
+            -- Follow relations forward
+            SELECT r.target_id, t.depth + 1
+            FROM relations r
+            JOIN traverse t ON r.source_id = t.entity_id
+            WHERE t.depth < ?
+            UNION
+            -- Follow relations backward (undirected graph)
+            SELECT r.source_id, t.depth + 1
+            FROM relations r
+            JOIN traverse t ON r.target_id = t.entity_id
+            WHERE t.depth < ?
+        )
+        SELECT DISTINCT me.memory_id
+        FROM memory_entities me
+        JOIN traverse t ON me.entity_id = t.entity_id
+        WHERE me.memory_id != ?
+    """
     rows = conn.execute(
-        f"SELECT DISTINCT memory_id FROM memory_entities "
-        f"WHERE entity_id IN ({placeholders}) AND memory_id != ?",
-        (*all_eids, memory_id),
+        query, (memory_id, max_depth, max_depth, memory_id)
     ).fetchall()
 
     return [r[0] for r in rows]
