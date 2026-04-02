@@ -70,13 +70,16 @@ class CloudReranker:
         self, query: str, documents: list[str], top_n: int = 10
     ) -> list[tuple[int, float]]:
         """Rerank documents via cloud API (Jina or Cohere)."""
+        import httpx
+        from cohere.core.api_error import ApiError
+
         if not documents:
             return []
         try:
             if self._provider == "jina":
                 return self._rerank_jina(query, documents, top_n)
             return self._rerank_cohere(query, documents, top_n)
-        except Exception as e:
+        except (httpx.HTTPError, ApiError) as e:
             logger.warning(f"Cloud reranking failed ({self._provider}): {e}")
             return []
 
@@ -139,11 +142,14 @@ class CloudReranker:
 
     def check_available(self) -> bool:
         """Check if the cloud reranker model is reachable."""
+        import httpx
+        from cohere.core.api_error import ApiError
+
         try:
             if self._provider == "jina":
                 return self._check_jina()
             return self._check_cohere()
-        except Exception as e:
+        except (httpx.HTTPError, ApiError) as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -234,7 +240,7 @@ class Qwen3Reranker:
             results = list(enumerate(scores))
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:top_n]
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError) as e:
             logger.warning(f"Local reranking failed: {e}")
             return []
 
@@ -244,7 +250,7 @@ class Qwen3Reranker:
             model = self._get_model()
             scores = list(model.rerank("test", ["test document"]))
             return len(scores) > 0
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError) as e:
             logger.debug(f"Local reranker not available: {e}")
             return False
 

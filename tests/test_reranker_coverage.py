@@ -85,7 +85,9 @@ class TestCloudRerankerJina:
     @patch("httpx.post")
     def test_rerank_jina_failure(self, mock_post):
         """Jina reranker returns empty on failure."""
-        mock_post.side_effect = Exception("API error")
+        import httpx
+
+        mock_post.side_effect = httpx.HTTPError("API error")
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
@@ -120,7 +122,13 @@ class TestCheckAvailableReranker:
     @patch("httpx.post")
     def test_check_jina_api_key_invalid(self, mock_post):
         """Jina check_available returns False and logs warning on 401."""
-        mock_post.side_effect = Exception("401 Unauthorized")
+        import httpx
+
+        mock_post.side_effect = httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=MagicMock(),
+            response=MagicMock(status_code=401),
+        )
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
@@ -151,8 +159,10 @@ class TestCheckAvailableReranker:
     @patch("cohere.ClientV2")
     def test_check_cohere_non_auth_error(self, mock_client_cls):
         """Cohere check_available returns False on non-auth error."""
+        from cohere.core.api_error import ApiError
+
         mock_client = MagicMock()
-        mock_client.rerank.side_effect = Exception("Model not found")
+        mock_client.rerank.side_effect = ApiError(status_code=404, body="Model not found")
         mock_client_cls.return_value = mock_client
 
         reranker = CloudReranker(

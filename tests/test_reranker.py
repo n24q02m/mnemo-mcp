@@ -83,11 +83,13 @@ class TestCohereReranker:
 
     def test_rerank_failure_returns_empty(self):
         """Reranker returns empty list on failure (never raises)."""
+        from cohere.core.api_error import ApiError
+
         reranker = CohereReranker(api_key="test-key")
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("API error")
+            mock_client.rerank.side_effect = ApiError(status_code=500, body="API error")
             mock_client_cls.return_value = mock_client
 
             results = reranker.rerank("query", ["doc"])
@@ -110,22 +112,28 @@ class TestCohereReranker:
 
     def test_check_available_failure(self):
         """check_available returns False on API failure."""
+        import httpx
+
         reranker = CohereReranker(api_key="test-key")
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("connection error")
+            mock_client.rerank.side_effect = httpx.ConnectError("connection error")
             mock_client_cls.return_value = mock_client
 
             assert reranker.check_available() is False
 
     def test_check_available_auth_error(self):
         """check_available logs warning for auth errors."""
+        from cohere.core.api_error import ApiError
+
         reranker = CohereReranker(api_key="bad-key")
 
         with patch("cohere.ClientV2") as mock_client_cls:
             mock_client = MagicMock()
-            mock_client.rerank.side_effect = Exception("401 unauthorized")
+            mock_client.rerank.side_effect = ApiError(
+                status_code=401, body="unauthorized"
+            )
             mock_client_cls.return_value = mock_client
 
             assert reranker.check_available() is False
