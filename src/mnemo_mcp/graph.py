@@ -231,30 +231,32 @@ def upsert_entities(conn, entities: list[dict]) -> list[str]:
 
     unique_keys = list(unique_ents.keys())
 
-    to_insert = []
-    to_update = []
+    # Bolt Performance Optimization:
+    # Use executemany with ON CONFLICT for bulk upsert, and batch bulk SELECT for IDs.
+    # This eliminates N+1 query overhead, reducing database round-trips to O(1).
+    upsert_data = [(str(uuid.uuid4()), key[0], key[1], now, now) for key in unique_keys]
 
-    for key in unique_keys:
-        row = conn.execute(
-            "SELECT id FROM entities WHERE name = ? AND entity_type = ?", key
-        ).fetchone()
-        if row:
-            eid = row[0]
-            unique_ents[key] = eid
-            to_update.append((now, eid))
-        else:
-            eid = str(uuid.uuid4())
-            unique_ents[key] = eid
-            to_insert.append((eid, key[0], key[1], now, now))
+    conn.executemany(
+        """INSERT INTO entities (id, name, entity_type, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(name, entity_type) DO UPDATE SET updated_at = excluded.updated_at""",
+        upsert_data,
+    )
 
-    if to_update:
-        conn.executemany("UPDATE entities SET updated_at = ? WHERE id = ?", to_update)
-    if to_insert:
-        conn.executemany(
-            "INSERT INTO entities (id, name, entity_type, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            to_insert,
-        )
+    # Fetch all IDs in bulk. Use VALUES clause for multi-column IN.
+    # Batch to stay under SQLITE_MAX_VARIABLE_NUMBER (default 999).
+    BATCH_SIZE = 400
+    for i in range(0, len(unique_keys), BATCH_SIZE):
+        batch = unique_keys[i : i + BATCH_SIZE]
+        placeholders = ", ".join(["(?, ?)"] * len(batch))
+        # Flatten batch for parameters
+        params = [val for key_tuple in batch for val in key_tuple]
+        rows = conn.execute(
+            f"SELECT name, entity_type, id FROM entities WHERE (name, entity_type) IN (VALUES {placeholders})",
+            params,
+        ).fetchall()
+        for r_name, r_type, r_id in rows:
+            unique_ents[(r_name, r_type)] = r_id
 
     return [unique_ents[key] for key in ordered_ents]
 
