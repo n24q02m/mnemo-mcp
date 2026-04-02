@@ -59,7 +59,7 @@ class TestEmbed:
     async def test_embed_exception_returns_none(self):
         """Returns None when embedding raises an exception."""
         mock_backend = MagicMock()
-        mock_backend.embed_single = AsyncMock(side_effect=Exception("API error"))
+        mock_backend.embed_single = AsyncMock(side_effect=RuntimeError("API error"))
 
         with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
             result = await _embed("test text", "some-model", 768)
@@ -232,7 +232,7 @@ class TestInitEmbeddingBackendCandidate:
         mock_settings.resolve_local_embedding_model.return_value = "local/m"
 
         # All candidates raise exception
-        mock_init.side_effect = Exception("API Error")
+        mock_init.side_effect = RuntimeError("API Error")
 
         # Local backend also fails
         ctx: dict = {"embedding_model": None, "embedding_dims": 768}
@@ -308,7 +308,7 @@ class TestMemoryLimitClamping:
         mock_settings.resolve_local_embedding_model.return_value = "local/m"
 
         # Have init_backend throw an exception
-        mock_init.side_effect = Exception("init failed test error")
+        mock_init.side_effect = ValueError("init failed test error")
 
         ctx: dict = {"embedding_model": None, "embedding_dims": 768}
 

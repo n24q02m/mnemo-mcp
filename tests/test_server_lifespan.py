@@ -111,7 +111,7 @@ class TestInitRerankerBackend:
             nonlocal call_count
             call_count += 1
             if backend_type == "cloud":
-                raise Exception("Cloud init failed")
+                raise ValueError("Cloud init failed")
             return local_backend
 
         with patch("mnemo_mcp.reranker.init_reranker", side_effect=mock_init):
@@ -155,7 +155,7 @@ class TestInitRerankerBackend:
 
         with patch(
             "mnemo_mcp.reranker.init_reranker",
-            side_effect=Exception("ONNX not installed"),
+            side_effect=RuntimeError("ONNX not installed"),
         ):
             # Should not raise
             await _init_reranker_backend("local")
@@ -266,7 +266,7 @@ class TestEnrichMemory:
             patch(
                 "mnemo_mcp.graph.score_importance",
                 new_callable=AsyncMock,
-                side_effect=Exception("LLM error"),
+                side_effect=RuntimeError("LLM error"),
             ),
             patch(
                 "mnemo_mcp.graph.extract_entities",
