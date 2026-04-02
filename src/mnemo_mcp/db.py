@@ -94,6 +94,10 @@ class MemoryDB:
                 f"embedding_dims must be an integer, got {type(embedding_dims).__name__}"
             )
         self._embedding_dims = embedding_dims
+        if not (0 <= embedding_dims <= 10000):
+            raise ValueError(
+                f"embedding_dims must be between 0 and 10000, got {embedding_dims}"
+            )
         self._recency_half_life = float(recency_half_life_days)
 
         # Create parent directory
@@ -257,7 +261,15 @@ class MemoryDB:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
             ).fetchone()
             if not row:
+                # Sentinel Security Hardening:
+                # Explicitly validate and cast dimensions before f-string interpolation
+                # to prevent potential SQL injection if the source ever becomes untrusted.
                 dims = int(self._embedding_dims)
+                if not (0 <= dims <= 10000):
+                    raise ValueError(
+                        f"embedding_dims must be between 0 and 10000, got {dims}"
+                    )
+
                 self._conn.execute(f"""
                     CREATE VIRTUAL TABLE memories_vec
                     USING vec0(
@@ -618,6 +630,14 @@ class MemoryDB:
         updates.append("updated_at = ?")
         params.append(now)
         params.append(memory_id)
+
+        # Sentinel Security Hardening:
+        # Validate updates list against an allowlist before string joining
+        # to ensure no unexpected column names are injected.
+        _ALLOWED = {"content = ?", "category = ?", "tags = ?", "updated_at = ?"}
+        if not all(u in _ALLOWED for u in updates):
+            invalid = [u for u in updates if u not in _ALLOWED]
+            raise ValueError(f"Unauthorized update columns detected: {invalid}")
 
         self._conn.execute(
             f"UPDATE memories SET {', '.join(updates)} WHERE id = ?",
