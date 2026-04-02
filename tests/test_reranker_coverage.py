@@ -8,6 +8,7 @@ CloudReranker._check_cohere, Qwen3Reranker lazy load.
 from unittest.mock import MagicMock, patch
 
 import httpx
+
 from mnemo_mcp.reranker import (
     CloudReranker,
     Qwen3Reranker,
