@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
+import httpx
 from loguru import logger
 
 
@@ -76,7 +77,7 @@ class CloudReranker:
             if self._provider == "jina":
                 return self._rerank_jina(query, documents, top_n)
             return self._rerank_cohere(query, documents, top_n)
-        except Exception as e:
+        except (httpx.HTTPError, RuntimeError, ValueError, AttributeError, ImportError, TypeError) as e:
             logger.warning(f"Cloud reranking failed ({self._provider}): {e}")
             return []
 
@@ -143,7 +144,7 @@ class CloudReranker:
             if self._provider == "jina":
                 return self._check_jina()
             return self._check_cohere()
-        except Exception as e:
+        except (httpx.HTTPError, RuntimeError, ValueError, AttributeError, ImportError, TypeError) as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -234,7 +235,7 @@ class Qwen3Reranker:
             results = list(enumerate(scores))
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:top_n]
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError, AttributeError, TypeError) as e:
             logger.warning(f"Local reranking failed: {e}")
             return []
 
@@ -244,7 +245,7 @@ class Qwen3Reranker:
             model = self._get_model()
             scores = list(model.rerank("test", ["test document"]))
             return len(scores) > 0
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError, AttributeError, TypeError) as e:
             logger.debug(f"Local reranker not available: {e}")
             return False
 

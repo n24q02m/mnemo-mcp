@@ -20,6 +20,7 @@ import asyncio
 import os
 from typing import Protocol
 
+import httpx
 from loguru import logger
 
 # ---------------------------------------------------------------------------
@@ -308,7 +309,7 @@ class CloudEmbeddingBackend:
                 if dimensions and embeddings and len(embeddings[0]) > dimensions:
                     embeddings = [e[:dimensions] for e in embeddings]
                 return embeddings
-            except Exception as e:
+            except (httpx.HTTPError, RuntimeError, ValueError, AttributeError, ImportError, TypeError) as e:
                 # If the provider rejects `dimensions`, retry without it
                 # and truncate locally instead.
                 if (
@@ -392,7 +393,7 @@ class CloudEmbeddingBackend:
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
                 return dim
             return 0
-        except Exception as e:
+        except (httpx.HTTPError, RuntimeError, ValueError, AttributeError, ImportError, TypeError) as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -504,7 +505,7 @@ class Qwen3EmbedBackend:
                 )
                 return dim
             return 0
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError, AttributeError, TypeError) as e:
             logger.warning(f"Local embedding not available: {e}")
             return 0
 
