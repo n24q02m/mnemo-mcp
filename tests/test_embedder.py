@@ -55,7 +55,7 @@ class TestCloudEmbeddingBackend:
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.embeddings.float_ = [[0.1] * 1024]
-        unsupported_err = Exception("output_dimension is not supported for this model")
+        unsupported_err = ValueError("output_dimension is not supported for this model")
         mock_client.embed.side_effect = [unsupported_err, mock_response]
         mock_client_cls.return_value = mock_client
 
@@ -102,7 +102,7 @@ class TestCloudEmbeddingBackend:
     @patch("cohere.ClientV2")
     def test_check_available_error(self, mock_client_cls):
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Model not found")
+        mock_client.embed.side_effect = ValueError("Model not found")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
@@ -111,11 +111,11 @@ class TestCloudEmbeddingBackend:
     @patch("cohere.ClientV2")
     async def test_raises_on_non_retryable_error(self, mock_client_cls):
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key")
+        mock_client.embed.side_effect = ValueError("Invalid API key")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="Invalid API key"):
+        with pytest.raises(ValueError, match="Invalid API key"):
             await backend.embed_texts(["test"])
 
     @patch("cohere.ClientV2")
@@ -203,7 +203,7 @@ class TestRetryLogic:
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.1]]
         mock_client.embed.side_effect = [
-            Exception("429 rate limit exceeded"),
+            ValueError("429 rate limit exceeded"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -220,7 +220,7 @@ class TestRetryLogic:
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.2]]
         mock_client.embed.side_effect = [
-            Exception("503 temporarily unavailable"),
+            ValueError("503 temporarily unavailable"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -233,11 +233,11 @@ class TestRetryLogic:
     @patch("cohere.ClientV2")
     async def test_no_retry_on_non_retryable(self, mock_client_cls, mock_sleep):
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key")
+        mock_client.embed.side_effect = ValueError("Invalid API key")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="Invalid API key"):
+        with pytest.raises(ValueError, match="Invalid API key"):
             await backend.embed_texts(["test"])
         mock_sleep.assert_not_called()
 
@@ -248,8 +248,8 @@ class TestRetryLogic:
         success_response = MagicMock()
         success_response.embeddings.float_ = [[0.1]]
         mock_client.embed.side_effect = [
-            Exception("429 rate limit"),
-            Exception("429 rate limit"),
+            ValueError("429 rate limit"),
+            ValueError("429 rate limit"),
             success_response,
         ]
         mock_client_cls.return_value = mock_client
@@ -262,11 +262,11 @@ class TestRetryLogic:
     @patch("cohere.ClientV2")
     async def test_max_retries_exhausted(self, mock_client_cls, mock_sleep):
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("429 rate limit")
+        mock_client.embed.side_effect = ValueError("429 rate limit")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
-        with pytest.raises(Exception, match="429 rate limit"):
+        with pytest.raises(ValueError, match="429 rate limit"):
             await backend.embed_texts(["test"])
         assert mock_sleep.call_count == 2
 
@@ -340,7 +340,7 @@ class TestCheckAvailableApiKeyValidation:
     def test_api_key_401_logs_warning(self, mock_client_cls):
         """401 errors are logged at warning level (not debug)."""
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("401 Unauthorized: Invalid API key")
+        mock_client.embed.side_effect = ValueError("401 Unauthorized: Invalid API key")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -351,7 +351,7 @@ class TestCheckAvailableApiKeyValidation:
     def test_api_key_403_logs_warning(self, mock_client_cls):
         """403 forbidden errors are logged at warning level."""
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("403 Forbidden")
+        mock_client.embed.side_effect = ValueError("403 Forbidden")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -361,7 +361,7 @@ class TestCheckAvailableApiKeyValidation:
     def test_invalid_key_detected(self, mock_client_cls):
         """'invalid' keyword in error triggers warning path."""
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Invalid API key provided")
+        mock_client.embed.side_effect = ValueError("Invalid API key provided")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -371,7 +371,7 @@ class TestCheckAvailableApiKeyValidation:
     def test_unauthorized_detected(self, mock_client_cls):
         """'unauthorized' keyword in error triggers warning path."""
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Unauthorized access")
+        mock_client.embed.side_effect = ValueError("Unauthorized access")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="bad-key")
@@ -381,7 +381,7 @@ class TestCheckAvailableApiKeyValidation:
     def test_non_auth_error_logged_at_debug(self, mock_client_cls):
         """Non-auth errors (e.g. model not found) go to debug level."""
         mock_client = MagicMock()
-        mock_client.embed.side_effect = Exception("Model not found: xyz")
+        mock_client.embed.side_effect = ValueError("Model not found: xyz")
         mock_client_cls.return_value = mock_client
 
         backend = CloudEmbeddingBackend(api_key="key")
@@ -407,7 +407,7 @@ class TestQwen3GetModelWarning:
     @patch("mnemo_mcp.embedder.Qwen3EmbedBackend._get_model")
     def test_check_available_returns_zero_on_error(self, mock_get_model):
         """check_available returns 0 when model raises."""
-        mock_get_model.side_effect = Exception("ONNX runtime error")
+        mock_get_model.side_effect = RuntimeError("ONNX runtime error")
         backend = Qwen3EmbedBackend()
         assert backend.check_available() == 0
 
