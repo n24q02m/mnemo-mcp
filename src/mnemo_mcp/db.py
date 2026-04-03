@@ -744,6 +744,86 @@ class MemoryDB:
 
         return output.getvalue(), count
 
+    def _process_import_batch(
+        self, batch_items: list[dict], mode: str
+    ) -> tuple[int, int, int]:
+        """Process a single batch of memories for import. Internal helper."""
+        imported = 0
+        skipped = 0
+        rejected = 0
+        parsed_batch = []
+
+        # Validate batch
+        for mem in batch_items:
+            try:
+                memory_id = mem.get("id", uuid.uuid4().hex)
+                content = mem.get("content", "")
+
+                if len(content) > MAX_CONTENT_LENGTH:
+                    logger.warning(
+                        f"[AUDIT] import rejected id={memory_id} "
+                        f"len={len(content)} exceeds {MAX_CONTENT_LENGTH}"
+                    )
+                    rejected += 1
+                    continue
+
+                parsed_batch.append((memory_id, mem, content))
+            except Exception:  # noqa: BLE001
+                rejected += 1
+                continue
+
+        if not parsed_batch:
+            return imported, skipped, rejected
+
+        to_insert = []
+        now = _now_iso()
+
+        for memory_id, mem, content in parsed_batch:
+            tags = mem.get("tags", [])
+            if isinstance(tags, list):
+                tags_json = json.dumps(tags)
+            else:
+                tags_json = tags
+
+            to_insert.append(
+                (
+                    memory_id,
+                    content,
+                    mem.get("category", "general"),
+                    tags_json,
+                    mem.get("source"),
+                    mem.get("created_at", now),
+                    mem.get("updated_at", now),
+                    mem.get("access_count", 0),
+                    mem.get("last_accessed", now),
+                )
+            )
+
+        if to_insert:
+            cursor = self._conn.cursor()
+            if mode == "replace":
+                cursor.executemany(
+                    """INSERT OR REPLACE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    to_insert,
+                )
+                imported += len(to_insert)
+            else:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO memories
+                       (id, content, category, tags, source,
+                        created_at, updated_at, access_count, last_accessed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    to_insert,
+                )
+                inserted_batch = cursor.rowcount
+                imported += inserted_batch
+                skipped += len(to_insert) - inserted_batch
+
+        return imported, skipped, rejected
+
     def import_jsonl(self, data: str | list | dict, mode: str = "merge") -> dict:
         """Import memories from JSONL string.
 
@@ -764,96 +844,31 @@ class MemoryDB:
         rejected = 0
 
         if isinstance(data, list):
-            iterator = data
+            lines = data
         elif isinstance(data, dict):
-            iterator = [data]
+            lines = [data]
         elif isinstance(data, str):
-            iterator = []
+            lines = []
             for line in data.strip().split("\n"):
                 line = line.strip()
                 if line:
                     try:
-                        iterator.append(json.loads(line))
-                    except Exception:
+                        lines.append(json.loads(line))
+                    except Exception:  # noqa: BLE001
                         rejected += 1
         else:
-            iterator = []
+            lines = []
 
-        lines = iterator
         BATCH_SIZE = 900
 
         for i in range(0, len(lines), BATCH_SIZE):
             batch_items = lines[i : i + BATCH_SIZE]
-            parsed_batch = []
-
-            # Validate batch
-            for mem in batch_items:
-                try:
-                    memory_id = mem.get("id", uuid.uuid4().hex)
-                    content = mem.get("content", "")
-
-                    if len(content) > MAX_CONTENT_LENGTH:
-                        logger.warning(
-                            f"[AUDIT] import rejected id={memory_id} "
-                            f"len={len(content)} exceeds {MAX_CONTENT_LENGTH}"
-                        )
-                        rejected += 1
-                        continue
-
-                    parsed_batch.append((memory_id, mem, content))
-                except Exception:
-                    rejected += 1
-                    continue
-
-            if not parsed_batch:
-                continue
-
-            to_insert = []
-            now = _now_iso()
-
-            for memory_id, mem, content in parsed_batch:
-                tags = mem.get("tags", [])
-                if isinstance(tags, list):
-                    tags_json = json.dumps(tags)
-                else:
-                    tags_json = tags
-
-                to_insert.append(
-                    (
-                        memory_id,
-                        content,
-                        mem.get("category", "general"),
-                        tags_json,
-                        mem.get("source"),
-                        mem.get("created_at", now),
-                        mem.get("updated_at", now),
-                        mem.get("access_count", 0),
-                        mem.get("last_accessed", now),
-                    )
-                )
-
-            if to_insert:
-                cursor = self._conn.cursor()
-                if mode == "replace":
-                    cursor.executemany(
-                        """INSERT OR REPLACE INTO memories
-                           (id, content, category, tags, source,
-                            created_at, updated_at, access_count, last_accessed)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        to_insert,
-                    )
-                    imported += len(to_insert)
-                else:
-                    cursor.executemany(
-                        """INSERT OR IGNORE INTO memories
-                           (id, content, category, tags, source,
-                            created_at, updated_at, access_count, last_accessed)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        to_insert,
-                    )
-                    inserted_batch = cursor.rowcount
-                    imported += inserted_batch
-                    skipped += len(to_insert) - inserted_batch
+            b_imported, b_skipped, b_rejected = self._process_import_batch(
+                batch_items, mode
+            )
+            imported += b_imported
+            skipped += b_skipped
+            rejected += b_rejected
 
         self._conn.commit()
         if imported > 0:
