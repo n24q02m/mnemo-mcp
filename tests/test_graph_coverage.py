@@ -7,7 +7,6 @@ link_memory_entities empty, link_memory_entities exception,
 find_related_memory_ids no_new_ids early break.
 """
 
-import sqlite3
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.db import MemoryDB
@@ -373,7 +372,7 @@ class TestLinkMemoryEntitiesCoverage:
     def test_exception_is_caught(self, tmp_db: MemoryDB):
         """Exception during linking is caught and logged."""
         conn = MagicMock()
-        conn.executemany.side_effect = sqlite3.Error("DB error")
+        conn.executemany.side_effect = Exception("DB error")
         # Should not raise
         link_memory_entities(conn, "fake-id", ["eid1", "eid2"])
 
