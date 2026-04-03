@@ -1,6 +1,7 @@
 """Additional tests for mnemo_mcp.config -- covering uncovered lines.
 
 Targets: setup_providers (sdk/local branches), resolve_provider_mode.
+Note: _detect_gpu error paths are covered in test_config_helpers.py.
 """
 
 from unittest.mock import patch
@@ -125,39 +126,3 @@ class TestResolveEmbeddingBackendAuto:
         """'litellm' rerank_backend maps to 'cloud'."""
         s = Settings(rerank_backend="litellm", api_keys=None)
         assert s.resolve_rerank_backend() == "cloud"
-
-
-class TestDetectGPU:
-    def test_detect_gpu_import_exception(self, monkeypatch):
-        """_detect_gpu returns False if onnxruntime import fails with an Exception."""
-        import builtins
-        import sys
-
-        from mnemo_mcp.config import _detect_gpu
-
-        orig_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "onnxruntime":
-                raise Exception("Mocked import error")
-            return orig_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            # Ensure onnxruntime is not in sys.modules to force an import
-            with patch.dict(sys.modules):
-                if "onnxruntime" in sys.modules:
-                    del sys.modules["onnxruntime"]
-                assert _detect_gpu() is False
-
-    def test_detect_gpu_runtime_exception(self):
-        """_detect_gpu returns False if get_available_providers raises an Exception."""
-        import sys
-        from unittest.mock import MagicMock
-
-        from mnemo_mcp.config import _detect_gpu
-
-        mock_ort = MagicMock()
-        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
-
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
-            assert _detect_gpu() is False
