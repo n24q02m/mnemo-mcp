@@ -735,7 +735,7 @@ class MemoryDB:
                 if line:
                     try:
                         iterator.append(json.loads(line))
-                    except json.JSONDecodeError:
+                    except Exception:
                         rejected += 1
         else:
             iterator = []
@@ -762,7 +762,7 @@ class MemoryDB:
                         continue
 
                     parsed_batch.append((memory_id, mem, content))
-                except (KeyError, TypeError, AttributeError):
+                except Exception:
                     rejected += 1
                     continue
 
