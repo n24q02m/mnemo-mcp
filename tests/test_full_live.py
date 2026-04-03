@@ -257,7 +257,7 @@ class TestFullMemoryConsolidate:
         """Add 3 similar memories -> consolidate -> verify."""
         for content in [
             "Python pytest is a testing framework for Python applications.",
-            "pytest provides plugins and utilities for Python testing.",
+            "pytest provides fixtures and plugins for Python testing.",
             "The pytest framework is used for unit testing Python code.",
         ]:
             await mcp_session.call_tool(
