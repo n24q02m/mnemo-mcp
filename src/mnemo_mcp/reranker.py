@@ -9,8 +9,6 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
-import httpx
-from cohere.core.api_error import ApiError
 from loguru import logger
 
 
@@ -78,7 +76,7 @@ class CloudReranker:
             if self._provider == "jina":
                 return self._rerank_jina(query, documents, top_n)
             return self._rerank_cohere(query, documents, top_n)
-        except (httpx.HTTPError, ApiError, RuntimeError, ValueError, ImportError) as e:
+        except Exception as e:
             logger.warning(f"Cloud reranking failed ({self._provider}): {e}")
             return []
 
@@ -86,6 +84,8 @@ class CloudReranker:
         self, query: str, documents: list[str], top_n: int
     ) -> list[tuple[int, float]]:
         """Rerank via Jina AI REST API."""
+        import httpx
+
         key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
         payload: dict = {
             "model": self._bare_model,
@@ -143,7 +143,7 @@ class CloudReranker:
             if self._provider == "jina":
                 return self._check_jina()
             return self._check_cohere()
-        except (httpx.HTTPError, ApiError, RuntimeError, ValueError, ImportError) as e:
+        except Exception as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -155,6 +155,8 @@ class CloudReranker:
 
     def _check_jina(self) -> bool:
         """Check Jina reranker availability."""
+        import httpx
+
         key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
         response = httpx.post(
             "https://api.jina.ai/v1/rerank",
@@ -232,7 +234,7 @@ class Qwen3Reranker:
             results = list(enumerate(scores))
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:top_n]
-        except (RuntimeError, ValueError, ImportError) as e:
+        except Exception as e:
             logger.warning(f"Local reranking failed: {e}")
             return []
 
@@ -242,7 +244,7 @@ class Qwen3Reranker:
             model = self._get_model()
             scores = list(model.rerank("test", ["test document"]))
             return len(scores) > 0
-        except (RuntimeError, ValueError, ImportError) as e:
+        except Exception as e:
             logger.debug(f"Local reranker not available: {e}")
             return False
 
