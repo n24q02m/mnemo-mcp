@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     - SYNC_FOLDER: Google Drive folder name (default: "mnemo-mcp")
     - SYNC_INTERVAL: Auto-sync interval in seconds (default: 300)
     - GOOGLE_DRIVE_CLIENT_ID: OAuth client ID for Google Drive sync
+    - GOOGLE_DRIVE_CLIENT_SECRET: OAuth client secret for Google Drive sync
     """
 
     # Database
@@ -97,10 +98,8 @@ class Settings(BaseSettings):
     sync_enabled: bool = True
     sync_folder: str = "mnemo-mcp"  # Google Drive folder name
     sync_interval: int = 300  # seconds, 0 = manual only
-    google_drive_client_id: str = (
-        "147668446467-olf2cf6e49rshqv9quvhq639110oc6hc.apps.googleusercontent.com"
-    )
-    google_drive_client_secret: str = "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"
+    google_drive_client_id: str = ""
+    google_drive_client_secret: str = ""
 
     # Archive
     archive_enabled: bool = True

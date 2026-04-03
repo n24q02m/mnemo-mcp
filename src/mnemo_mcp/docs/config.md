@@ -125,6 +125,7 @@ Configure via environment variables before starting the server:
 | `EMBEDDING_DIMS` | `0` | Embedding dimensions (0 = auto, resolves to 768) |
 | `SYNC_ENABLED` | `false` | Enable Google Drive sync |
 | `GOOGLE_DRIVE_CLIENT_ID` | (none) | OAuth client ID for Google Drive |
+| `GOOGLE_DRIVE_CLIENT_SECRET` | (none) | OAuth client secret for Google Drive |
 | `SYNC_FOLDER` | `mnemo-mcp` | Google Drive folder name |
 | `SYNC_INTERVAL` | `300` | Auto-sync interval (seconds, 0 = manual) |
 | `LOG_LEVEL` | `INFO` | Log level |
