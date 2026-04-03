@@ -54,7 +54,7 @@ async def test_embed_with_qwen3_backend_doc():
 async def test_embed_backend_exception():
     """Test _embed handles backend exceptions gracefully."""
     mock_backend = AsyncMock()
-    mock_backend.embed_single.side_effect = RuntimeError("Embed error")
+    mock_backend.embed_single.side_effect = Exception("Embed error")
 
     with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
         result = await _embed("text", "model", 768)

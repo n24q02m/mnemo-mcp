@@ -266,7 +266,7 @@ class TestEnrichMemory:
             patch(
                 "mnemo_mcp.graph.score_importance",
                 new_callable=AsyncMock,
-                side_effect=RuntimeError("LLM error"),
+                side_effect=Exception("LLM error"),
             ),
             patch(
                 "mnemo_mcp.graph.extract_entities",

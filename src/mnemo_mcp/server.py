@@ -188,7 +188,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
                 settings.google_drive_client_id = gdrive_id
 
             logger.info("Cloud API keys loaded from relay config")
-    except (ValueError, ImportError, RuntimeError) as e:
+    except Exception as e:
         logger.debug(f"Relay config not available: {e}")
 
     # 1. Setup provider mode (sdk/local)
@@ -324,7 +324,7 @@ async def _embed(
         if is_query and isinstance(backend, Qwen3EmbedBackend):
             return await backend.embed_single_query(text, dims)
         return await backend.embed_single(text, dims)
-    except (ValueError, ImportError, RuntimeError) as e:
+    except Exception as e:
         logger.debug(f"Embedding failed: {e}")
         return None
 
@@ -355,7 +355,7 @@ async def _handle_add(
             dedup_warning = dedup_result
         elif dedup_result and dedup_result.get("similar"):
             dedup_warning = dedup_result
-    except (ValueError, ImportError, RuntimeError):
+    except Exception:
         pass  # Non-blocking, ignore errors
 
     embedding = await _embed(content, embedding_model, embedding_dims)
@@ -369,7 +369,7 @@ async def _handle_add(
         )
     except ValueError as e:
         return _json({"error": str(e)})
-    except (ImportError, RuntimeError):
+    except Exception:
         logger.exception("Unexpected error in _handle_add")
         return _json({"error": "Internal error while adding memory"})
 
@@ -402,7 +402,7 @@ async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
         importance = await score_importance(content)
         if importance != 0.5:
             await asyncio.to_thread(db.update_importance, memory_id, importance)
-    except (ValueError, ImportError, RuntimeError) as e:
+    except Exception as e:
         logger.debug(f"Importance scoring background error: {e}")
 
     try:
@@ -419,7 +419,7 @@ async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
                 create_relations(conn, graph_data["relations"], name_to_id)
             link_memory_entities(conn, memory_id, entity_ids)
             conn.commit()
-    except (ValueError, ImportError, RuntimeError) as e:
+    except Exception as e:
         logger.debug(f"Entity extraction background error: {e}")
 
 
@@ -472,7 +472,7 @@ async def _handle_search(
                     reranked_results.append(r)
                 results = reranked_results
                 reranked = True
-        except (ValueError, ImportError, RuntimeError) as e:
+        except Exception as e:
             logger.debug(f"Reranking failed, using original order: {e}")
 
     # Graph boost: find related memories via entity graph
@@ -489,7 +489,7 @@ async def _handle_search(
                 for r in results:
                     if r["id"] in related_set:
                         r["graph_related"] = True
-        except (ValueError, ImportError, RuntimeError):
+        except Exception:
             pass  # Non-blocking
 
     response: dict = {
@@ -561,7 +561,7 @@ async def _handle_update(
         )
     except ValueError as e:
         return _json({"error": str(e)})
-    except (ImportError, RuntimeError):
+    except Exception:
         logger.exception("Unexpected error in _handle_update")
         return _json({"error": "Internal error while updating memory"})
     if ok:
@@ -726,7 +726,7 @@ async def _handle_consolidate(
                 "note": "Review the summary and use add/delete to apply changes.",
             }
         )
-    except (ValueError, ImportError, RuntimeError) as e:
+    except Exception as e:
         return _json({"error": f"Consolidation failed: {e}"})
 
 

@@ -59,7 +59,7 @@ class TestEmbed:
     async def test_embed_exception_returns_none(self):
         """Returns None when embedding raises an exception."""
         mock_backend = MagicMock()
-        mock_backend.embed_single = AsyncMock(side_effect=RuntimeError("API error"))
+        mock_backend.embed_single = AsyncMock(side_effect=Exception("API error"))
 
         with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
             result = await _embed("test text", "some-model", 768)
