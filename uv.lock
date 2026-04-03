@@ -317,7 +317,7 @@ requests = [
 
 [[package]]
 name = "google-genai"
-version = "1.68.0"
+version = "1.70.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -331,9 +331,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/2c/f059982dbcb658cc535c81bbcbe7e2c040d675f4b563b03cdb01018a4bc3/google_genai-1.68.0.tar.gz", hash = "sha256:ac30c0b8bc630f9372993a97e4a11dae0e36f2e10d7c55eacdca95a9fa14ca96", size = 511285, upload-time = "2026-03-18T01:03:18.243Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/dd/28e4682904b183acbfad3fe6409f13a42f69bb8eab6e882d3bcbea1dde01/google_genai-1.70.0.tar.gz", hash = "sha256:36b67b0fc6f319e08d1f1efd808b790107b1809c8743a05d55dfcf9d9fad7719", size = 519550, upload-time = "2026-04-01T10:52:46.487Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/de/7d3ee9c94b74c3578ea4f88d45e8de9405902f857932334d81e89bce3dfa/google_genai-1.68.0-py3-none-any.whl", hash = "sha256:a1bc9919c0e2ea2907d1e319b65471d3d6d58c54822039a249fe1323e4178d15", size = 750912, upload-time = "2026-03-18T01:03:15.983Z" },
+    { url = "https://files.pythonhosted.org/packages/36/a3/d4564c8a9beaf6a3cef8d70fa6354318572cebfee65db4f01af0d41f45ba/google_genai-1.70.0-py3-none-any.whl", hash = "sha256:b74c24549d8b4208f4c736fd11857374788e1ffffc725de45d706e35c97fceee", size = 760584, upload-time = "2026-04-01T10:52:44.349Z" },
 ]
 
 [[package]]
@@ -564,16 +564,16 @@ cli = [
 
 [[package]]
 name = "mcp-relay-core"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
     { name = "platformdirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/01/4cfe9eb44dc725caaae047dafc98706d1a4562b24ffdea195ad539ab072d/mcp_relay_core-1.2.0.tar.gz", hash = "sha256:833cbf01858771f30406ae384e88d67924cb92b0945990d85c3731e30df67a54", size = 61277, upload-time = "2026-03-31T12:15:51.511Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/8b/809647e6b3d9ae65ced9dedccf9ffb70c6d0be379b9996143e740e31cf8d/mcp_relay_core-1.3.0.tar.gz", hash = "sha256:90a10119711ee878023a8e64f87b22348619a76963630cb05341af2bd1508014", size = 61721, upload-time = "2026-04-03T08:31:05.909Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/4e/b4612a4683a4f735ef5bbf2a221939837b5a83b56bd7e5629f42cb817925/mcp_relay_core-1.2.0-py3-none-any.whl", hash = "sha256:92a06530659c9914fca13e3d43d2c773b0d155c173ebc3988080ad3b188744b5", size = 41300, upload-time = "2026-03-31T12:15:50.329Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/91/61525f30ef3fdc5db1e15754182997eb33d51674b187fb56d7bd5c70afe8/mcp_relay_core-1.3.0-py3-none-any.whl", hash = "sha256:6c8ea16152b1021a02457445cb9f2910ca0b4837f923d9c50df07070cbc199d1", size = 41302, upload-time = "2026-04-03T08:31:04.611Z" },
 ]
 
 [[package]]
@@ -619,15 +619,15 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cohere", specifier = ">=5.21.1" },
-    { name = "google-genai", specifier = ">=1.68.0" },
+    { name = "google-genai", specifier = ">=1.70.0" },
     { name = "httpx" },
     { name = "loguru" },
     { name = "mcp", extras = ["cli"] },
-    { name = "mcp-relay-core", specifier = ">=1.2.0" },
+    { name = "mcp-relay-core", specifier = ">=1.3.0" },
     { name = "openai", specifier = ">=2.30.0" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "qwen3-embed", specifier = ">=1.6.0" },
+    { name = "qwen3-embed", specifier = ">=1.7.0" },
     { name = "sqlite-vec" },
 ]
 
