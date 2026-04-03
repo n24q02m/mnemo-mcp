@@ -440,9 +440,6 @@ async def _handle_search(
             }
         )
 
-    if isinstance(limit, int):
-        limit = max(1, min(limit, 100))
-
     embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
     results = await asyncio.to_thread(
         db.search,
@@ -513,9 +510,6 @@ async def _handle_list(
     category: str | None,
     limit: int,
 ) -> str:
-    if isinstance(limit, int):
-        limit = max(1, min(limit, 100))
-
     results = await asyncio.to_thread(
         db.list_memories,
         category=category,
@@ -660,9 +654,6 @@ async def _handle_archived(
     db: MemoryDB,
     limit: int,
 ) -> str:
-    if isinstance(limit, int):
-        limit = max(1, min(limit, 100))
-
     results = await asyncio.to_thread(db.list_archived, limit)
     return _json(
         {
@@ -730,67 +721,24 @@ async def _handle_consolidate(
         return _json({"error": f"Consolidation failed: {e}"})
 
 
-# --- Tools ---
+# --- Memory Dispatcher ---
 
 
-@mcp.tool(
-    description=(
-        "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
-        "\n"
-        "ACTION GUIDE — when to use each:\n"
-        "- add: Store NEW information. Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
-        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
-        "- search: Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.\n"
-        "  Example: action='search', query='dark mode preference'\n"
-        "- update: Modify an EXISTING memory by ID. Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
-        "  Example: action='update', memory_id='abc123', content='User now prefers light mode'\n"
-        "- list: Browse all memories, optionally filtered by category. No query needed.\n"
-        "- delete: Remove a memory by ID. Requires 'memory_id'.\n"
-        "- stats: Show database statistics (total memories, categories, embedding status).\n"
-        "\n"
-        "WORKFLOW: search -> not found? -> add. Found outdated? -> update (with memory_id from results).\n"
-        "PROACTIVE: save user preferences, decisions, corrections, project conventions."
-    ),
-    annotations=ToolAnnotations(
-        title="Memory",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=False,
-    ),
-)
-async def memory(
+async def _handle_memory(
+    db: MemoryDB,
     action: str,
-    content: str | None = None,
-    query: str | None = None,
-    memory_id: str | None = None,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    limit: int = 5,
-    data: str | list | None = None,
-    mode: str = "merge",
-    ctx: Context | None = None,
+    content: str | None,
+    query: str | None,
+    memory_id: str | None,
+    category: str | None,
+    tags: list[str] | None,
+    limit: int,
+    data: str | list | None,
+    mode: str,
+    embedding_model: str | None,
+    embedding_dims: int,
 ) -> str:
-    """Execute a memory action.
-
-    Actions:
-    - add: Store NEW information (content required, category/tags optional).
-      Use for first-time storage of preferences, decisions, facts.
-    - search: Find memories by natural language (query required, category/tags/limit optional).
-      Always search before adding to avoid duplicates.
-    - list: Browse all memories (category/limit optional). No query needed.
-    - update: Modify EXISTING memory (memory_id required, content/category/tags optional).
-      Get memory_id from search or list results first.
-    - delete: Remove memory (memory_id required)
-    - export: Export all as JSONL
-    - import: Import from JSONL (data required, mode: merge|replace)
-    - stats: Database statistics
-    - restore: Restore archived memory (memory_id required)
-    - archived: List archived memories (limit optional)
-    - consolidate: LLM summarize similar memories (category required)
-    """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
-
+    """Internal dispatcher for memory tool actions."""
     # Clamp limit to reasonable bounds to prevent DoS
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
@@ -851,6 +799,195 @@ async def memory(
             )
 
 
+# --- Config Handlers ---
+
+
+async def _handle_config_status(
+    db: MemoryDB, embedding_model: str | None, embedding_dims: int
+) -> str:
+    """Show current database and server configuration."""
+    s = await asyncio.to_thread(db.stats)
+    return _json(
+        {
+            "database": {
+                "path": str(settings.get_db_path()),
+                "total_memories": s["total_memories"],
+                "categories": s["categories"],
+                "vec_enabled": s["vec_enabled"],
+            },
+            "embedding": {
+                "model": embedding_model,
+                "dims": embedding_dims,
+                "available": embedding_model is not None,
+            },
+            "sync": {
+                "enabled": settings.sync_enabled,
+                "provider": "google_drive",
+                "folder": settings.sync_folder,
+                "interval": settings.sync_interval,
+            },
+        }
+    )
+
+
+async def _handle_config_sync(db: MemoryDB) -> str:
+    """Trigger manual Google Drive sync."""
+    from mnemo_mcp.sync import sync_full
+
+    result = await sync_full(db)
+    return _json(result)
+
+
+async def _handle_config_set(key: str | None, value: str | None) -> str:
+    """Update server settings."""
+    if not key or value is None:
+        return _json({"error": "key and value are required for set"})
+
+    valid_keys = {
+        "sync_enabled",
+        "sync_interval",
+        "log_level",
+    }
+    if key not in valid_keys:
+        return _json(
+            {
+                "error": f"Invalid key: {key}",
+                "valid_keys": sorted(valid_keys),
+            }
+        )
+
+    # Apply setting
+    if key == "sync_enabled":
+        settings.sync_enabled = str(value).lower() in ("true", "1", "yes")
+    elif key == "sync_interval":
+        settings.sync_interval = int(value)
+    elif key == "log_level":
+        level = str(value).upper()
+        valid_levels = {
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }
+        if level not in valid_levels:
+            return _json(
+                {
+                    "error": f"Invalid log level: {value}",
+                    "valid_levels": sorted(valid_levels),
+                }
+            )
+
+        settings.log_level = level
+        logger.remove()
+        logger.add(
+            sys.stderr,
+            level=settings.log_level,
+        )
+
+    return _json(
+        {
+            "status": "updated",
+            "key": key,
+            "value": getattr(settings, key),
+        }
+    )
+
+
+async def _handle_config_warmup() -> str:
+    """Pre-download embedding model."""
+    from mnemo_mcp.setup_tool import run_warmup
+
+    result = await run_warmup()
+    return _json(result)
+
+
+async def _handle_config_setup_sync() -> str:
+    """Authenticate Google Drive."""
+    from mnemo_mcp.setup_tool import run_setup_sync
+
+    result = await run_setup_sync()
+    return _json(result)
+
+
+# --- Tools ---
+
+
+@mcp.tool(
+    description=(
+        "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
+        "\n"
+        "ACTION GUIDE — when to use each:\n"
+        "- add: Store NEW information. Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
+        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
+        "- search: Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.\n"
+        "  Example: action='search', query='dark mode preference'\n"
+        "- update: Modify an EXISTING memory by ID. Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
+        "  Example: action='update', memory_id='abc123', content='User now prefers light mode'\n"
+        "- list: Browse all memories, optionally filtered by category. No query needed.\n"
+        "- delete: Remove a memory by ID. Requires 'memory_id'.\n"
+        "- stats: Show database statistics (total memories, categories, embedding status).\n"
+        "\n"
+        "WORKFLOW: search -> not found? -> add. Found outdated? -> update (with memory_id from results).\n"
+        "PROACTIVE: save user preferences, decisions, corrections, project conventions."
+    ),
+    annotations=ToolAnnotations(
+        title="Memory",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def memory(
+    action: str,
+    content: str | None = None,
+    query: str | None = None,
+    memory_id: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    limit: int = 5,
+    data: str | list | None = None,
+    mode: str = "merge",
+    ctx: Context | None = None,
+) -> str:
+    """Execute a memory action.
+
+    Actions:
+    - add: Store NEW information (content required, category/tags optional).
+      Use for first-time storage of preferences, decisions, facts.
+    - search: Find memories by natural language (query required, category/tags/limit optional).
+      Always search before adding to avoid duplicates.
+    - list: Browse all memories (category/limit optional). No query needed.
+    - update: Modify EXISTING memory (memory_id required, content/category/tags optional).
+      Get memory_id from search or list results first.
+    - delete: Remove memory (memory_id required)
+    - export: Export all as JSONL
+    - import: Import from JSONL (data required, mode: merge|replace)
+    - stats: Database statistics
+    - restore: Restore archived memory (memory_id required)
+    - archived: List archived memories (limit optional)
+    - consolidate: LLM summarize similar memories (category required)
+    """
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_memory(
+        db,
+        action,
+        content,
+        query,
+        memory_id,
+        category,
+        tags,
+        limit,
+        data,
+        mode,
+        embedding_model,
+        embedding_dims,
+    )
+
+
 @mcp.tool(
     description=(
         "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
@@ -885,103 +1022,15 @@ async def config(
 
     match action:
         case "status":
-            s = await asyncio.to_thread(db.stats)
-            return _json(
-                {
-                    "database": {
-                        "path": str(settings.get_db_path()),
-                        "total_memories": s["total_memories"],
-                        "categories": s["categories"],
-                        "vec_enabled": s["vec_enabled"],
-                    },
-                    "embedding": {
-                        "model": embedding_model,
-                        "dims": embedding_dims,
-                        "available": embedding_model is not None,
-                    },
-                    "sync": {
-                        "enabled": settings.sync_enabled,
-                        "provider": "google_drive",
-                        "folder": settings.sync_folder,
-                        "interval": settings.sync_interval,
-                    },
-                }
-            )
-
+            return await _handle_config_status(db, embedding_model, embedding_dims)
         case "sync":
-            from mnemo_mcp.sync import sync_full
-
-            result = await sync_full(db)
-            return _json(result)
-
+            return await _handle_config_sync(db)
         case "set":
-            if not key or value is None:
-                return _json({"error": "key and value are required for set"})
-
-            valid_keys = {
-                "sync_enabled",
-                "sync_interval",
-                "log_level",
-            }
-            if key not in valid_keys:
-                return _json(
-                    {
-                        "error": f"Invalid key: {key}",
-                        "valid_keys": sorted(valid_keys),
-                    }
-                )
-
-            # Apply setting
-            if key == "sync_enabled":
-                settings.sync_enabled = value.lower() in ("true", "1", "yes")
-            elif key == "sync_interval":
-                settings.sync_interval = int(value)
-            elif key == "log_level":
-                level = value.upper()
-                valid_levels = {
-                    "TRACE",
-                    "DEBUG",
-                    "INFO",
-                    "SUCCESS",
-                    "WARNING",
-                    "ERROR",
-                    "CRITICAL",
-                }
-                if level not in valid_levels:
-                    return _json(
-                        {
-                            "error": f"Invalid log level: {value}",
-                            "valid_levels": sorted(valid_levels),
-                        }
-                    )
-
-                settings.log_level = level
-                logger.remove()
-                logger.add(
-                    sys.stderr,
-                    level=settings.log_level,
-                )
-
-            return _json(
-                {
-                    "status": "updated",
-                    "key": key,
-                    "value": getattr(settings, key),
-                }
-            )
-
+            return await _handle_config_set(key, value)
         case "warmup":
-            from mnemo_mcp.setup_tool import run_warmup
-
-            result = await run_warmup()
-            return _json(result)
-
+            return await _handle_config_warmup()
         case "setup_sync":
-            from mnemo_mcp.setup_tool import run_setup_sync
-
-            result = await run_setup_sync()
-            return _json(result)
-
+            return await _handle_config_setup_sync()
         case _:
             import difflib
 
