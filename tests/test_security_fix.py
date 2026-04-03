@@ -52,14 +52,22 @@ def test_access_stats_json_each(tmp_db: MemoryDB):
     mid2 = tmp_db.add("content 2")
 
     # Initially access_count is 0
-    assert tmp_db.get(mid1)["access_count"] == 0
-    assert tmp_db.get(mid2)["access_count"] == 0
+    m1 = tmp_db.get(mid1)
+    m2 = tmp_db.get(mid2)
+    assert m1 is not None
+    assert m2 is not None
+    assert m1["access_count"] == 0
+    assert m2["access_count"] == 0
 
     # Search should trigger update
     tmp_db.search("content")
 
-    assert tmp_db.get(mid1)["access_count"] == 1
-    assert tmp_db.get(mid2)["access_count"] == 1
+    m1 = tmp_db.get(mid1)
+    m2 = tmp_db.get(mid2)
+    assert m1 is not None
+    assert m2 is not None
+    assert m1["access_count"] == 1
+    assert m2["access_count"] == 1
 
 
 def test_missing_ids_json_each_direct_sql(tmp_db: MemoryDB):
