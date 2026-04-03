@@ -851,6 +851,116 @@ async def memory(
             )
 
 
+async def _handle_config_status(
+    db: MemoryDB, embedding_model: str | None, embedding_dims: int
+) -> str:
+    """Show current config."""
+    s = await asyncio.to_thread(db.stats)
+    return _json(
+        {
+            "database": {
+                "path": str(settings.get_db_path()),
+                "total_memories": s["total_memories"],
+                "categories": s["categories"],
+                "vec_enabled": s["vec_enabled"],
+            },
+            "embedding": {
+                "model": embedding_model,
+                "dims": embedding_dims,
+                "available": embedding_model is not None,
+            },
+            "sync": {
+                "enabled": settings.sync_enabled,
+                "provider": "google_drive",
+                "folder": settings.sync_folder,
+                "interval": settings.sync_interval,
+            },
+        }
+    )
+
+
+async def _handle_config_sync(db: MemoryDB) -> str:
+    """Trigger manual Google Drive sync."""
+    from mnemo_mcp.sync import sync_full
+
+    result = await sync_full(db)
+    return _json(result)
+
+
+async def _handle_config_set(key: str | None, value: str | None) -> str:
+    """Update setting (key + value required)."""
+    if not key or value is None:
+        return _json({"error": "key and value are required for set"})
+
+    valid_keys = {
+        "sync_enabled",
+        "sync_interval",
+        "log_level",
+    }
+    if key not in valid_keys:
+        return _json(
+            {
+                "error": f"Invalid key: {key}",
+                "valid_keys": sorted(valid_keys),
+            }
+        )
+
+    # Apply setting
+    if key == "sync_enabled":
+        settings.sync_enabled = value.lower() in ("true", "1", "yes")
+    elif key == "sync_interval":
+        settings.sync_interval = int(value)
+    elif key == "log_level":
+        level = value.upper()
+        valid_levels = {
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }
+        if level not in valid_levels:
+            return _json(
+                {
+                    "error": f"Invalid log level: {value}",
+                    "valid_levels": sorted(valid_levels),
+                }
+            )
+
+        settings.log_level = level
+        logger.remove()
+        logger.add(
+            sys.stderr,
+            level=settings.log_level,
+        )
+
+    return _json(
+        {
+            "status": "updated",
+            "key": key,
+            "value": getattr(settings, key),
+        }
+    )
+
+
+async def _handle_config_warmup() -> str:
+    """Pre-download embedding model."""
+    from mnemo_mcp.setup_tool import run_warmup
+
+    result = await run_warmup()
+    return _json(result)
+
+
+async def _handle_config_setup_sync() -> str:
+    """Authenticate Google Drive via Device Code OAuth flow."""
+    from mnemo_mcp.setup_tool import run_setup_sync
+
+    result = await run_setup_sync()
+    return _json(result)
+
+
 @mcp.tool(
     description=(
         "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
@@ -885,102 +995,15 @@ async def config(
 
     match action:
         case "status":
-            s = await asyncio.to_thread(db.stats)
-            return _json(
-                {
-                    "database": {
-                        "path": str(settings.get_db_path()),
-                        "total_memories": s["total_memories"],
-                        "categories": s["categories"],
-                        "vec_enabled": s["vec_enabled"],
-                    },
-                    "embedding": {
-                        "model": embedding_model,
-                        "dims": embedding_dims,
-                        "available": embedding_model is not None,
-                    },
-                    "sync": {
-                        "enabled": settings.sync_enabled,
-                        "provider": "google_drive",
-                        "folder": settings.sync_folder,
-                        "interval": settings.sync_interval,
-                    },
-                }
-            )
-
+            return await _handle_config_status(db, embedding_model, embedding_dims)
         case "sync":
-            from mnemo_mcp.sync import sync_full
-
-            result = await sync_full(db)
-            return _json(result)
-
+            return await _handle_config_sync(db)
         case "set":
-            if not key or value is None:
-                return _json({"error": "key and value are required for set"})
-
-            valid_keys = {
-                "sync_enabled",
-                "sync_interval",
-                "log_level",
-            }
-            if key not in valid_keys:
-                return _json(
-                    {
-                        "error": f"Invalid key: {key}",
-                        "valid_keys": sorted(valid_keys),
-                    }
-                )
-
-            # Apply setting
-            if key == "sync_enabled":
-                settings.sync_enabled = value.lower() in ("true", "1", "yes")
-            elif key == "sync_interval":
-                settings.sync_interval = int(value)
-            elif key == "log_level":
-                level = value.upper()
-                valid_levels = {
-                    "TRACE",
-                    "DEBUG",
-                    "INFO",
-                    "SUCCESS",
-                    "WARNING",
-                    "ERROR",
-                    "CRITICAL",
-                }
-                if level not in valid_levels:
-                    return _json(
-                        {
-                            "error": f"Invalid log level: {value}",
-                            "valid_levels": sorted(valid_levels),
-                        }
-                    )
-
-                settings.log_level = level
-                logger.remove()
-                logger.add(
-                    sys.stderr,
-                    level=settings.log_level,
-                )
-
-            return _json(
-                {
-                    "status": "updated",
-                    "key": key,
-                    "value": getattr(settings, key),
-                }
-            )
-
+            return await _handle_config_set(key, value)
         case "warmup":
-            from mnemo_mcp.setup_tool import run_warmup
-
-            result = await run_warmup()
-            return _json(result)
-
+            return await _handle_config_warmup()
         case "setup_sync":
-            from mnemo_mcp.setup_tool import run_setup_sync
-
-            result = await run_setup_sync()
-            return _json(result)
+            return await _handle_config_setup_sync()
 
         case _:
             import difflib
