@@ -20,9 +20,6 @@ import asyncio
 import os
 from typing import Protocol
 
-import httpx
-import openai
-from google import genai
 from loguru import logger
 
 # ---------------------------------------------------------------------------
@@ -186,6 +183,8 @@ class CloudEmbeddingBackend:
         self, texts: list[str], dimensions: int | None = None
     ) -> list[list[float]]:
         """Embed via Jina AI (httpx, REST API)."""
+        import httpx
+
         key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
         payload: dict = {
             "model": self._bare_model,
@@ -309,14 +308,7 @@ class CloudEmbeddingBackend:
                 if dimensions and embeddings and len(embeddings[0]) > dimensions:
                     embeddings = [e[:dimensions] for e in embeddings]
                 return embeddings
-            except (
-                ValueError,
-                ImportError,
-                RuntimeError,
-                httpx.HTTPError,
-                openai.OpenAIError,
-                genai.errors.ClientError,
-            ) as e:
+            except Exception as e:
                 # If the provider rejects `dimensions`, retry without it
                 # and truncate locally instead.
                 if (
@@ -400,14 +392,7 @@ class CloudEmbeddingBackend:
                 logger.info(f"Embedding model {self.model} available (dims={dim})")
                 return dim
             return 0
-        except (
-            ValueError,
-            ImportError,
-            RuntimeError,
-            httpx.HTTPError,
-            openai.OpenAIError,
-            genai.errors.ClientError,
-        ) as e:
+        except Exception as e:
             msg = str(e).lower()
             if any(
                 p in msg for p in ("401", "403", "invalid", "unauthorized", "api key")
@@ -519,7 +504,7 @@ class Qwen3EmbedBackend:
                 )
                 return dim
             return 0
-        except (ValueError, ImportError, RuntimeError) as e:
+        except Exception as e:
             logger.warning(f"Local embedding not available: {e}")
             return 0
 
