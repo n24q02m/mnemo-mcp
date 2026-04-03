@@ -1,3 +1,7 @@
 ## 2025-03-24 - N+1 Query Optimization in Entity Upserts
 **Learning:** For small-to-medium datasets (e.g. graph entity extraction returning 10-200 entities), Python sqlite3 driver's looping `execute` for point reads (using a `SELECT` against a unique index) followed by a bulk `executemany` for inserts and updates is incredibly fast, even faster than constructing massive `IN (VALUES ...)` queries or relying on `executemany` UPSERTs without `RETURNING`.
 **Action:** Replaced the N+1 looping `execute(SELECT)` and conditional `execute(INSERT)`/`execute(UPDATE)` statements in `graph.py`'s `upsert_entities` function with an initial loop to deduplicate unique entities and query the DB, followed by unified `conn.executemany` bulk insertions and updates. This delivered measurable ~2x improvements on inserts/updates without relying on external dependencies or risking query size limits.
+
+## 2026-04-03 - SQLite JSON-based List Aggregation for list_archived
+**Learning:** Offloading O(N) Python dictionary creations and `json.loads` calls in a loop to SQLite using `json_group_array` and `json_object` significantly improves performance for larger result sets by performing all data construction and serialization in C and returning a single string for a single `json.loads` call in Python.
+**Action:** Refactored `list_archived` in `db.py` to use a single SQL query that returns a JSON-formatted string of the entire result list, replacing the Python-side list comprehension loop.
