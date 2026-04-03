@@ -505,29 +505,8 @@ async def check_health() -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def setup_google_auth(
-    relay_url: str | None = None,
-    session_id: str | None = None,
-) -> bool:
-    """Interactive Google OAuth setup via Device Code flow.
-
-    If relay_url + session_id provided, send device code via relay messaging.
-    Otherwise print to stderr.
-
-    Returns True on success, False on failure.
-    """
-    import sys
-
-    client_id = settings.google_drive_client_id
-    client_secret = settings.google_drive_client_secret
-    if not client_id:
-        logger.error("GOOGLE_DRIVE_CLIENT_ID not configured")
-        return False
-    if not client_secret:
-        logger.error("GOOGLE_DRIVE_CLIENT_SECRET not configured")
-        return False
-
-    # 1. Request device code
+async def _request_device_code(client_id: str) -> dict | None:
+    """Request a device code from Google OAuth."""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -541,21 +520,26 @@ async def setup_google_auth(
 
             if response.status_code != 200:
                 logger.error(f"Device code request failed: {response.text}")
-                return False
+                return None
 
-            device_data = response.json()
+            return response.json()
 
     except Exception as e:
         logger.error(f"Device code request error: {e}")
-        return False
+        return None
 
-    device_code = device_data["device_code"]
+
+async def _present_device_code(
+    device_data: dict,
+    relay_url: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Present the device code to the user (via relay or stderr)."""
+    import sys
+
     user_code = device_data["user_code"]
     verification_url = device_data["verification_url"]
-    interval = device_data.get("interval", 5)
-    expires_in = device_data.get("expires_in", 1800)
 
-    # 2. Present code to user
     auth_message = (
         f"Google Drive Authorization\n"
         f"Visit: {verification_url}\n"
@@ -563,7 +547,6 @@ async def setup_google_auth(
     )
 
     if relay_url and session_id:
-        # Send via relay messaging
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(
@@ -582,7 +565,14 @@ async def setup_google_auth(
     else:
         print(f"\n{auth_message}\n", file=sys.stderr, flush=True)
 
-    # 3. Poll for token
+
+async def _poll_for_token(
+    client_id: str, client_secret: str, device_data: dict
+) -> bool:
+    """Poll for the OAuth token until authorized or expired."""
+    device_code = device_data["device_code"]
+    interval = device_data.get("interval", 5)
+    expires_in = device_data.get("expires_in", 1800)
     deadline = time.time() + expires_in
 
     while time.time() < deadline:
@@ -635,6 +625,38 @@ async def setup_google_auth(
 
     logger.error("Device code expired")
     return False
+
+
+async def setup_google_auth(
+    relay_url: str | None = None,
+    session_id: str | None = None,
+) -> bool:
+    """Interactive Google OAuth setup via Device Code flow.
+
+    If relay_url + session_id provided, send device code via relay messaging.
+    Otherwise print to stderr.
+
+    Returns True on success, False on failure.
+    """
+    client_id = settings.google_drive_client_id
+    client_secret = settings.google_drive_client_secret
+    if not client_id:
+        logger.error("GOOGLE_DRIVE_CLIENT_ID not configured")
+        return False
+    if not client_secret:
+        logger.error("GOOGLE_DRIVE_CLIENT_SECRET not configured")
+        return False
+
+    # 1. Request device code
+    device_data = await _request_device_code(client_id)
+    if not device_data:
+        return False
+
+    # 2. Present code to user
+    await _present_device_code(device_data, relay_url, session_id)
+
+    # 3. Poll for token
+    return await _poll_for_token(client_id, client_secret, device_data)
 
 
 # ---------------------------------------------------------------------------
