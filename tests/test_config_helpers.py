@@ -37,7 +37,7 @@ class TestDetectGPU:
 
     def test_runtime_exception(self):
         mock_ort = MagicMock()
-        mock_ort.get_available_providers.side_effect = RuntimeError("Runtime error")
+        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
         with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
             assert _detect_gpu() is False
 
@@ -48,7 +48,7 @@ class TestDetectGPU:
 
         def mock_import(name, *args, **kwargs):
             if name == "onnxruntime":
-                raise ImportError("Mocked ImportError")
+                raise Exception("Mocked Exception")
             return orig_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=mock_import):

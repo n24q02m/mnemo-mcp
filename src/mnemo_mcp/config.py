@@ -21,7 +21,7 @@ def _detect_gpu() -> bool:
         return (
             "CUDAExecutionProvider" in providers or "DmlExecutionProvider" in providers
         )
-    except (ImportError, RuntimeError):
+    except Exception:
         return False
 
 
