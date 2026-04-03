@@ -1,80 +1,20 @@
 """Additional tests for relay_setup -- covering ensure_config edge cases.
 
-Targets: apply_config, load_relay_config error/edge paths,
+Targets: load_relay_config error/edge paths,
 ensure_config (env vars present, relay skipped, timed out, runtime errors),
 ensure_config GDrive OAuth path, relay message sending.
 """
 
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.relay_setup import (
     CLOUD_KEYS,
-    apply_config,
     ensure_config,
     load_relay_config,
 )
 
 # ---------------------------------------------------------------------------
-# apply_config
-# ---------------------------------------------------------------------------
-
-
-class TestApplyConfig:
-    def test_applies_new_keys(self, monkeypatch):
-        """Sets environment variables for keys not already in env."""
-        for key in CLOUD_KEYS:
-            monkeypatch.delenv(key, raising=False)
-
-        config = {
-            "JINA_AI_API_KEY": "jina_test_key",
-            "GEMINI_API_KEY": "AIza_test_key",
-        }
-        apply_config(config)
-
-        assert os.environ.get("JINA_AI_API_KEY") == "jina_test_key"
-        assert os.environ.get("GEMINI_API_KEY") == "AIza_test_key"
-
-    def test_skips_existing_env_vars(self, monkeypatch):
-        """Does not overwrite existing env vars."""
-        monkeypatch.setenv("JINA_AI_API_KEY", "existing_key")
-
-        config = {"JINA_AI_API_KEY": "new_key"}
-        apply_config(config)
-
-        assert os.environ.get("JINA_AI_API_KEY") == "existing_key"
-
-    def test_skips_empty_values(self, monkeypatch):
-        """Does not set empty string values."""
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-        config = {"GEMINI_API_KEY": "", "OPENAI_API_KEY": "sk_test"}
-        apply_config(config)
-
-        assert os.environ.get("GEMINI_API_KEY") is None
-        assert os.environ.get("OPENAI_API_KEY") == "sk_test"
-
-    def test_multiple_keys_with_mixed_states(self, monkeypatch):
-        """Handles a mix of new, existing, and empty values."""
-        monkeypatch.setenv("COHERE_API_KEY", "existing")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
-
-        config = {
-            "COHERE_API_KEY": "should_not_overwrite",
-            "OPENAI_API_KEY": "new_openai",
-            "JINA_AI_API_KEY": "",
-        }
-        apply_config(config)
-
-        assert os.environ.get("COHERE_API_KEY") == "existing"
-        assert os.environ.get("OPENAI_API_KEY") == "new_openai"
-        assert os.environ.get("JINA_AI_API_KEY") is None
-
-
-# ---------------------------------------------------------------------------
-# load_relay_config edge cases
+# load_relay_config
 # ---------------------------------------------------------------------------
 
 
