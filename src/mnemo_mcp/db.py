@@ -289,7 +289,6 @@ class MemoryDB:
         self._init_archive_schema()
         self._conn.commit()
 
-
     @property
     def vec_enabled(self) -> bool:
         """Whether vector search is available."""
