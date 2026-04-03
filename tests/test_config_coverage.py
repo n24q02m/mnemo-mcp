@@ -125,3 +125,27 @@ class TestResolveEmbeddingBackendAuto:
         """'litellm' rerank_backend maps to 'cloud'."""
         s = Settings(rerank_backend="litellm", api_keys=None)
         assert s.resolve_rerank_backend() == "cloud"
+
+
+class TestGpuDetectionCoverage:
+    def test_detect_gpu_import_error(self):
+        """_detect_gpu returns False on ImportError (simulated via sys.modules)."""
+        import sys
+        from unittest.mock import patch
+
+        from mnemo_mcp.config import _detect_gpu
+
+        with patch.dict(sys.modules, {"onnxruntime": None}):
+            assert _detect_gpu() is False
+
+    def test_detect_gpu_runtime_exception(self):
+        """_detect_gpu returns False on generic Runtime Exception."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from mnemo_mcp.config import _detect_gpu
+
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
