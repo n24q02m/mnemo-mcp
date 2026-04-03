@@ -1,7 +1,6 @@
 """Lightweight knowledge graph: entity extraction + relation management."""
 
 import json
-import sqlite3
 import os
 import uuid
 from datetime import UTC, datetime
@@ -168,7 +167,7 @@ async def extract_entities(content: str) -> dict | None:
             if isinstance(r, dict) and r.get("type", "").lower() in _VALID_RELS
         ]
         return data
-    except (json.JSONDecodeError, ValueError, RuntimeError) as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"Entity extraction failed: {e}")
         return None
 
@@ -205,7 +204,7 @@ async def score_importance(content: str) -> float:
 
         score = float(text.strip())
         return max(0.0, min(1.0, score))
-    except (ValueError, RuntimeError) as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"Importance scoring failed: {e}")
         return 0.5
 
@@ -319,7 +318,7 @@ def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
             "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
             params,
         )
-    except sqlite3.Error as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed to link memory entities: {e}")
 
 
