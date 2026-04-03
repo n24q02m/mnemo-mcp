@@ -373,8 +373,14 @@ class TestLinkMemoryEntitiesCoverage:
         """Exception during linking is caught and logged."""
         conn = MagicMock()
         conn.executemany.side_effect = Exception("DB error")
-        # Should not raise
-        link_memory_entities(conn, "fake-id", ["eid1", "eid2"])
+        with patch("mnemo_mcp.graph.logger") as mock_logger:
+            # Should not raise
+            link_memory_entities(conn, "fake-id", ["eid1", "eid2"])
+            # Verify it was logged
+            assert mock_logger.debug.called
+            args, _ = mock_logger.debug.call_args
+            assert "Failed to link memory entities" in args[0]
+            assert "DB error" in args[0]
 
 
 # ---------------------------------------------------------------------------
