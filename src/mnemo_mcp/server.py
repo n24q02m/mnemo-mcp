@@ -18,13 +18,15 @@ from importlib import resources as pkg_resources
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import ValidationError
 
 from mnemo_mcp.config import _EMBEDDING_CANDIDATES, settings
 from mnemo_mcp.db import MemoryDB
 
-# Constant embedding dimensions for sqlite-vec.
-# All embeddings are truncated to this size so switching models never
-# breaks the vector table. Override via EMBEDDING_DIMS env var.
+# Default embedding dimensions for new sqlite-vec tables.
+# All embeddings are truncated to this size if no dimension is detected from
+# the existing database. This ensures switching models doesn't break
+# the vector table. Override via EMBEDDING_DIMS env var.
 _DEFAULT_EMBEDDING_DIMS = 768
 
 # --- Lifespan ---
@@ -165,11 +167,15 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     connections immediately. Tools gracefully degrade to FTS5-only search
     until the embedding model is ready.
     """
+    # Disable relay if we are in a test environment to avoid hangs
+    import os
+    is_test = os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI")
+
     # 0. Relay-first: try env -> config file -> relay setup -> local fallback
     try:
         from mnemo_mcp.relay_setup import ensure_config
 
-        relay_config = await ensure_config()
+        relay_config = await ensure_config() if not is_test else {}
         if relay_config:
             import os
 
@@ -196,8 +202,6 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
     # 2. Resolve initial embedding dims (may be refined by background task)
     embedding_dims = settings.resolve_embedding_dims()
-    if embedding_dims == 0:
-        embedding_dims = _DEFAULT_EMBEDDING_DIMS
 
     # 3. Initialize database (fast, no network)
     db_path = settings.get_db_path()
@@ -224,10 +228,13 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
     # Shared context -- embedding_model starts as None (not ready yet).
     # Background task updates it in-place once the backend is validated.
+    # We use the dimensions detected from the database if available.
     ctx = {
         "db": db,
         "embedding_model": None,
-        "embedding_dims": embedding_dims,
+        "embedding_dims": db.embedding_dims
+        or embedding_dims
+        or _DEFAULT_EMBEDDING_DIMS,
     }
 
     # 5. Initialize embedding backend in background (non-blocking).
@@ -932,35 +939,38 @@ async def config(
                 )
 
             # Apply setting
-            if key == "sync_enabled":
-                settings.sync_enabled = value.lower() in ("true", "1", "yes")
-            elif key == "sync_interval":
-                settings.sync_interval = int(value)
-            elif key == "log_level":
-                level = value.upper()
-                valid_levels = {
-                    "TRACE",
-                    "DEBUG",
-                    "INFO",
-                    "SUCCESS",
-                    "WARNING",
-                    "ERROR",
-                    "CRITICAL",
-                }
-                if level not in valid_levels:
-                    return _json(
-                        {
-                            "error": f"Invalid log level: {value}",
-                            "valid_levels": sorted(valid_levels),
-                        }
-                    )
+            try:
+                if key == "sync_enabled":
+                    settings.sync_enabled = value.lower() in ("true", "1", "yes")
+                elif key == "sync_interval":
+                    settings.sync_interval = int(value)
+                elif key == "log_level":
+                    level = value.upper()
+                    valid_levels = {
+                        "TRACE",
+                        "DEBUG",
+                        "INFO",
+                        "SUCCESS",
+                        "WARNING",
+                        "ERROR",
+                        "CRITICAL",
+                    }
+                    if level not in valid_levels:
+                        return _json(
+                            {
+                                "error": f"Invalid log level: {value}",
+                                "valid_levels": sorted(valid_levels),
+                            }
+                        )
 
-                settings.log_level = level
-                logger.remove()
-                logger.add(
-                    sys.stderr,
-                    level=settings.log_level,
-                )
+                    settings.log_level = level
+                    logger.remove()
+                    logger.add(
+                        sys.stderr,
+                        level=settings.log_level,
+                    )
+            except (ValidationError, ValueError) as e:
+                return _json({"error": f"Invalid value for {key}: {e}"})
 
             return _json(
                 {

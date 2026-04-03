@@ -29,6 +29,7 @@ def mock_db():
         db_instance = MagicMock()
         db_instance.stats.return_value = {"total_memories": 10, "vec_enabled": True}
         db_instance.vec_enabled = True
+        db_instance.embedding_dims = 0
         m.return_value = db_instance
         yield m
 

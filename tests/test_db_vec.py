@@ -106,3 +106,32 @@ class TestUpdateWithVectors:
         ).fetchone()
         assert row is not None
         assert row["embedding"] == _serialize_f32(emb)
+
+
+class TestVecAutoDetection:
+    def test_detects_dimensions_from_existing_db(self, tmp_path):
+        db_path = tmp_path / "detect.db"
+        # 1. Create DB with 123 dims
+        db1 = MemoryDB(db_path, embedding_dims=123)
+        assert db1.embedding_dims == 123
+        db1.close()
+
+        # 2. Re-open with different requested dims (e.g., 0 or 768)
+        # It should detect 123 from the table.
+        db2 = MemoryDB(db_path, embedding_dims=768)
+        assert db2.embedding_dims == 123
+        db2.close()
+
+    def test_detects_dimensions_with_zero_initial_request(self, tmp_path):
+        db_path = tmp_path / "detect_zero.db"
+        # 1. Create DB with 64 dims
+        db1 = MemoryDB(db_path, embedding_dims=64)
+        assert db1.embedding_dims == 64
+        db1.close()
+
+        # 2. Re-open with 0 dims (auto-detect)
+        # Even if 0 is passed, it should detect 64 and enable vectors.
+        db2 = MemoryDB(db_path, embedding_dims=0)
+        assert db2.embedding_dims == 64
+        assert db2.vec_enabled is True
+        db2.close()
