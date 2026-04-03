@@ -455,29 +455,44 @@ class MemoryDB:
             filter_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
             filter_params.extend(tags)
 
+        # Bolt Performance Optimization:
+        # Use Deferred Join (late row lookup) pattern to avoid evaluating full data rows
+        # during FTS5 tiered search pagination. We filter and limit against the virtual FTS table
+        # before joining `memories` on explicit primary key.
         for idx, fts_query in enumerate(fts_queries):
             subqueries.append(f"""
-                SELECT m.*,
+                SELECT id as fts_id,
                        bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score,
                        {idx} as tier_idx
-                FROM memories_fts f
-                JOIN memories m ON f.id = m.id
-                WHERE memories_fts MATCH ? {filter_sql}
+                FROM memories_fts
+                WHERE memories_fts MATCH ?
             """)
             fts_params.append(fts_query)
-            fts_params.extend(filter_params)
 
         union_sql = " UNION ALL ".join(subqueries)
         fts_sql = f"""
             WITH all_matches AS (
                 {union_sql}
+            ),
+            best_tier AS (
+                SELECT fts_id, bm25_score
+                FROM all_matches
+                WHERE tier_idx = (SELECT MIN(tier_idx) FROM all_matches)
+            ),
+            filtered_matches AS (
+                SELECT bt.fts_id, bt.bm25_score
+                FROM best_tier bt
+                JOIN memories m ON bt.fts_id = m.id
+                WHERE 1=1 {filter_sql}
+                ORDER BY bt.bm25_score
+                LIMIT ?
             )
-            SELECT *
-            FROM all_matches
-            WHERE tier_idx = (SELECT MIN(tier_idx) FROM all_matches)
-            ORDER BY bm25_score
-            LIMIT ?
+            SELECT m.*, fm.bm25_score
+            FROM filtered_matches fm
+            JOIN memories m ON fm.fts_id = m.id
+            ORDER BY fm.bm25_score
         """
+        fts_params.extend(filter_params)
         fts_params.append(limit * 3)
 
         try:
