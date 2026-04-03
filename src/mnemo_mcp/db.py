@@ -457,7 +457,7 @@ class MemoryDB:
                             "vec_score": 0.0,
                         }
                     break
-            except sqlite3.Error:
+            except Exception:  # Tool safety: keep broad catch to ensure search continues
                 continue
 
         fts_vals = [m["fts_score"] for m in results.values() if m["fts_score"] > 0]
@@ -762,7 +762,7 @@ class MemoryDB:
                         continue
 
                     parsed_batch.append((memory_id, mem, content))
-                except (AttributeError, TypeError):
+                except Exception:  # Tool safety: catch all parsing/structural errors during import
                     rejected += 1
                     continue
 
