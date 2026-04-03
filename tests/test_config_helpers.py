@@ -43,6 +43,24 @@ class TestDetectGPU:
         with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
             assert _detect_gpu() is False
 
+    def test_import_generic_exception(self):
+        """Covers the case where importing onnxruntime raises a non-ImportError Exception."""
+        import builtins
+
+        orig_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "onnxruntime":
+                raise Exception("Mocked Exception")
+            return orig_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            # Use patch.dict to avoid sys.modules caching issues
+            with patch.dict(sys.modules):
+                if "onnxruntime" in sys.modules:
+                    del sys.modules["onnxruntime"]
+                assert _detect_gpu() is False
+
 
 class TestHasGGUFSupport:
     def test_llama_cpp_installed(self):
@@ -52,9 +70,27 @@ class TestHasGGUFSupport:
             assert _has_gguf_support() is True
 
     def test_llama_cpp_missing(self):
-        """Covers the ImportError branch of _has_gguf_support."""
+        """Covers the basic ModuleNotFoundError case of _has_gguf_support."""
         with patch.dict(sys.modules, {"llama_cpp": None}):
             assert _has_gguf_support() is False
+
+    def test_llama_cpp_import_error(self):
+        """Covers the case where llama_cpp is present but fails to load with ImportError."""
+        import builtins
+
+        orig_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "llama_cpp":
+                raise ImportError("Mocked ImportError")
+            return orig_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            # Use patch.dict to avoid sys.modules caching issues
+            with patch.dict(sys.modules):
+                if "llama_cpp" in sys.modules:
+                    del sys.modules["llama_cpp"]
+                assert _has_gguf_support() is False
 
 
 class TestResolveLocalModel:
