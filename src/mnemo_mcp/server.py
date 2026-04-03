@@ -169,6 +169,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     """
     # Disable relay if we are in a test environment to avoid hangs
     import os
+
     is_test = os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI")
 
     # 0. Relay-first: try env -> config file -> relay setup -> local fallback
