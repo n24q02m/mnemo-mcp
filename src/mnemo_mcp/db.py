@@ -10,7 +10,6 @@ Provides:
 import io
 import json
 import math
-import re
 import sqlite3
 import struct
 import uuid
@@ -114,14 +113,14 @@ class MemoryDB:
 
         # Load sqlite-vec extension for vector search
         self._vec_enabled = False
-        try:
-            self._conn.enable_load_extension(True)
-            sqlite_vec.load(self._conn)
-            self._conn.enable_load_extension(False)
-            self._vec_enabled = True
-        except Exception as e:
-            # Only warn if they actually requested vectors
-            if embedding_dims > 0:
+        if embedding_dims > 0:
+            try:
+                self._conn.enable_load_extension(True)
+                sqlite_vec.load(self._conn)
+                self._conn.enable_load_extension(False)
+                self._vec_enabled = True
+                logger.debug(f"sqlite-vec loaded (dims={embedding_dims})")
+            except Exception as e:
                 logger.warning(f"sqlite-vec load failed: {e}")
 
         self._init_schema()
@@ -255,31 +254,16 @@ class MemoryDB:
         except Exception:
             pass  # Column already exists
 
-            # sqlite-vec virtual table (only if enabled)
-        if self._vec_enabled:
+        # sqlite-vec virtual table (only if enabled)
+        if self._vec_enabled and self._embedding_dims > 0:
             # Check if vec table exists
             row = self._conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='memories_vec'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
             ).fetchone()
-
-            if row:
-                # Table exists: detect dimensions from SQL
-                sql = row["sql"]
-                match = re.search(r"float\[(\d+)\]", sql)
-                if match:
-                    detected_dims = int(match.group(1))
-                    if (
-                        self._embedding_dims > 0
-                        and self._embedding_dims != detected_dims
-                    ):
-                        logger.warning(
-                            f"Mismatched embedding dimensions: requested {self._embedding_dims}, "
-                            f"but existing table has {detected_dims}. Using {detected_dims}."
-                        )
-                    self._embedding_dims = detected_dims
-                    logger.debug(f"Detected embedding dimensions: {detected_dims}")
-            elif self._embedding_dims > 0:
-                # Create table only if we have dimensions
+            if not row:
+                # Validate and cast dimensions before f-string interpolation
+                # to prevent potential SQL injection if the source ever becomes
+                # untrusted.
                 dims = int(self._embedding_dims)
                 if not (0 <= dims <= 10000):
                     raise ValueError(
@@ -292,19 +276,14 @@ class MemoryDB:
                         embedding float[{dims}]
                     )
                 """)
-                logger.debug(f"Created memories_vec table (dims={dims})")
+                logger.debug("Created memories_vec table")
 
         self._conn.commit()
 
     @property
     def vec_enabled(self) -> bool:
-        """Whether vector search is available and configured."""
-        return self._vec_enabled and self._embedding_dims > 0
-
-    @property
-    def embedding_dims(self) -> int:
-        """The effective embedding dimensions in use."""
-        return self._embedding_dims
+        """Whether vector search is available."""
+        return self._vec_enabled
 
     def add(
         self,
@@ -339,7 +318,7 @@ class MemoryDB:
         )
 
         # Store embedding if provided
-        if embedding and self._vec_enabled and self._embedding_dims > 0:
+        if embedding and self._vec_enabled:
             self._conn.execute(
                 "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
                 (memory_id, _serialize_f32(embedding)),
@@ -376,7 +355,7 @@ class MemoryDB:
         results = self._search_fts(query, category, tags, limit)
 
         # 2. Semantic search (if embedding provided)
-        if embedding and self._vec_enabled and self._embedding_dims > 0:
+        if embedding and self._vec_enabled:
             try:
                 vec_sql = """
                     SELECT v.id, v.distance
@@ -685,7 +664,7 @@ class MemoryDB:
         )
 
         # Update embedding if provided
-        if embedding and self._vec_enabled and self._embedding_dims > 0:
+        if embedding and self._vec_enabled:
             self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
             self._conn.execute(
                 "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
@@ -704,7 +683,7 @@ class MemoryDB:
 
         self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
 
-        if self._vec_enabled and self._embedding_dims > 0:
+        if self._vec_enabled:
             self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
 
         self._conn.commit()
@@ -727,7 +706,7 @@ class MemoryDB:
             "total_memories": total,
             "categories": {r["category"]: r["cnt"] for r in categories},
             "last_updated": last_updated,
-            "vec_enabled": self.vec_enabled,
+            "vec_enabled": self._vec_enabled,
             "db_path": str(self._db_path),
         }
 
@@ -777,7 +756,7 @@ class MemoryDB:
         """
         if mode == "replace":
             self._conn.execute("DELETE FROM memories")
-            if self._vec_enabled and self._embedding_dims > 0:
+            if self._vec_enabled:
                 self._conn.execute("DELETE FROM memories_vec")
 
         imported = 0

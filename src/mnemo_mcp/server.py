@@ -23,11 +23,12 @@ from pydantic import ValidationError
 from mnemo_mcp.config import _EMBEDDING_CANDIDATES, settings
 from mnemo_mcp.db import MemoryDB
 
-# Default embedding dimensions for new sqlite-vec tables.
-# All embeddings are truncated to this size if no dimension is detected from
-# the existing database. This ensures switching models doesn't break
-# the vector table. Override via EMBEDDING_DIMS env var.
-_DEFAULT_EMBEDDING_DIMS = 768
+# Fixed embedding dimensions for sqlite-vec.
+# sqlite-vec does not support variable dimensions dynamically;
+# they must be declared at table creation. All embeddings are truncated
+# to this size so switching models never breaks the vector table.
+# Override via EMBEDDING_DIMS env var.
+_FIXED_EMBEDDING_DIMS = 768
 
 # --- Lifespan ---
 
@@ -61,7 +62,7 @@ async def _init_embedding_backend(
                 native_dims = await asyncio.to_thread(backend.check_available)
                 if native_dims > 0:
                     if embedding_dims == 0:
-                        embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                        embedding_dims = _FIXED_EMBEDDING_DIMS
                     logger.info(
                         f"Embedding: {embedding_model} "
                         f"(native={native_dims}, stored={embedding_dims})"
@@ -84,7 +85,7 @@ async def _init_embedding_backend(
                     if native_dims > 0:
                         embedding_model = candidate
                         if embedding_dims == 0:
-                            embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                            embedding_dims = _FIXED_EMBEDDING_DIMS
                         logger.info(
                             f"Embedding: {embedding_model} "
                             f"(native={native_dims}, stored={embedding_dims})"
@@ -106,7 +107,7 @@ async def _init_embedding_backend(
         native_dims = await asyncio.to_thread(backend.check_available)
         if native_dims > 0:
             if embedding_dims == 0:
-                embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                embedding_dims = _FIXED_EMBEDDING_DIMS
             logger.info(
                 f"Embedding: local {local_model} "
                 f"(native={native_dims}, stored={embedding_dims})"
@@ -167,16 +168,11 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     connections immediately. Tools gracefully degrade to FTS5-only search
     until the embedding model is ready.
     """
-    # Disable relay if we are in a test environment to avoid hangs
-    import os
-
-    is_test = os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI")
-
     # 0. Relay-first: try env -> config file -> relay setup -> local fallback
     try:
         from mnemo_mcp.relay_setup import ensure_config
 
-        relay_config = await ensure_config() if not is_test else {}
+        relay_config = await ensure_config()
         if relay_config:
             import os
 
@@ -203,6 +199,8 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
     # 2. Resolve initial embedding dims (may be refined by background task)
     embedding_dims = settings.resolve_embedding_dims()
+    if embedding_dims == 0:
+        embedding_dims = _FIXED_EMBEDDING_DIMS
 
     # 3. Initialize database (fast, no network)
     db_path = settings.get_db_path()
@@ -229,13 +227,10 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
     # Shared context -- embedding_model starts as None (not ready yet).
     # Background task updates it in-place once the backend is validated.
-    # We use the dimensions detected from the database if available.
     ctx = {
         "db": db,
         "embedding_model": None,
-        "embedding_dims": db.embedding_dims
-        or embedding_dims
-        or _DEFAULT_EMBEDDING_DIMS,
+        "embedding_dims": embedding_dims,
     }
 
     # 5. Initialize embedding backend in background (non-blocking).
