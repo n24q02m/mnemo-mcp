@@ -100,7 +100,7 @@ from mnemo_mcp.db import MemoryDB
 | Constants          | UPPER_SNAKE_CASE | `MAX_RETRIES`, `_DEFAULT_EMBEDDING_DIMS` |
 | Private            | Leading `_`      | `_backend`, `_sync_task`, `_embed()` |
 | Test classes       | `Test` + feature | `TestAdd`, `TestSearch`          |
-| Fixtures           | snake_case       | `tmp_db`, `mock_ctx`             |
+| Test Setup           | snake_case       | `tmp_db`, `mock_ctx`             |
 
 ### Error Handling
 
