@@ -13,7 +13,6 @@ import json
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from functools import lru_cache
 from importlib import resources as pkg_resources
 
 from loguru import logger
@@ -282,26 +281,23 @@ def _json(obj: object) -> str:
     return json.dumps(obj, indent=2)
 
 
-@lru_cache(maxsize=128)
-def _parse_tags(tags_str: str) -> object:
-    """Parse tags from JSON string with caching."""
-    if tags_str == "[]":
-        return []
-    try:
-        return json.loads(tags_str)
-    except (json.JSONDecodeError, TypeError):
-        return tags_str
-
-
 def _format_memory(mem: dict) -> dict:
     """Format a raw memory dict for tool output.
 
     - Parse ``tags`` from JSON string to list
     - Round ``score`` to 3 decimal places
     """
-    tags_val = mem.get("tags")
-    if isinstance(tags_val, str):
-        mem["tags"] = _parse_tags(tags_val)
+    if isinstance(mem.get("tags"), str):
+        # Push tag parsing to DB layer via json_each in future if needed.
+        # For now, fast path for empty tags.
+        tags_raw = mem["tags"]
+        if tags_raw == "[]":
+            mem["tags"] = []
+        else:
+            try:
+                mem["tags"] = json.loads(tags_raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     if "score" in mem:
         mem["score"] = round(mem["score"], 3)
