@@ -440,6 +440,9 @@ async def _handle_search(
             }
         )
 
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
     embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
     results = await asyncio.to_thread(
         db.search,
@@ -510,6 +513,9 @@ async def _handle_list(
     category: str | None,
     limit: int,
 ) -> str:
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
     results = await asyncio.to_thread(
         db.list_memories,
         category=category,
@@ -654,6 +660,9 @@ async def _handle_archived(
     db: MemoryDB,
     limit: int,
 ) -> str:
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
     results = await asyncio.to_thread(db.list_archived, limit)
     return _json(
         {
@@ -721,197 +730,6 @@ async def _handle_consolidate(
         return _json({"error": f"Consolidation failed: {e}"})
 
 
-# --- Memory Dispatcher ---
-
-
-async def _handle_memory(
-    db: MemoryDB,
-    action: str,
-    content: str | None,
-    query: str | None,
-    memory_id: str | None,
-    category: str | None,
-    tags: list[str] | None,
-    limit: int,
-    data: str | list | None,
-    mode: str,
-    embedding_model: str | None,
-    embedding_dims: int,
-) -> str:
-    """Internal dispatcher for memory tool actions."""
-    # Clamp limit to reasonable bounds to prevent DoS
-    if isinstance(limit, int):
-        limit = max(1, min(limit, 100))
-
-    match action:
-        case "add":
-            return await _handle_add(
-                db, content, category, tags, embedding_model, embedding_dims
-            )
-        case "search":
-            return await _handle_search(
-                db, query, category, tags, limit, embedding_model, embedding_dims
-            )
-        case "list":
-            return await _handle_list(db, category, limit)
-        case "update":
-            return await _handle_update(
-                db, memory_id, content, category, tags, embedding_model, embedding_dims
-            )
-        case "delete":
-            return await _handle_delete(db, memory_id)
-        case "export":
-            return await _handle_export(db)
-        case "import":
-            return await _handle_import(db, data, mode)
-        case "stats":
-            return await _handle_stats(db, embedding_model, embedding_dims)
-        case "restore":
-            return await _handle_restore(db, memory_id)
-        case "archived":
-            return await _handle_archived(db, limit)
-        case "consolidate":
-            return await _handle_consolidate(db, category)
-        case _:
-            import difflib
-
-            valid_actions = [
-                "add",
-                "archived",
-                "consolidate",
-                "delete",
-                "export",
-                "import",
-                "list",
-                "restore",
-                "search",
-                "stats",
-                "update",
-            ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
-            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-            return _json(
-                {
-                    "error": f"Unknown action '{action}'.{suggestion}",
-                    "valid_actions": valid_actions,
-                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
-                }
-            )
-
-
-# --- Config Handlers ---
-
-
-async def _handle_config_status(
-    db: MemoryDB, embedding_model: str | None, embedding_dims: int
-) -> str:
-    """Show current database and server configuration."""
-    s = await asyncio.to_thread(db.stats)
-    return _json(
-        {
-            "database": {
-                "path": str(settings.get_db_path()),
-                "total_memories": s["total_memories"],
-                "categories": s["categories"],
-                "vec_enabled": s["vec_enabled"],
-            },
-            "embedding": {
-                "model": embedding_model,
-                "dims": embedding_dims,
-                "available": embedding_model is not None,
-            },
-            "sync": {
-                "enabled": settings.sync_enabled,
-                "provider": "google_drive",
-                "folder": settings.sync_folder,
-                "interval": settings.sync_interval,
-            },
-        }
-    )
-
-
-async def _handle_config_sync(db: MemoryDB) -> str:
-    """Trigger manual Google Drive sync."""
-    from mnemo_mcp.sync import sync_full
-
-    result = await sync_full(db)
-    return _json(result)
-
-
-async def _handle_config_set(key: str | None, value: str | None) -> str:
-    """Update server settings."""
-    if not key or value is None:
-        return _json({"error": "key and value are required for set"})
-
-    valid_keys = {
-        "sync_enabled",
-        "sync_interval",
-        "log_level",
-    }
-    if key not in valid_keys:
-        return _json(
-            {
-                "error": f"Invalid key: {key}",
-                "valid_keys": sorted(valid_keys),
-            }
-        )
-
-    # Apply setting
-    if key == "sync_enabled":
-        settings.sync_enabled = str(value).lower() in ("true", "1", "yes")
-    elif key == "sync_interval":
-        settings.sync_interval = int(value)
-    elif key == "log_level":
-        level = str(value).upper()
-        valid_levels = {
-            "TRACE",
-            "DEBUG",
-            "INFO",
-            "SUCCESS",
-            "WARNING",
-            "ERROR",
-            "CRITICAL",
-        }
-        if level not in valid_levels:
-            return _json(
-                {
-                    "error": f"Invalid log level: {value}",
-                    "valid_levels": sorted(valid_levels),
-                }
-            )
-
-        settings.log_level = level
-        logger.remove()
-        logger.add(
-            sys.stderr,
-            level=settings.log_level,
-        )
-
-    return _json(
-        {
-            "status": "updated",
-            "key": key,
-            "value": getattr(settings, key),
-        }
-    )
-
-
-async def _handle_config_warmup() -> str:
-    """Pre-download embedding model."""
-    from mnemo_mcp.setup_tool import run_warmup
-
-    result = await run_warmup()
-    return _json(result)
-
-
-async def _handle_config_setup_sync() -> str:
-    """Authenticate Google Drive."""
-    from mnemo_mcp.setup_tool import run_setup_sync
-
-    result = await run_setup_sync()
-    return _json(result)
-
-
 # --- Tools ---
 
 
@@ -972,20 +790,65 @@ async def memory(
     - consolidate: LLM summarize similar memories (category required)
     """
     db, embedding_model, embedding_dims = _get_ctx(ctx)
-    return await _handle_memory(
-        db,
-        action,
-        content,
-        query,
-        memory_id,
-        category,
-        tags,
-        limit,
-        data,
-        mode,
-        embedding_model,
-        embedding_dims,
-    )
+
+    # Clamp limit to reasonable bounds to prevent DoS
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
+    match action:
+        case "add":
+            return await _handle_add(
+                db, content, category, tags, embedding_model, embedding_dims
+            )
+        case "search":
+            return await _handle_search(
+                db, query, category, tags, limit, embedding_model, embedding_dims
+            )
+        case "list":
+            return await _handle_list(db, category, limit)
+        case "update":
+            return await _handle_update(
+                db, memory_id, content, category, tags, embedding_model, embedding_dims
+            )
+        case "delete":
+            return await _handle_delete(db, memory_id)
+        case "export":
+            return await _handle_export(db)
+        case "import":
+            return await _handle_import(db, data, mode)
+        case "stats":
+            return await _handle_stats(db, embedding_model, embedding_dims)
+        case "restore":
+            return await _handle_restore(db, memory_id)
+        case "archived":
+            return await _handle_archived(db, limit)
+        case "consolidate":
+            return await _handle_consolidate(db, category)
+        case _:
+            import difflib
+
+            valid_actions = [
+                "add",
+                "archived",
+                "consolidate",
+                "delete",
+                "export",
+                "import",
+                "list",
+                "restore",
+                "search",
+                "stats",
+                "update",
+            ]
+            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
+            return _json(
+                {
+                    "error": f"Unknown action '{action}'.{suggestion}",
+                    "valid_actions": valid_actions,
+                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
+                }
+            )
 
 
 @mcp.tool(
@@ -1022,15 +885,103 @@ async def config(
 
     match action:
         case "status":
-            return await _handle_config_status(db, embedding_model, embedding_dims)
+            s = await asyncio.to_thread(db.stats)
+            return _json(
+                {
+                    "database": {
+                        "path": str(settings.get_db_path()),
+                        "total_memories": s["total_memories"],
+                        "categories": s["categories"],
+                        "vec_enabled": s["vec_enabled"],
+                    },
+                    "embedding": {
+                        "model": embedding_model,
+                        "dims": embedding_dims,
+                        "available": embedding_model is not None,
+                    },
+                    "sync": {
+                        "enabled": settings.sync_enabled,
+                        "provider": "google_drive",
+                        "folder": settings.sync_folder,
+                        "interval": settings.sync_interval,
+                    },
+                }
+            )
+
         case "sync":
-            return await _handle_config_sync(db)
+            from mnemo_mcp.sync import sync_full
+
+            result = await sync_full(db)
+            return _json(result)
+
         case "set":
-            return await _handle_config_set(key, value)
+            if not key or value is None:
+                return _json({"error": "key and value are required for set"})
+
+            valid_keys = {
+                "sync_enabled",
+                "sync_interval",
+                "log_level",
+            }
+            if key not in valid_keys:
+                return _json(
+                    {
+                        "error": f"Invalid key: {key}",
+                        "valid_keys": sorted(valid_keys),
+                    }
+                )
+
+            # Apply setting
+            if key == "sync_enabled":
+                settings.sync_enabled = value.lower() in ("true", "1", "yes")
+            elif key == "sync_interval":
+                settings.sync_interval = int(value)
+            elif key == "log_level":
+                level = value.upper()
+                valid_levels = {
+                    "TRACE",
+                    "DEBUG",
+                    "INFO",
+                    "SUCCESS",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL",
+                }
+                if level not in valid_levels:
+                    return _json(
+                        {
+                            "error": f"Invalid log level: {value}",
+                            "valid_levels": sorted(valid_levels),
+                        }
+                    )
+
+                settings.log_level = level
+                logger.remove()
+                logger.add(
+                    sys.stderr,
+                    level=settings.log_level,
+                )
+
+            return _json(
+                {
+                    "status": "updated",
+                    "key": key,
+                    "value": getattr(settings, key),
+                }
+            )
+
         case "warmup":
-            return await _handle_config_warmup()
+            from mnemo_mcp.setup_tool import run_warmup
+
+            result = await run_warmup()
+            return _json(result)
+
         case "setup_sync":
-            return await _handle_config_setup_sync()
+            from mnemo_mcp.setup_tool import run_setup_sync
+
+            result = await run_setup_sync()
+            return _json(result)
+
         case _:
             import difflib
 
