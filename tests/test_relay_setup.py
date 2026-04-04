@@ -102,6 +102,21 @@ class TestApplyConfig:
         assert os.environ.get("OPENAI_API_KEY") == "new_openai"
         assert os.environ.get("JINA_AI_API_KEY") is None
 
+    def test_apply_config_empty_dict(self, monkeypatch):
+        """Handles empty input dictionary gracefully."""
+        # Just ensure it doesn't raise
+        apply_config({})
+
+    @patch("mnemo_mcp.relay_setup.logger")
+    def test_apply_config_logging(self, mock_logger, monkeypatch):
+        """Verifies that applied config keys are logged at debug level."""
+        monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
+        config = {"JINA_AI_API_KEY": "test_logging"}
+        apply_config(config)
+
+        assert mock_logger.debug.call_count == 1
+        mock_logger.debug.assert_called_with("Applied relay config: {}", "JINA_AI_API_KEY")
+
 
 class TestEnsureConfig:
     """Test ensure_config async function."""
