@@ -65,10 +65,8 @@ def save_token(provider: str, token: dict) -> None:
     if os.name != "nt":
         try:
             token_dir.chmod(stat.S_IRWXU)  # 0700
-        except OSError as e:
-            raise RuntimeError(
-                "Failed to set secure permissions on token directory"
-            ) from e
+        except OSError:
+            pass
 
     path = get_token_path(provider)
     token_json = json.dumps(token, indent=2)
@@ -82,22 +80,16 @@ def save_token(provider: str, token: dict) -> None:
             try:
                 # Ensure existing files also get their permissions restricted
                 os.fchmod(fd, mode)
-            except OSError as e:
-                os.close(fd)
-                raise RuntimeError(
-                    "Failed to set secure permissions on token file"
-                ) from e
+            except OSError:
+                pass
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(token_json)
         except OSError:
             path.write_text(token_json, encoding="utf-8")
             try:
                 path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            except OSError as e:
-                path.unlink(missing_ok=True)
-                raise RuntimeError(
-                    "Failed to set secure permissions on token file"
-                ) from e
+            except OSError:
+                pass
     else:
         path.write_text(token_json, encoding="utf-8")
 

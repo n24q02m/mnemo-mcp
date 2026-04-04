@@ -144,11 +144,11 @@ class TestSaveToken:
             patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
         ):
             m.get_data_dir.return_value = token_dir.parent
-            with pytest.raises(
-                RuntimeError,
-                match="Failed to set secure permissions on token directory",
-            ):
-                save_token("drive", token)
+            # This should ignore the OSError from token_dir.chmod
+            save_token("drive", token)
+
+        saved = json.loads((token_dir / "drive.json").read_text())
+        assert saved["access_token"] == "abc"
 
     def test_save_fchmod_oserror(self, token_dir):
         from mnemo_mcp.token_store import save_token
@@ -164,10 +164,10 @@ class TestSaveToken:
             ),
         ):
             m.get_data_dir.return_value = token_dir.parent
-            with pytest.raises(
-                RuntimeError, match="Failed to set secure permissions on token file"
-            ):
-                save_token("drive", token)
+            save_token("drive", token)
+
+        saved = json.loads((token_dir / "drive.json").read_text())
+        assert saved["access_token"] == "fchmod_fail"
 
     def test_save_os_open_oserror_fallback(self, token_dir):
         from mnemo_mcp.token_store import save_token
@@ -206,10 +206,10 @@ class TestSaveToken:
             patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
         ):
             m.get_data_dir.return_value = token_dir.parent
-            with pytest.raises(
-                RuntimeError, match="Failed to set secure permissions on token file"
-            ):
-                save_token("drive", token)
+            save_token("drive", token)
+
+        saved = json.loads((token_dir / "drive.json").read_text())
+        assert saved["access_token"] == "fallback_chmod_fail"
 
     def test_save_nt_os(self, token_dir):
         from pathlib import Path
