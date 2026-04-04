@@ -273,7 +273,8 @@ class TestRerankSettings:
 class TestGoogleDriveClientId:
     def test_default_ships_oauth_client_id(self):
         s = Settings(api_keys=None)
-        assert s.google_drive_client_id == ""
+        assert s.google_drive_client_id != ""
+        assert "apps.googleusercontent.com" in s.google_drive_client_id
 
     def test_env_override(self, monkeypatch):
         monkeypatch.setenv(

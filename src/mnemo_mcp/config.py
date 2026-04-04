@@ -73,7 +73,6 @@ class Settings(BaseSettings):
     - SYNC_FOLDER: Google Drive folder name (default: "mnemo-mcp")
     - SYNC_INTERVAL: Auto-sync interval in seconds (default: 300)
     - GOOGLE_DRIVE_CLIENT_ID: OAuth client ID for Google Drive sync
-    - GOOGLE_DRIVE_CLIENT_SECRET: OAuth client secret for Google Drive sync
     """
 
     # Database
@@ -95,11 +94,15 @@ class Settings(BaseSettings):
     rerank_model: str = ""
     rerank_top_n: int = 10
     # Sync (Google Drive API)
+    # These are public client credentials for the Device Code flow.
+    # Per Google OAuth docs, they do not need to be kept secret for installed apps.
     sync_enabled: bool = True
     sync_folder: str = "mnemo-mcp"  # Google Drive folder name
     sync_interval: int = 300  # seconds, 0 = manual only
-    google_drive_client_id: str = ""
-    google_drive_client_secret: str = ""
+    google_drive_client_id: str = (
+        "147668446467-olf2cf6e49rshqv9quvhq639110oc6hc.apps.googleusercontent.com"
+    )
+    google_drive_client_secret: str = "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"
 
     # Archive
     archive_enabled: bool = True
