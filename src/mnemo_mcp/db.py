@@ -448,20 +448,19 @@ class MemoryDB:
         filter_sql = ""
         filter_params: list = []
         if category:
-            filter_sql += " AND m.category = ?"
+            filter_sql += " AND f.category = ?"
             filter_params.append(category)
         if tags:
             tag_placeholders = ",".join("?" for _ in tags)
-            filter_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+            filter_sql += f" AND json_valid(f.tags) AND EXISTS (SELECT 1 FROM json_each(f.tags) WHERE value IN ({tag_placeholders}))"
             filter_params.extend(tags)
 
         for idx, fts_query in enumerate(fts_queries):
             subqueries.append(f"""
-                SELECT m.*,
+                SELECT f.id,
                        bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score,
                        {idx} as tier_idx
                 FROM memories_fts f
-                JOIN memories m ON f.id = m.id
                 WHERE memories_fts MATCH ? {filter_sql}
             """)
             fts_params.append(fts_query)
@@ -471,12 +470,18 @@ class MemoryDB:
         fts_sql = f"""
             WITH all_matches AS (
                 {union_sql}
+            ),
+            best_tier AS (
+                SELECT id, bm25_score, tier_idx
+                FROM all_matches
+                WHERE tier_idx = (SELECT MIN(tier_idx) FROM all_matches)
+                ORDER BY bm25_score
+                LIMIT ?
             )
-            SELECT *
-            FROM all_matches
-            WHERE tier_idx = (SELECT MIN(tier_idx) FROM all_matches)
-            ORDER BY bm25_score
-            LIMIT ?
+            SELECT m.*, b.bm25_score, b.tier_idx
+            FROM best_tier b
+            JOIN memories m ON b.id = m.id
+            ORDER BY b.bm25_score
         """
         fts_params.append(limit * 3)
 
