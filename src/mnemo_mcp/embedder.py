@@ -272,7 +272,10 @@ class CloudEmbeddingBackend:
 
         if not self._cohere_client:
             key = (
-                self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
+                self.api_key
+                or os.getenv("COHERE_API_KEY")
+                or os.getenv("CO_API_KEY")
+                or ""
             )
             self._cohere_client = cohere.ClientV2(api_key=key)
 
