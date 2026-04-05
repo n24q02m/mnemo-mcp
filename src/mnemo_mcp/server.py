@@ -13,6 +13,7 @@ import json
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from importlib import resources as pkg_resources
 
 from loguru import logger
@@ -281,17 +282,27 @@ def _json(obj: object) -> str:
     return json.dumps(obj, indent=2)
 
 
+@lru_cache(maxsize=128)
+def _parse_tags_cached(tags_json: str) -> tuple | str:
+    """Cached parsing of tags JSON to avoid repeated loads in loops."""
+    try:
+        val = json.loads(tags_json)
+        return tuple(val) if isinstance(val, list) else (val,)
+    except (json.JSONDecodeError, TypeError):
+        return tags_json
+
+
 def _format_memory(mem: dict) -> dict:
     """Format a raw memory dict for tool output.
 
     - Parse ``tags`` from JSON string to list
     - Round ``score`` to 3 decimal places
     """
-    if isinstance(mem.get("tags"), str):
-        try:
-            mem["tags"] = json.loads(mem["tags"])
-        except (json.JSONDecodeError, TypeError):
-            pass
+    tags_raw = mem.get("tags")
+    if isinstance(tags_raw, str):
+        # Bolt Performance: Use cached parser to avoid repeated JSON overhead
+        val = _parse_tags_cached(tags_raw)
+        mem["tags"] = list(val) if isinstance(val, tuple) else val
     if "score" in mem:
         mem["score"] = round(mem["score"], 3)
     return mem
