@@ -505,29 +505,8 @@ async def check_health() -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def setup_google_auth(
-    relay_url: str | None = None,
-    session_id: str | None = None,
-) -> bool:
-    """Interactive Google OAuth setup via Device Code flow.
-
-    If relay_url + session_id provided, send device code via relay messaging.
-    Otherwise print to stderr.
-
-    Returns True on success, False on failure.
-    """
-    import sys
-
-    client_id = settings.google_drive_client_id
-    client_secret = settings.google_drive_client_secret
-    if not client_id:
-        logger.error("GOOGLE_DRIVE_CLIENT_ID not configured")
-        return False
-    if not client_secret:
-        logger.error("GOOGLE_DRIVE_CLIENT_SECRET not configured")
-        return False
-
-    # 1. Request device code
+async def _request_device_code(client_id: str) -> dict | None:
+    """Request a device code from Google OAuth endpoint."""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -541,21 +520,26 @@ async def setup_google_auth(
 
             if response.status_code != 200:
                 logger.error(f"Device code request failed: {response.text}")
-                return False
+                return None
 
-            device_data = response.json()
+            return response.json()
 
     except Exception as e:
         logger.error(f"Device code request error: {e}")
-        return False
+        return None
 
-    device_code = device_data["device_code"]
+
+async def _present_device_code(
+    device_data: dict,
+    relay_url: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Present device code to user (via relay or stderr)."""
+    import sys
+
     user_code = device_data["user_code"]
     verification_url = device_data["verification_url"]
-    interval = device_data.get("interval", 5)
-    expires_in = device_data.get("expires_in", 1800)
 
-    # 2. Present code to user
     auth_message = (
         f"Google Drive Authorization\n"
         f"Visit: {verification_url}\n"
@@ -563,7 +547,6 @@ async def setup_google_auth(
     )
 
     if relay_url and session_id:
-        # Send via relay messaging
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(
@@ -582,7 +565,16 @@ async def setup_google_auth(
     else:
         print(f"\n{auth_message}\n", file=sys.stderr, flush=True)
 
-    # 3. Poll for token
+
+async def _poll_for_token(
+    device_data: dict,
+    client_id: str,
+    client_secret: str,
+) -> dict | None:
+    """Poll Google OAuth token endpoint until authorized."""
+    device_code = device_data["device_code"]
+    interval = device_data.get("interval", 5)
+    expires_in = device_data.get("expires_in", 1800)
     deadline = time.time() + expires_in
 
     while time.time() < deadline:
@@ -604,17 +596,7 @@ async def setup_google_auth(
                 data = response.json()
 
                 if response.status_code == 200:
-                    # Success -- save token
-                    token = {
-                        "access_token": data["access_token"],
-                        "refresh_token": data.get("refresh_token", ""),
-                        "expiry": time.time() + data.get("expires_in", 3600),
-                        "client_id": client_id,
-                        "token_type": data.get("token_type", "Bearer"),
-                    }
-                    _save_token(token)
-                    logger.info("Google Drive authentication successful!")
-                    return True
+                    return data
 
                 error = data.get("error", "")
                 if error == "authorization_pending":
@@ -624,17 +606,63 @@ async def setup_google_auth(
                     continue
                 elif error in ("access_denied", "expired_token"):
                     logger.error(f"Auth failed: {error}")
-                    return False
+                    return None
                 else:
                     logger.error(f"Unexpected error: {data}")
-                    return False
+                    return None
 
         except Exception as e:
             logger.error(f"Token poll error: {e}")
-            return False
+            return None
 
     logger.error("Device code expired")
-    return False
+    return None
+
+
+async def setup_google_auth(
+    relay_url: str | None = None,
+    session_id: str | None = None,
+) -> bool:
+    """Interactive Google OAuth setup via Device Code flow.
+
+    If relay_url + session_id provided, send device code via relay messaging.
+    Otherwise print to stderr.
+
+    Returns True on success, False on failure.
+    """
+    client_id = settings.google_drive_client_id
+    client_secret = settings.google_drive_client_secret
+    if not client_id:
+        logger.error("GOOGLE_DRIVE_CLIENT_ID not configured")
+        return False
+    if not client_secret:
+        logger.error("GOOGLE_DRIVE_CLIENT_SECRET not configured")
+        return False
+
+    # 1. Request device code
+    device_data = await _request_device_code(client_id)
+    if not device_data:
+        return False
+
+    # 2. Present code to user
+    await _present_device_code(device_data, relay_url, session_id)
+
+    # 3. Poll for token
+    token_data = await _poll_for_token(device_data, client_id, client_secret)
+    if not token_data:
+        return False
+
+    # Success -- save token
+    token = {
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data.get("refresh_token", ""),
+        "expiry": time.time() + token_data.get("expires_in", 3600),
+        "client_id": client_id,
+        "token_type": token_data.get("token_type", "Bearer"),
+    }
+    _save_token(token)
+    logger.info("Google Drive authentication successful!")
+    return True
 
 
 # ---------------------------------------------------------------------------
