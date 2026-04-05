@@ -1,5 +1,6 @@
 """Tests for relay_setup module."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.relay_setup import (
@@ -110,3 +111,37 @@ class TestEnsureConfig:
         mock_poll.side_effect = RuntimeError("Timeout")
         result = await ensure_config()
         assert result is None
+
+
+class TestApplyConfig:
+    """Test apply_config function."""
+
+    def test_apply_config_sets_missing_env_vars(self, monkeypatch):
+        monkeypatch.delenv("TEST_KEY_1", raising=False)
+        config = {"TEST_KEY_1": "test_value_1"}
+
+        from mnemo_mcp.relay_setup import apply_config
+
+        apply_config(config)
+
+        assert os.environ.get("TEST_KEY_1") == "test_value_1"
+
+    def test_apply_config_does_not_overwrite_existing_env_vars(self, monkeypatch):
+        monkeypatch.setenv("TEST_KEY_2", "original_value")
+        config = {"TEST_KEY_2": "new_value"}
+
+        from mnemo_mcp.relay_setup import apply_config
+
+        apply_config(config)
+
+        assert os.environ.get("TEST_KEY_2") == "original_value"
+
+    def test_apply_config_ignores_empty_values(self, monkeypatch):
+        monkeypatch.delenv("TEST_KEY_3", raising=False)
+        config = {"TEST_KEY_3": ""}
+
+        from mnemo_mcp.relay_setup import apply_config
+
+        apply_config(config)
+
+        assert "TEST_KEY_3" not in os.environ
