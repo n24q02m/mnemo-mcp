@@ -127,6 +127,13 @@ class MemoryDB:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
+        self._init_memory_schema()
+        self._init_graph_schema()
+        self._init_archive_schema()
+        self._conn.commit()
+
+    def _init_memory_schema(self) -> None:
+        """Initialize memory-related schema."""
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS memories (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -188,7 +195,40 @@ class MemoryDB:
             END;
         """)
 
-        # Knowledge graph tables
+        # Add importance column to memories (migration for existing DBs)
+        try:
+            self._conn.execute(
+                "ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.5"
+            )
+        except Exception:
+            pass  # Column already exists
+
+        # sqlite-vec virtual table (only if enabled)
+        if self._vec_enabled and self._embedding_dims > 0:
+            # Check if vec table exists
+            row = self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
+            ).fetchone()
+            if not row:
+                # Validate and cast dimensions before f-string interpolation
+                # to prevent potential SQL injection if the source ever becomes
+                # untrusted.
+                dims = int(self._embedding_dims)
+                if not (0 <= dims <= 10000):
+                    raise ValueError(
+                        f"embedding_dims must be between 0 and 10000, got {dims}"
+                    )
+                self._conn.execute(f"""
+                    CREATE VIRTUAL TABLE memories_vec
+                    USING vec0(
+                        id TEXT PRIMARY KEY,
+                        embedding float[{dims}]
+                    )
+                """)
+                logger.debug("Created memories_vec table")
+
+    def _init_graph_schema(self) -> None:
+        """Initialize knowledge graph schema."""
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS entities (
                 id TEXT PRIMARY KEY NOT NULL,
@@ -223,8 +263,11 @@ class MemoryDB:
             -- as the database grows.
             CREATE INDEX IF NOT EXISTS idx_memory_entities_entity_id
                 ON memory_entities(entity_id);
+        """)
 
-            -- Archive table
+    def _init_archive_schema(self) -> None:
+        """Initialize archive-related schema."""
+        self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS archived_memories (
                 id TEXT PRIMARY KEY NOT NULL,
                 content TEXT NOT NULL,
@@ -245,40 +288,6 @@ class MemoryDB:
             CREATE INDEX IF NOT EXISTS idx_archived_memories_archived_at
                 ON archived_memories(archived_at DESC);
         """)
-
-        # Add importance column to memories (migration for existing DBs)
-        try:
-            self._conn.execute(
-                "ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.5"
-            )
-        except Exception:
-            pass  # Column already exists
-
-        # sqlite-vec virtual table (only if enabled)
-        if self._vec_enabled and self._embedding_dims > 0:
-            # Check if vec table exists
-            row = self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
-            ).fetchone()
-            if not row:
-                # Validate and cast dimensions before f-string interpolation
-                # to prevent potential SQL injection if the source ever becomes
-                # untrusted.
-                dims = int(self._embedding_dims)
-                if not (0 <= dims <= 10000):
-                    raise ValueError(
-                        f"embedding_dims must be between 0 and 10000, got {dims}"
-                    )
-                self._conn.execute(f"""
-                    CREATE VIRTUAL TABLE memories_vec
-                    USING vec0(
-                        id TEXT PRIMARY KEY,
-                        embedding float[{dims}]
-                    )
-                """)
-                logger.debug("Created memories_vec table")
-
-        self._conn.commit()
 
     @property
     def vec_enabled(self) -> bool:
