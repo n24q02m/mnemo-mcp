@@ -747,3 +747,59 @@ def test_invalid_embedding_dims_bounds(tmp_path):
         MemoryDB(tmp_path / "fail.db", embedding_dims=20000)
     with pytest.raises(ValueError, match="embedding_dims must be between 0 and 10000"):
         MemoryDB(tmp_path / "fail2.db", embedding_dims=-1)
+
+
+import pytest
+import json
+from mnemo_mcp.db import MemoryDB
+
+
+def test_tag_validation(tmp_path):
+    db_path = tmp_path / "test.db"
+    db = MemoryDB(db_path)
+
+    # Valid tags
+    db.search("test", tags=["tag1", "tag2"])
+
+    # Invalid tags type
+    with pytest.raises(ValueError, match="tags must be a list of strings"):
+        db.search("test", tags="not a list")
+
+    with pytest.raises(ValueError, match="tags must be a list of strings"):
+        db.search("test", tags=[1, 2])
+
+    # Too many tags
+    with pytest.raises(ValueError, match="Too many tags"):
+        db.search("test", tags=["tag" + str(i) for i in range(51)])
+
+
+def test_tag_filtering_functional(tmp_path):
+    db_path = tmp_path / "test.db"
+    db = MemoryDB(db_path)
+
+    db.add("memory 1", tags=["tag1", "tag2"])
+    db.add("memory 2", tags=["tag2", "tag3"])
+    db.add("memory 3", tags=["tag4"])
+
+    # Match tag1 or tag3
+    results = db.search("memory", tags=["tag1", "tag3"])
+    assert len(results) == 2
+    contents = [r["content"] for r in results]
+    assert "memory 1" in contents
+    assert "memory 2" in contents
+    assert "memory 3" not in contents
+
+    # Match tag4
+    results = db.search("memory", tags=["tag4"])
+    assert len(results) == 1
+    assert results[0]["content"] == "memory 3"
+
+
+def test_empty_tags(tmp_path):
+    db_path = tmp_path / "test.db"
+    db = MemoryDB(db_path)
+    db.add("memory 1", tags=["tag1"])
+
+    results = db.search("memory", tags=[])
+    # Empty tags list should return all (skipped if block)
+    assert len(results) == 1
