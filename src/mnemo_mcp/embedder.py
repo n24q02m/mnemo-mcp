@@ -165,6 +165,10 @@ class CloudEmbeddingBackend:
         self.api_base = api_base
         self._provider = _detect_embedding_provider(self.model)
         self._bare_model = _strip_provider(self.model)
+        self._jina_client = None
+        self._gemini_client = None
+        self._openai_client = None
+        self._cohere_client = None
 
     def _call_provider(
         self, texts: list[str], dimensions: int | None = None
@@ -185,6 +189,9 @@ class CloudEmbeddingBackend:
         """Embed via Jina AI (httpx, REST API)."""
         import httpx
 
+        if not self._jina_client:
+            self._jina_client = httpx.Client(timeout=60)
+
         key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
         payload: dict = {
             "model": self._bare_model,
@@ -193,14 +200,13 @@ class CloudEmbeddingBackend:
         if dimensions:
             payload["dimensions"] = dimensions
 
-        response = httpx.post(
+        response = self._jina_client.post(
             "https://api.jina.ai/v1/embeddings",
             json=payload,
             headers={
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
-            timeout=60,
         )
         response.raise_for_status()
         data = response.json()["data"]
@@ -214,19 +220,20 @@ class CloudEmbeddingBackend:
         from google import genai
         from google.genai import types
 
-        key = (
-            self.api_key
-            or os.getenv("GEMINI_API_KEY")
-            or os.getenv("GOOGLE_API_KEY")
-            or ""
-        )
-        client = genai.Client(api_key=key)
+        if not self._gemini_client:
+            key = (
+                self.api_key
+                or os.getenv("GEMINI_API_KEY")
+                or os.getenv("GOOGLE_API_KEY")
+                or ""
+            )
+            self._gemini_client = genai.Client(api_key=key)
 
         config_kwargs: dict = {}
         if dimensions:
             config_kwargs["output_dimensionality"] = dimensions
 
-        result = client.models.embed_content(
+        result = self._gemini_client.models.embed_content(
             model=self._bare_model,
             contents=texts,
             config=types.EmbedContentConfig(**config_kwargs) if config_kwargs else None,
@@ -241,9 +248,10 @@ class CloudEmbeddingBackend:
         """Embed via OpenAI SDK."""
         from openai import OpenAI
 
-        key = self.api_key or os.getenv("OPENAI_API_KEY") or ""
-        base = self.api_base or "https://api.openai.com/v1"
-        client = OpenAI(api_key=key, base_url=base)
+        if not self._openai_client:
+            key = self.api_key or os.getenv("OPENAI_API_KEY") or ""
+            base = self.api_base or "https://api.openai.com/v1"
+            self._openai_client = OpenAI(api_key=key, base_url=base)
 
         kwargs: dict = {
             "model": self._bare_model,
@@ -252,7 +260,7 @@ class CloudEmbeddingBackend:
         if dimensions:
             kwargs["dimensions"] = dimensions
 
-        response = client.embeddings.create(**kwargs)
+        response = self._openai_client.embeddings.create(**kwargs)
         data = sorted(response.data, key=lambda x: x.index)
         return [d.embedding for d in data]
 
@@ -262,10 +270,12 @@ class CloudEmbeddingBackend:
         """Embed via Cohere SDK (v5.20+, ClientV2)."""
         import cohere
 
-        key = (
-            self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
-        )
-        client = cohere.ClientV2(api_key=key)
+        if not self._cohere_client:
+            key = (
+                self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
+            )
+            self._cohere_client = cohere.ClientV2(api_key=key)
+
         kwargs: dict = {
             "model": self._bare_model,
             "texts": texts,
@@ -276,7 +286,7 @@ class CloudEmbeddingBackend:
         if dimensions:
             kwargs["output_dimension"] = dimensions
 
-        response = client.embed(**kwargs)
+        response = self._cohere_client.embed(**kwargs)
         embeddings = response.embeddings.float_
 
         # Truncate locally if server returned more dims than requested

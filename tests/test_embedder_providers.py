@@ -126,7 +126,7 @@ class TestIsUnsupportedParam:
 
 
 class TestJinaEmbedding:
-    @patch("httpx.post")
+    @patch("httpx.Client.post")
     async def test_jina_embed(self, mock_post):
         """Jina embedding via REST API."""
         mock_response = MagicMock()
@@ -150,7 +150,7 @@ class TestJinaEmbedding:
         assert result[0] == [0.1, 0.2, 0.3]
         assert result[1] == [0.4, 0.5, 0.6]
 
-    @patch("httpx.post")
+    @patch("httpx.Client.post")
     async def test_jina_embed_with_dimensions(self, mock_post):
         """Jina embedding passes dimensions param."""
         mock_response = MagicMock()
@@ -168,7 +168,7 @@ class TestJinaEmbedding:
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         assert payload["dimensions"] == 512
 
-    @patch("httpx.post")
+    @patch("httpx.Client.post")
     async def test_jina_embed_unsorted_data(self, mock_post):
         """Jina results are sorted by index."""
         mock_response = MagicMock()
