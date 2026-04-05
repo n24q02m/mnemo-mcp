@@ -730,36 +730,10 @@ async def _handle_consolidate(
         return _json({"error": f"Consolidation failed: {e}"})
 
 
-# --- Tools ---
-
-
-@mcp.tool(
-    description=(
-        "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
-        "\n"
-        "ACTION GUIDE — when to use each:\n"
-        "- add: Store NEW information. Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
-        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
-        "- search: Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.\n"
-        "  Example: action='search', query='dark mode preference'\n"
-        "- update: Modify an EXISTING memory by ID. Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
-        "  Example: action='update', memory_id='abc123', content='User now prefers light mode'\n"
-        "- list: Browse all memories, optionally filtered by category. No query needed.\n"
-        "- delete: Remove a memory by ID. Requires 'memory_id'.\n"
-        "- stats: Show database statistics (total memories, categories, embedding status).\n"
-        "\n"
-        "WORKFLOW: search -> not found? -> add. Found outdated? -> update (with memory_id from results).\n"
-        "PROACTIVE: save user preferences, decisions, corrections, project conventions."
-    ),
-    annotations=ToolAnnotations(
-        title="Memory",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=False,
-    ),
-)
-async def memory(
+async def _handle_memory(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
     action: str,
     content: str | None = None,
     query: str | None = None,
@@ -769,28 +743,8 @@ async def memory(
     limit: int = 5,
     data: str | list | None = None,
     mode: str = "merge",
-    ctx: Context | None = None,
 ) -> str:
-    """Execute a memory action.
-
-    Actions:
-    - add: Store NEW information (content required, category/tags optional).
-      Use for first-time storage of preferences, decisions, facts.
-    - search: Find memories by natural language (query required, category/tags/limit optional).
-      Always search before adding to avoid duplicates.
-    - list: Browse all memories (category/limit optional). No query needed.
-    - update: Modify EXISTING memory (memory_id required, content/category/tags optional).
-      Get memory_id from search or list results first.
-    - delete: Remove memory (memory_id required)
-    - export: Export all as JSONL
-    - import: Import from JSONL (data required, mode: merge|replace)
-    - stats: Database statistics
-    - restore: Restore archived memory (memory_id required)
-    - archived: List archived memories (limit optional)
-    - consolidate: LLM summarize similar memories (category required)
-    """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
-
+    """Internal dispatcher for memory tool actions."""
     # Clamp limit to reasonable bounds to prevent DoS
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
@@ -851,38 +805,15 @@ async def memory(
             )
 
 
-@mcp.tool(
-    description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
-        "status: show config. sync: manual sync. set: change setting. "
-        "warmup: pre-download embedding model (~570 MB). "
-        "setup_sync: authenticate Google Drive via Device Code OAuth."
-    ),
-    annotations=ToolAnnotations(
-        title="Config",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
-)
-async def config(
+async def _handle_config(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
     action: str,
     key: str | None = None,
     value: str | None = None,
-    ctx: Context | None = None,
 ) -> str:
-    """Server configuration, sync control, and setup.
-
-    Actions:
-    - status: Show current config
-    - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
-    - set: Update setting (key + value required)
-    - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
-    - setup_sync: Authenticate Google Drive via Device Code OAuth flow
-    """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
-
+    """Internal dispatcher for config tool actions."""
     match action:
         case "status":
             s = await asyncio.to_thread(db.stats)
@@ -994,6 +925,116 @@ async def config(
                     "valid_actions": valid_actions,
                 }
             )
+
+
+# --- Tools ---
+
+
+@mcp.tool(
+    description=(
+        "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
+        "\n"
+        "ACTION GUIDE — when to use each:\n"
+        "- add: Store NEW information. Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
+        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
+        "- search: Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.\n"
+        "  Example: action='search', query='dark mode preference'\n"
+        "- update: Modify an EXISTING memory by ID. Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
+        "  Example: action='update', memory_id='abc123', content='User now prefers light mode'\n"
+        "- list: Browse all memories, optionally filtered by category. No query needed.\n"
+        "- delete: Remove a memory by ID. Requires 'memory_id'.\n"
+        "- stats: Show database statistics (total memories, categories, embedding status).\n"
+        "\n"
+        "WORKFLOW: search -> not found? -> add. Found outdated? -> update (with memory_id from results).\n"
+        "PROACTIVE: save user preferences, decisions, corrections, project conventions."
+    ),
+    annotations=ToolAnnotations(
+        title="Memory",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def memory(
+    action: str,
+    content: str | None = None,
+    query: str | None = None,
+    memory_id: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    limit: int = 5,
+    data: str | list | None = None,
+    mode: str = "merge",
+    ctx: Context | None = None,
+) -> str:
+    """Execute a memory action.
+
+    Actions:
+    - add: Store NEW information (content required, category/tags optional).
+      Use for first-time storage of preferences, decisions, facts.
+    - search: Find memories by natural language (query required, category/tags/limit optional).
+      Always search before adding to avoid duplicates.
+    - list: Browse all memories (category/limit optional). No query needed.
+    - update: Modify EXISTING memory (memory_id required, content/category/tags optional).
+      Get memory_id from search or list results first.
+    - delete: Remove memory (memory_id required)
+    - export: Export all as JSONL
+    - import: Import from JSONL (data required, mode: merge|replace)
+    - stats: Database statistics
+    - restore: Restore archived memory (memory_id required)
+    - archived: List archived memories (limit optional)
+    - consolidate: LLM summarize similar memories (category required)
+    """
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_memory(
+        db,
+        embedding_model,
+        embedding_dims,
+        action,
+        content,
+        query,
+        memory_id,
+        category,
+        tags,
+        limit,
+        data,
+        mode,
+    )
+
+
+@mcp.tool(
+    description=(
+        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
+        "status: show config. sync: manual sync. set: change setting. "
+        "warmup: pre-download embedding model (~570 MB). "
+        "setup_sync: authenticate Google Drive via Device Code OAuth."
+    ),
+    annotations=ToolAnnotations(
+        title="Config",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+async def config(
+    action: str,
+    key: str | None = None,
+    value: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Server configuration, sync control, and setup.
+
+    Actions:
+    - status: Show current config
+    - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
+    - set: Update setting (key + value required)
+    - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
+    - setup_sync: Authenticate Google Drive via Device Code OAuth flow
+    """
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_config(db, embedding_model, embedding_dims, action, key, value)
 
 
 @mcp.tool(
