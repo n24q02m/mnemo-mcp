@@ -1,0 +1,1 @@
+{"title": "[FIX] Hardcoded Google Drive Client Secret", "body": "Removed the hardcoded Google Drive client secret from src/mnemo_mcp/config.py and updated the Settings class to default to an empty string. The secret can now be provided via the GOOGLE_DRIVE_CLIENT_SECRET environment variable. Added tests to verify the default value and environment variable override."}
