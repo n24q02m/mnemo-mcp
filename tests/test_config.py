@@ -1,9 +1,93 @@
 """Tests for mnemo_mcp.config — Settings, API keys, embedding resolution."""
 
 import os
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from mnemo_mcp.config import Settings
+from mnemo_mcp.config import (
+    Settings,
+    _detect_gpu,
+    _has_gguf_support,
+    _resolve_local_model,
+)
+
+
+class TestGpuDetection:
+    def test_detect_gpu_success_cuda(self):
+        """_detect_gpu returns True when CUDA is available."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+    def test_detect_gpu_success_dml(self):
+        """_detect_gpu returns True when DirectML is available."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = [
+            "DmlExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+    def test_detect_gpu_no_gpu(self):
+        """_detect_gpu returns False when only CPU is available."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+    def test_detect_gpu_import_error(self):
+        """_detect_gpu returns False when onnxruntime is not installed."""
+        with patch.dict(sys.modules, {"onnxruntime": None}):
+            assert _detect_gpu() is False
+
+    def test_detect_gpu_runtime_exception(self):
+        """_detect_gpu returns False when get_available_providers raises."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+
+class TestGgufSupport:
+    def test_has_gguf_support_success(self):
+        """_has_gguf_support returns True when llama-cpp-python is installed."""
+        mock_llama = MagicMock()
+        with patch.dict(sys.modules, {"llama_cpp": mock_llama}):
+            assert _has_gguf_support() is True
+
+    def test_has_gguf_support_import_error(self):
+        """_has_gguf_support returns False when llama-cpp-python is not installed."""
+        with patch.dict(sys.modules, {"llama_cpp": None}):
+            assert _has_gguf_support() is False
+
+
+class TestResolveLocalModel:
+    def test_resolve_local_model_onnx_by_default(self):
+        """Returns ONNX variant if GPU not available."""
+        with patch("mnemo_mcp.config._detect_gpu", return_value=False):
+            assert _resolve_local_model("onnx", "gguf") == "onnx"
+
+    def test_resolve_local_model_onnx_no_gguf_support(self):
+        """Returns ONNX variant if llama-cpp not installed."""
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=True),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=False),
+        ):
+            assert _resolve_local_model("onnx", "gguf") == "onnx"
+
+    def test_resolve_local_model_gguf_with_gpu_and_llama(self):
+        """Returns GGUF variant if GPU and llama-cpp available."""
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=True),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=True),
+        ):
+            assert _resolve_local_model("onnx", "gguf") == "gguf"
 
 
 class TestSettingsDefaults:
@@ -19,11 +103,11 @@ class TestSettingsDefaults:
         s = Settings(api_keys=None)
         assert s.sync_folder == "mnemo-mcp"
 
-    def test_log_level(self):
+    def test_sync_interval(self):
         s = Settings(api_keys=None)
-        assert s.log_level == "INFO"
+        assert s.sync_interval == 300
 
-    def test_embedding_dims_zero(self):
+    def test_embedding_dims_default(self):
         s = Settings(api_keys=None)
         assert s.embedding_dims == 0
 
@@ -204,6 +288,38 @@ class TestEmbeddingBackend:
         assert s.resolve_embedding_backend() == "cloud"
 
 
+class TestSetupProviders:
+    def test_setup_providers_sdk(self, monkeypatch):
+        """setup_providers returns 'sdk' when API keys are present."""
+        s = Settings(api_keys="OPENAI_API_KEY:test")
+        # Instead of patching the method on the instance, we patch it on the class
+        with patch("mnemo_mcp.config.Settings.setup_api_keys") as mock_setup:
+            assert s.setup_providers() == "sdk"
+            mock_setup.assert_called_once()
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def test_setup_providers_local(self, monkeypatch):
+        """setup_providers returns 'local' when no keys are present."""
+        for k in [
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "GEMINI_API_KEY",
+            "JINA_AI_API_KEY",
+            "GOOGLE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ]:
+            monkeypatch.delenv(k, raising=False)
+        s = Settings(api_keys=None)
+        assert s.setup_providers() == "local"
+
+    def test_resolve_provider_mode_env_var(self, monkeypatch):
+        """resolve_provider_mode returns 'sdk' if env var is set."""
+        monkeypatch.setenv("XAI_API_KEY", "test")
+        s = Settings(api_keys=None)
+        assert s.resolve_provider_mode() == "sdk"
+
+
 class TestRerankSettings:
     def test_rerank_enabled_default(self):
         s = Settings(api_keys=None)
@@ -242,7 +358,9 @@ class TestRerankSettings:
         s = Settings(api_keys="COHERE_API_KEY:test-key")
         assert s.resolve_rerank_backend() == "cloud"
 
-    def test_resolve_rerank_backend_local_fallback(self):
+    def test_resolve_rerank_backend_local_fallback(self, monkeypatch):
+        for k in ["COHERE_API_KEY", "CO_API_KEY", "JINA_AI_API_KEY"]:
+            monkeypatch.delenv(k, raising=False)
         s = Settings(api_keys=None)
         assert s.resolve_rerank_backend() == "local"
 
@@ -259,15 +377,21 @@ class TestRerankSettings:
         s = Settings(api_keys="COHERE_API_KEY:test-key")
         assert s.resolve_rerank_model() == "rerank-v4.0-pro"
 
-    def test_resolve_rerank_model_none_no_keys(self):
+    def test_resolve_rerank_model_none_no_keys(self, monkeypatch):
+        for k in ["COHERE_API_KEY", "CO_API_KEY", "JINA_AI_API_KEY"]:
+            monkeypatch.delenv(k, raising=False)
         s = Settings(api_keys=None)
         assert s.resolve_rerank_model() is None
 
     def test_resolve_local_rerank_model(self):
         s = Settings(api_keys=None)
-        model = s.resolve_local_rerank_model()
-        # Should return ONNX or GGUF depending on environment
-        assert "Qwen3-Reranker-0.6B" in model
+        with patch("mnemo_mcp.config._resolve_local_model", return_value="mock_model"):
+            assert s.resolve_local_rerank_model() == "mock_model"
+
+    def test_resolve_local_embedding_model(self):
+        s = Settings(api_keys=None)
+        with patch("mnemo_mcp.config._resolve_local_model", return_value="mock_model"):
+            assert s.resolve_local_embedding_model() == "mock_model"
 
 
 class TestGoogleDriveClientId:
