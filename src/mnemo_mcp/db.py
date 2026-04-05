@@ -924,22 +924,27 @@ class MemoryDB:
         if isinstance(limit, int):
             limit = max(1, min(limit, 100))
         cursor = self._conn.cursor()
-        rows = cursor.execute(
-            "SELECT id, content, category, tags, importance, archived_at "
-            "FROM archived_memories ORDER BY archived_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [
-            {
-                "id": r[0],
-                "content": r[1][:200],
-                "category": r[2],
-                "tags": json.loads(r[3]),
-                "importance": r[4],
-                "archived_at": r[5],
-            }
-            for r in rows
-        ]
+        # Bolt Performance Optimization: Offload JSON construction and content
+        # truncation to SQLite. Avoids O(N) Python dict creations and json.loads
+        # calls in a loop, reducing overhead and memory pressure.
+        query = """
+            SELECT json_group_array(json_object(
+                'id', id,
+                'content', substr(content, 1, 200),
+                'category', category,
+                'tags', json(tags),
+                'importance', importance,
+                'archived_at', archived_at
+            ))
+            FROM (
+                SELECT id, content, category, tags, importance, archived_at
+                FROM archived_memories
+                ORDER BY archived_at DESC
+                LIMIT ?
+            )
+        """
+        row = cursor.execute(query, (limit,)).fetchone()
+        return json.loads(row[0]) if row and row[0] else []
 
     def check_duplicate(self, content: str, threshold: float = 0.9) -> dict | None:
         """Check if similar memory exists. Returns match info or None."""
