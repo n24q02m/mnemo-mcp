@@ -1,6 +1,6 @@
 """Tests for mnemo_mcp.graph -- entity extraction, relations, graph traversal."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.db import MemoryDB
 from mnemo_mcp.graph import (
@@ -314,6 +314,19 @@ class TestLinkMemoryEntities:
             "SELECT COUNT(*) FROM memory_entities WHERE memory_id = ?", (mid,)
         ).fetchone()[0]
         assert count == 1
+
+    def test_link_memory_entities_exception_logged(self, tmp_db: MemoryDB):
+        """Exception during linking is caught and logged with details."""
+        conn = MagicMock()
+        conn.executemany.side_effect = Exception("DB error")
+        with patch("mnemo_mcp.graph.logger") as mock_logger:
+            # Should not raise
+            link_memory_entities(conn, "fake-id", ["eid1", "eid2"])
+            # Verify error was actually logged
+            assert mock_logger.debug.called
+            args, _ = mock_logger.debug.call_args
+            assert "Failed to link memory entities" in args[0]
+            assert "DB error" in args[0]
 
 
 class TestFindRelatedMemoryIds:
