@@ -1,3 +1,7 @@
 ## 2025-03-24 - N+1 Query Optimization in Entity Upserts
 **Learning:** For small-to-medium datasets (e.g. graph entity extraction returning 10-200 entities), Python sqlite3 driver's looping `execute` for point reads (using a `SELECT` against a unique index) followed by a bulk `executemany` for inserts and updates is incredibly fast, even faster than constructing massive `IN (VALUES ...)` queries or relying on `executemany` UPSERTs without `RETURNING`.
 **Action:** Replaced the N+1 looping `execute(SELECT)` and conditional `execute(INSERT)`/`execute(UPDATE)` statements in `graph.py`'s `upsert_entities` function with an initial loop to deduplicate unique entities and query the DB, followed by unified `conn.executemany` bulk insertions and updates. This delivered measurable ~2x improvements on inserts/updates without relying on external dependencies or risking query size limits.
+
+## 2024-05-24 - Offloading archiving logic directly to SQLite
+**Learning:** For batch operations like moving records from one table to another (e.g. archiving), avoiding pulling all the matched rows into Python's memory and then executing another executemany is a significant performance boost. Executing directly `INSERT INTO ... SELECT` query, and then a subsequent `DELETE` query, allows SQLite to handle all of the filtering and memory locally.
+**Action:** Always verify if a batch database data-processing Python logic can be completely offloaded into pure SQL queries, reducing I/O and object creation overheads.
