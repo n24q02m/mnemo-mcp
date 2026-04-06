@@ -611,6 +611,11 @@ class TestArchive:
         assert count == 1
         assert tmp_db.get(mid) is None  # Removed from active
 
+    def test_archive_old_memories_no_matching(self, tmp_db: MemoryDB):
+        # Setup an empty db or db with no matching records
+        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
+        assert count == 0
+
     def test_archive_keeps_recent(self, tmp_db: MemoryDB):
         mid = tmp_db.add("recent memory")
         count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
