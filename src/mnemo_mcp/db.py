@@ -10,6 +10,7 @@ Provides:
 import io
 import json
 import math
+import re
 import sqlite3
 import struct
 import uuid
@@ -22,12 +23,19 @@ from loguru import logger
 _STRUCT_CACHE: dict[int, struct.Struct] = {}
 
 
-def _serialize_f32(vec: list[float]) -> bytes:
+def _serialize_f32(vec: list[float], target_dims: int = 0) -> bytes:
     """Serialize float list to bytes for sqlite-vec.
 
+    If target_dims > 0, the vector is truncated or zero-padded to match.
     Uses a cached struct.Struct instance to avoid recompiling the format
     string on every vector insertion or search, providing a ~30% speedup.
     """
+    if target_dims > 0:
+        if len(vec) > target_dims:
+            vec = vec[:target_dims]
+        elif len(vec) < target_dims:
+            vec = vec + [0.0] * (target_dims - len(vec))
+
     n = len(vec)
     try:
         s = _STRUCT_CACHE[n]
@@ -256,11 +264,23 @@ class MemoryDB:
 
         # sqlite-vec virtual table (only if enabled)
         if self._vec_enabled and self._embedding_dims > 0:
-            # Check if vec table exists
+            # Check if vec table exists and auto-detect dimensions
             row = self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories_vec'"
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='memories_vec'"
             ).fetchone()
-            if not row:
+            if row:
+                # Auto-detect dimensions from existing table
+                sql = row["sql"]
+                match = re.search(r"float\[(\d+)\]", sql)
+                if match:
+                    detected_dims = int(match.group(1))
+                    if detected_dims != self._embedding_dims:
+                        logger.info(
+                            f"Auto-detected embedding dimensions: {detected_dims} "
+                            f"(requested {self._embedding_dims})"
+                        )
+                        self._embedding_dims = detected_dims
+            else:
                 # Validate and cast dimensions before f-string interpolation
                 # to prevent potential SQL injection if the source ever becomes
                 # untrusted.
@@ -321,7 +341,7 @@ class MemoryDB:
         if embedding and self._vec_enabled:
             self._conn.execute(
                 "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding)),
+                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
             )
 
         self._conn.commit()
@@ -363,7 +383,7 @@ class MemoryDB:
                     JOIN memories m ON v.id = m.id
                     WHERE v.embedding MATCH ?
                 """
-                vec_params: list = [_serialize_f32(embedding)]
+                vec_params: list = [_serialize_f32(embedding, self._embedding_dims)]
 
                 if category:
                     vec_sql += " AND m.category = ?"
@@ -668,7 +688,7 @@ class MemoryDB:
             self._conn.execute("DELETE FROM memories_vec WHERE id = ?", (memory_id,))
             self._conn.execute(
                 "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding)),
+                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
             )
 
         self._conn.commit()

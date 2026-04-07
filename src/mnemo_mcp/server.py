@@ -23,9 +23,9 @@ from mcp.types import ToolAnnotations
 from mnemo_mcp.config import _EMBEDDING_CANDIDATES, settings
 from mnemo_mcp.db import MemoryDB
 
-# Constant embedding dimensions for sqlite-vec.
-# All embeddings are truncated to this size so switching models never
-# breaks the vector table. Override via EMBEDDING_DIMS env var.
+# Default embedding dimensions for new sqlite-vec tables.
+# All embeddings are truncated/padded to match the database schema,
+# allowing model switching without breaking existing tables.
 _DEFAULT_EMBEDDING_DIMS = 768
 
 # --- Lifespan ---
