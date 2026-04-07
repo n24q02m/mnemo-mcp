@@ -231,30 +231,29 @@ def upsert_entities(conn, entities: list[dict]) -> list[str]:
 
     unique_keys = list(unique_ents.keys())
 
-    # Use UPSERT (INSERT ... ON CONFLICT) for bulk write in one pass.
-    # This eliminates N+1 SELECTs and conditional INSERT/UPDATE overhead.
-    upsert_data = [(str(uuid.uuid4()), key[0], key[1], now, now) for key in unique_keys]
-    conn.executemany(
-        "INSERT INTO entities (id, name, entity_type, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(name, entity_type) DO UPDATE SET updated_at = excluded.updated_at",
-        upsert_data,
-    )
-
-    # Fetch all IDs in bulk. Batch to stay under SQLITE_MAX_VARIABLE_NUMBER.
-    BATCH_SIZE = 400
+    # Bolt Performance Optimization:
+    # Use a single-pass INSERT INTO ... ON CONFLICT ... RETURNING pattern to eliminate N+1 queries.
+    # Since Python sqlite3 doesn't support RETURNING with executemany, we construct a single INSERT
+    # with multiple VALUES placeholders per batch to reduce database round-trips to one per batch.
+    # Each row uses 5 parameters (id, name, type, created_at, updated_at).
+    BATCH_SIZE = 190  # 190 * 5 = 950 < 999 (SQLITE_MAX_VARIABLE_NUMBER)
     for i in range(0, len(unique_keys), BATCH_SIZE):
         batch = unique_keys[i : i + BATCH_SIZE]
-        placeholders = ", ".join(["(?, ?)"] * len(batch))
-        params = [val for key in batch for val in key]
-        rows = conn.execute(
-            "SELECT name, entity_type, id FROM entities "
-            f"WHERE (name, entity_type) IN (VALUES {placeholders})",
-            params,
-        ).fetchall()
+        placeholders = ", ".join(["(?, ?, ?, ?, ?)"] * len(batch))
+        params = []
+        for key in batch:
+            params.extend([str(uuid.uuid4()), key[0], key[1], now, now])
+
+        query = f"""
+            INSERT INTO entities (id, name, entity_type, created_at, updated_at)
+            VALUES {placeholders}
+            ON CONFLICT(name, entity_type) DO UPDATE SET
+                updated_at = excluded.updated_at
+            RETURNING name, entity_type, id
+        """
+        rows = conn.execute(query, params).fetchall()
         for r_name, r_type, r_id in rows:
             unique_ents[(r_name, r_type)] = r_id
-
     return [unique_ents[key] for key in ordered_ents]
 
 

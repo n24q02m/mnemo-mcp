@@ -372,3 +372,18 @@ class TestFindRelatedMemoryIds:
 
         related = find_related_memory_ids(conn, mid1, max_depth=3)
         assert mid2 in related
+
+    def test_bulk_upsert_large_batch(self, tmp_db: MemoryDB):
+        conn = tmp_db._conn
+        # Create 250 entities to trigger batching (BATCH_SIZE=190)
+        entities = [{"name": f"Entity {i}", "type": "concept"} for i in range(250)]
+        ids = upsert_entities(conn, entities)
+        assert len(ids) == 250
+        assert len(set(ids)) == 250
+
+        # Upsert again to verify updates/RETURNING on existing
+        ids2 = upsert_entities(conn, entities)
+        assert ids == ids2
+
+        count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        assert count == 250
