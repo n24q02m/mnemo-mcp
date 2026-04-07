@@ -59,7 +59,7 @@ class TestMemoryAdd:
         assert result["category"] == "work"
         mem = db.get(result["id"])
         assert mem is not None
-        assert json.loads(mem["tags"]) == ["urgent"]
+        assert mem["tags"] == ["urgent"]
 
     async def test_add_no_content(self, ctx_with_db):
         ctx, _ = ctx_with_db

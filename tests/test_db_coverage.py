@@ -5,7 +5,6 @@ import_jsonl with list/dict/invalid data, replace mode with vec,
 and other edge cases.
 """
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -120,7 +119,7 @@ class TestVectorSearch:
             "tagged stuff", embedding=[1.0, 0.0, 0.0, 0.0], tags=["python"]
         )
         for r in results:
-            tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
+            tags = r["tags"] if isinstance(r["tags"], str) else r["tags"]
             assert "python" in tags
 
     def test_update_embedding(self, vec_db: MemoryDB):
@@ -330,7 +329,7 @@ class TestVectorSearchRRFDirect:
             "tagged", embedding=[1.0, 0.0, 0.0, 0.0], tags=["python"]
         )
         for r in results:
-            tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
+            tags = r["tags"] if isinstance(r["tags"], str) else r["tags"]
             assert "python" in tags
 
 
@@ -441,7 +440,7 @@ class TestImportJsonlEdgeCases:
         mem = tmp_db.get("ts1")
         assert mem is not None
         # Tags stored as-is since they're already a string
-        assert json.loads(mem["tags"]) == ["a", "b"]
+        assert mem["tags"] == ["a", "b"]
 
     def test_import_generates_id_when_missing(self, tmp_db: MemoryDB):
         """Import generates UUID when id is missing."""

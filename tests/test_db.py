@@ -31,13 +31,13 @@ class TestAdd:
         mid = tmp_db.add("test", tags=["a", "b"])
         mem = tmp_db.get(mid)
         assert mem is not None
-        assert json.loads(mem["tags"]) == ["a", "b"]
+        assert mem["tags"] == ["a", "b"]
 
     def test_no_tags_empty_list(self, tmp_db: MemoryDB):
         mid = tmp_db.add("test")
         mem = tmp_db.get(mid)
         assert mem is not None
-        assert json.loads(mem["tags"]) == []
+        assert mem["tags"] == []
 
     def test_source_stored(self, tmp_db: MemoryDB):
         mid = tmp_db.add("test", source="conversation")
@@ -115,7 +115,7 @@ class TestUpdate:
         tmp_db.update(mid, tags=["b", "c"])
         mem = tmp_db.get(mid)
         assert mem is not None
-        assert json.loads(mem["tags"]) == ["b", "c"]
+        assert mem["tags"] == ["b", "c"]
 
     def test_updates_timestamp(self, tmp_db: MemoryDB):
         mid = tmp_db.add("test")
@@ -139,7 +139,7 @@ class TestUpdate:
         assert mem is not None
         assert mem["content"] == "content"
         assert mem["category"] == "new"
-        assert json.loads(mem["tags"]) == ["tag1"]
+        assert mem["tags"] == ["tag1"]
 
 
 class TestDelete:
@@ -238,7 +238,7 @@ class TestSearch:
         results = tmp_db_with_data.search("Python", tags=["python"])
         assert len(results) > 0
         for r in results:
-            assert "python" in json.loads(r["tags"])
+            assert "python" in r["tags"]
 
     def test_no_results(self, tmp_db_with_data: MemoryDB):
         results = tmp_db_with_data.search("xyznonexistent")
@@ -404,7 +404,7 @@ class TestExportImport:
         mem = tmp_db.get("meta1")
         assert mem is not None
         assert mem["category"] == "special"
-        assert json.loads(mem["tags"]) == ["a", "b"]
+        assert mem["tags"] == ["a", "b"]
         assert mem["source"] == "test-suite"
         assert mem["access_count"] == 5
 
@@ -481,7 +481,7 @@ class TestEdgeCases:
         mid = tmp_db.add("test", tags=tags)
         mem = tmp_db.get(mid)
         assert mem is not None
-        assert json.loads(mem["tags"]) == tags
+        assert mem["tags"] == tags
 
     def test_db_path_property(self, tmp_db: MemoryDB):
         s = tmp_db.stats()

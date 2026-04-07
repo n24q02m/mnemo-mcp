@@ -400,6 +400,7 @@ class MemoryDB:
                         mid = mem["id"]
                         results[mid] = {
                             **dict(mem),
+                            "tags": json.loads(mem["tags"]) if mem["tags"] else [],
                             "fts_score": 0.0,
                             "vec_score": vec_scores[mid],
                         }
@@ -486,6 +487,7 @@ class MemoryDB:
                 mid = row["id"]
                 results[mid] = {
                     **dict(row),
+                    "tags": json.loads(row["tags"]) if row["tags"] else [],
                     "fts_score": -row["bm25_score"],
                     "vec_score": 0.0,
                 }
@@ -602,14 +604,21 @@ class MemoryDB:
                 (limit, offset),
             ).fetchall()
 
-        return [dict(r) for r in rows]
+        return [
+            {**dict(r), "tags": json.loads(r["tags"]) if r["tags"] else []}
+            for r in rows
+        ]
 
     def get(self, memory_id: str) -> dict | None:
         """Get a single memory by ID."""
         row = self._conn.execute(
             "SELECT * FROM memories WHERE id = ?", (memory_id,)
         ).fetchone()
-        return dict(row) if row else None
+        return (
+            {**dict(row), "tags": json.loads(row["tags"]) if row["tags"] else []}
+            if row
+            else None
+        )
 
     def update(
         self,
