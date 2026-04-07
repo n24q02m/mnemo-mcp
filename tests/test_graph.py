@@ -382,26 +382,33 @@ class TestFindRelatedMemoryIds:
         mid4 = tmp_db.add("Memory 4")
 
         # Create chain: E1 (M1) -> E2 -> E3 (M2) -> E4 (M3) -> E5 (M4)
-        eids = upsert_entities(conn, [
-            {"name": "E1", "type": "concept"},
-            {"name": "E2", "type": "concept"},
-            {"name": "E3", "type": "concept"},
-            {"name": "E4", "type": "concept"},
-            {"name": "E5", "type": "concept"},
-        ])
+        eids = upsert_entities(
+            conn,
+            [
+                {"name": "E1", "type": "concept"},
+                {"name": "E2", "type": "concept"},
+                {"name": "E3", "type": "concept"},
+                {"name": "E4", "type": "concept"},
+                {"name": "E5", "type": "concept"},
+            ],
+        )
 
         link_memory_entities(conn, mid1, [eids[0]])
         link_memory_entities(conn, mid2, [eids[2]])
         link_memory_entities(conn, mid3, [eids[3]])
         link_memory_entities(conn, mid4, [eids[4]])
 
-        name_to_id = {f"E{i+1}": eids[i] for i in range(5)}
-        create_relations(conn, [
-            {"source": "E1", "target": "E2", "type": "related_to"},
-            {"source": "E2", "target": "E3", "type": "related_to"},
-            {"source": "E3", "target": "E4", "type": "related_to"},
-            {"source": "E4", "target": "E5", "type": "related_to"},
-        ], name_to_id)
+        name_to_id = {f"E{i + 1}": eids[i] for i in range(5)}
+        create_relations(
+            conn,
+            [
+                {"source": "E1", "target": "E2", "type": "related_to"},
+                {"source": "E2", "target": "E3", "type": "related_to"},
+                {"source": "E3", "target": "E4", "type": "related_to"},
+                {"source": "E4", "target": "E5", "type": "related_to"},
+            ],
+            name_to_id,
+        )
 
         # depth 1: Only E1. No other memories linked to E1.
         assert find_related_memory_ids(conn, mid1, max_depth=1) == []
