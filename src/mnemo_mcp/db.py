@@ -370,9 +370,10 @@ class MemoryDB:
                     vec_params.append(category)
 
                 if tags:
-                    tag_placeholders = ",".join("?" for _ in tags)
-                    vec_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
-                    vec_params.extend(tags)
+                    if len(tags) > 50:
+                        raise ValueError("Maximum 50 tags allowed in search")
+                    vec_sql += " AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN (SELECT value FROM json_each(?)))"
+                    vec_params.append(json.dumps(tags))
 
                 vec_sql += " ORDER BY distance LIMIT ?"
                 vec_params.append(limit * 3)
@@ -391,10 +392,9 @@ class MemoryDB:
                         missing_ids.append(mid)
 
                 if missing_ids:
-                    placeholders = ",".join("?" for _ in missing_ids)
                     missing_mems = self._conn.execute(
-                        f"SELECT * FROM memories WHERE id IN ({placeholders})",
-                        missing_ids,
+                        "SELECT * FROM memories WHERE id IN (SELECT value FROM json_each(?))",
+                        (json.dumps(missing_ids),),
                     ).fetchall()
                     for mem in missing_mems:
                         mid = mem["id"]
@@ -451,9 +451,10 @@ class MemoryDB:
             filter_sql += " AND m.category = ?"
             filter_params.append(category)
         if tags:
-            tag_placeholders = ",".join("?" for _ in tags)
-            filter_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
-            filter_params.extend(tags)
+            if len(tags) > 50:
+                raise ValueError("Maximum 50 tags allowed in search")
+            filter_sql += " AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN (SELECT value FROM json_each(?)))"
+            filter_params.append(json.dumps(tags))
 
         for idx, fts_query in enumerate(fts_queries):
             subqueries.append(f"""
@@ -566,13 +567,12 @@ class MemoryDB:
             return
 
         ids = [m["id"] for m in top]
-        placeholders = ",".join("?" for _ in ids)
         self._conn.execute(
-            f"""UPDATE memories
+            """UPDATE memories
                 SET access_count = access_count + 1,
                     last_accessed = ?
-                WHERE id IN ({placeholders})""",
-            [_now_iso(), *ids],
+                WHERE id IN (SELECT value FROM json_each(?))""",
+            (_now_iso(), json.dumps(ids)),
         )
         self._conn.commit()
 
