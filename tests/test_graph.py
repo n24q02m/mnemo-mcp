@@ -1,6 +1,6 @@
 """Tests for mnemo_mcp.graph -- entity extraction, relations, graph traversal."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from mnemo_mcp.db import MemoryDB
 from mnemo_mcp.graph import (
@@ -315,9 +315,20 @@ class TestLinkMemoryEntities:
         ).fetchone()[0]
         assert count == 1
 
+    def test_handles_db_error(self, tmp_db: MemoryDB):
+        # Use a MagicMock for the connection because sqlite3.Connection attributes are read-only
+        mock_conn = MagicMock()
+        mock_conn.executemany.side_effect = Exception("DB error")
+        mid = "test-mid"
+        eids = ["eid1", "eid2"]
 
-class TestFindRelatedMemoryIds:
-    def test_finds_related_via_shared_entity(self, tmp_db: MemoryDB):
+        with patch("mnemo_mcp.graph.logger") as mock_logger:
+            # Should not raise
+            link_memory_entities(mock_conn, mid, eids)
+            mock_logger.debug.assert_called_once()
+            args, _ = mock_logger.debug.call_args
+            assert "Failed to link memory entities: DB error" in args[0]
+
         conn = tmp_db._conn
         mid1 = tmp_db.add("Python is great")
         mid2 = tmp_db.add("Python frameworks")
