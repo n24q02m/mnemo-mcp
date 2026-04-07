@@ -745,6 +745,81 @@ async def _handle_consolidate(
         return _json({"error": f"Consolidation failed: {e}"})
 
 
+async def _handle_memory(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
+    action: str,
+    content: str | None = None,
+    query: str | None = None,
+    memory_id: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    limit: int = 5,
+    data: str | list | None = None,
+    mode: str = "merge",
+) -> str:
+    """Internal dispatcher for memory actions."""
+    # Clamp limit to reasonable bounds to prevent DoS
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
+    match action:
+        case "add":
+            return await _handle_add(
+                db, content, category, tags, embedding_model, embedding_dims
+            )
+        case "search":
+            return await _handle_search(
+                db, query, category, tags, limit, embedding_model, embedding_dims
+            )
+        case "list":
+            return await _handle_list(db, category, limit)
+        case "update":
+            return await _handle_update(
+                db, memory_id, content, category, tags, embedding_model, embedding_dims
+            )
+        case "delete":
+            return await _handle_delete(db, memory_id)
+        case "export":
+            return await _handle_export(db)
+        case "import":
+            return await _handle_import(db, data, mode)
+        case "stats":
+            return await _handle_stats(db, embedding_model, embedding_dims)
+        case "restore":
+            return await _handle_restore(db, memory_id)
+        case "archived":
+            return await _handle_archived(db, limit)
+        case "consolidate":
+            return await _handle_consolidate(db, category)
+        case _:
+            import difflib
+
+            valid_actions = [
+                "add",
+                "archived",
+                "consolidate",
+                "delete",
+                "export",
+                "import",
+                "list",
+                "restore",
+                "search",
+                "stats",
+                "update",
+            ]
+            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
+            return _json(
+                {
+                    "error": f"Unknown action '{action}'.{suggestion}",
+                    "valid_actions": valid_actions,
+                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
+                }
+            )
+
+
 # --- Tools ---
 
 
@@ -806,98 +881,32 @@ async def memory(
     """
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
-    # Clamp limit to reasonable bounds to prevent DoS
-    if isinstance(limit, int):
-        limit = max(1, min(limit, 100))
-
-    match action:
-        case "add":
-            return await _handle_add(
-                db, content, category, tags, embedding_model, embedding_dims
-            )
-        case "search":
-            return await _handle_search(
-                db, query, category, tags, limit, embedding_model, embedding_dims
-            )
-        case "list":
-            return await _handle_list(db, category, limit)
-        case "update":
-            return await _handle_update(
-                db, memory_id, content, category, tags, embedding_model, embedding_dims
-            )
-        case "delete":
-            return await _handle_delete(db, memory_id)
-        case "export":
-            return await _handle_export(db)
-        case "import":
-            return await _handle_import(db, data, mode)
-        case "stats":
-            return await _handle_stats(db, embedding_model, embedding_dims)
-        case "restore":
-            return await _handle_restore(db, memory_id)
-        case "archived":
-            return await _handle_archived(db, limit)
-        case "consolidate":
-            return await _handle_consolidate(db, category)
-        case _:
-            import difflib
-
-            valid_actions = [
-                "add",
-                "archived",
-                "consolidate",
-                "delete",
-                "export",
-                "import",
-                "list",
-                "restore",
-                "search",
-                "stats",
-                "update",
-            ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
-            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-            return _json(
-                {
-                    "error": f"Unknown action '{action}'.{suggestion}",
-                    "valid_actions": valid_actions,
-                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
-                }
-            )
+    return await _handle_memory(
+        db,
+        embedding_model,
+        embedding_dims,
+        action,
+        content,
+        query,
+        memory_id,
+        category,
+        tags,
+        limit,
+        data,
+        mode,
+    )
 
 
-@mcp.tool(
-    description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
-        "status: show config. sync: manual sync. set: change setting. "
-        "warmup: pre-download embedding model (~570 MB). "
-        "setup_sync: authenticate Google Drive via Device Code OAuth."
-    ),
-    annotations=ToolAnnotations(
-        title="Config",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
-)
-async def config(
+async def _handle_config(
+    db: MemoryDB,
+    embedding_model: str | None,
+    embedding_dims: int,
     action: str,
     key: str | None = None,
     value: str | None = None,
     ctx: Context | None = None,
 ) -> str:
-    """Server configuration, sync control, and setup.
-
-    Actions:
-    - status: Show current config
-    - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
-    - set: Update setting (key + value required)
-    - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
-    - setup_sync: Authenticate Google Drive via Device Code OAuth flow
-    """
-    db, embedding_model, embedding_dims = _get_ctx(ctx)
-
+    """Internal dispatcher for config actions."""
     match action:
         case "status":
             s = await asyncio.to_thread(db.stats)
@@ -1131,6 +1140,43 @@ async def config(
                     "valid_actions": valid_actions,
                 }
             )
+
+
+@mcp.tool(
+    description=(
+        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
+        "status: show config. sync: manual sync. set: change setting. "
+        "warmup: pre-download embedding model (~570 MB). "
+        "setup_sync: authenticate Google Drive via Device Code OAuth."
+    ),
+    annotations=ToolAnnotations(
+        title="Config",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+async def config(
+    action: str,
+    key: str | None = None,
+    value: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Server configuration, sync control, and setup.
+
+    Actions:
+    - status: Show current config
+    - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
+    - set: Update setting (key + value required)
+    - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
+    - setup_sync: Authenticate Google Drive via Device Code OAuth flow
+    """
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+
+    return await _handle_config(
+        db, embedding_model, embedding_dims, action, key, value, ctx
+    )
 
 
 @mcp.tool(
