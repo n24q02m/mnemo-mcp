@@ -171,20 +171,20 @@ class MemoryDB:
         # FTS5 triggers to keep index in sync
         self._conn.executescript("""
             CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
+                INSERT INTO memories_fts(rowid, id, content, category, tags)
+                VALUES (new.rowid, new.id, new.content, new.category, new.tags);
             END;
 
             CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
+                INSERT INTO memories_fts(memories_fts, rowid, id, content, category, tags)
+                VALUES ("delete", old.rowid, old.id, old.content, old.category, old.tags);
             END;
 
             CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
+                INSERT INTO memories_fts(memories_fts, rowid, id, content, category, tags)
+                VALUES ("delete", old.rowid, old.id, old.content, old.category, old.tags);
+                INSERT INTO memories_fts(rowid, id, content, category, tags)
+                VALUES (new.rowid, new.id, new.content, new.category, new.tags);
             END;
         """)
 
@@ -448,20 +448,19 @@ class MemoryDB:
         filter_sql = ""
         filter_params: list = []
         if category:
-            filter_sql += " AND m.category = ?"
+            filter_sql += " AND category = ?"
             filter_params.append(category)
         if tags:
             tag_placeholders = ",".join("?" for _ in tags)
-            filter_sql += f" AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({tag_placeholders}))"
+            filter_sql += f" AND json_valid(tags) AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value IN ({tag_placeholders}))"
             filter_params.extend(tags)
 
         for idx, fts_query in enumerate(fts_queries):
             subqueries.append(f"""
-                SELECT m.*,
+                SELECT id,
                        bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score,
                        {idx} as tier_idx
-                FROM memories_fts f
-                JOIN memories m ON f.id = m.id
+                FROM memories_fts
                 WHERE memories_fts MATCH ? {filter_sql}
             """)
             fts_params.append(fts_query)
@@ -469,17 +468,21 @@ class MemoryDB:
 
         union_sql = " UNION ALL ".join(subqueries)
         fts_sql = f"""
-            WITH all_matches AS (
+            WITH ranked_matches AS (
                 {union_sql}
+            ),
+            best_tier AS (
+                SELECT id, bm25_score FROM ranked_matches
+                WHERE tier_idx = (SELECT MIN(tier_idx) FROM ranked_matches)
+                ORDER BY bm25_score
+                LIMIT ?
             )
-            SELECT *
-            FROM all_matches
-            WHERE tier_idx = (SELECT MIN(tier_idx) FROM all_matches)
-            ORDER BY bm25_score
-            LIMIT ?
+            SELECT m.*, b.bm25_score
+            FROM best_tier b
+            JOIN memories m ON b.id = m.id
+            ORDER BY b.bm25_score
         """
         fts_params.append(limit * 3)
-
         try:
             rows = self._conn.execute(fts_sql, fts_params).fetchall()
             for row in rows:
