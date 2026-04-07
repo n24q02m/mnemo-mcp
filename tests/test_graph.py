@@ -372,3 +372,56 @@ class TestFindRelatedMemoryIds:
 
         related = find_related_memory_ids(conn, mid1, max_depth=3)
         assert mid2 in related
+
+    def test_max_depth_limit(self, tmp_db: MemoryDB):
+        """Test that max_depth correctly limits the traversal."""
+        conn = tmp_db._conn
+        mid1 = tmp_db.add("Memory 1")
+        mid2 = tmp_db.add("Memory 2")
+        mid3 = tmp_db.add("Memory 3")
+        mid4 = tmp_db.add("Memory 4")
+
+        # Create chain: E1 (M1) -> E2 -> E3 (M2) -> E4 (M3) -> E5 (M4)
+        eids = upsert_entities(conn, [
+            {"name": "E1", "type": "concept"},
+            {"name": "E2", "type": "concept"},
+            {"name": "E3", "type": "concept"},
+            {"name": "E4", "type": "concept"},
+            {"name": "E5", "type": "concept"},
+        ])
+
+        link_memory_entities(conn, mid1, [eids[0]])
+        link_memory_entities(conn, mid2, [eids[2]])
+        link_memory_entities(conn, mid3, [eids[3]])
+        link_memory_entities(conn, mid4, [eids[4]])
+
+        name_to_id = {f"E{i+1}": eids[i] for i in range(5)}
+        create_relations(conn, [
+            {"source": "E1", "target": "E2", "type": "related_to"},
+            {"source": "E2", "target": "E3", "type": "related_to"},
+            {"source": "E3", "target": "E4", "type": "related_to"},
+            {"source": "E4", "target": "E5", "type": "related_to"},
+        ], name_to_id)
+
+        # depth 1: Only E1. No other memories linked to E1.
+        assert find_related_memory_ids(conn, mid1, max_depth=1) == []
+
+        # depth 2: E1 -> E2. E2 is not linked to any memory.
+        assert find_related_memory_ids(conn, mid1, max_depth=2) == []
+
+        # depth 3: E1 -> E2 -> E3. M2 is linked to E3.
+        related_3 = find_related_memory_ids(conn, mid1, max_depth=3)
+        assert mid2 in related_3
+        assert mid3 not in related_3
+
+        # depth 4: E1 -> E2 -> E3 -> E4. M3 is linked to E4.
+        related_4 = find_related_memory_ids(conn, mid1, max_depth=4)
+        assert mid2 in related_4
+        assert mid3 in related_4
+        assert mid4 not in related_4
+
+        # depth 5: E1 -> E2 -> E3 -> E4 -> E5. M4 is linked to E5.
+        related_5 = find_related_memory_ids(conn, mid1, max_depth=5)
+        assert mid2 in related_5
+        assert mid3 in related_5
+        assert mid4 in related_5
