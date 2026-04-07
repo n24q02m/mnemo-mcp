@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from mnemo_mcp.relay_setup import (
     CLOUD_KEYS,
     DEFAULT_RELAY_URL,
+    apply_config,
     ensure_config,
     load_relay_config,
 )
@@ -110,3 +111,31 @@ class TestEnsureConfig:
         mock_poll.side_effect = RuntimeError("Timeout")
         result = await ensure_config()
         assert result is None
+
+
+class TestApplyConfig:
+    """Test apply_config function."""
+
+    def test_apply_config_sets_missing_vars(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("TEST_KEY_1", raising=False)
+        config = {"TEST_KEY_1": "value1"}
+        apply_config(config)
+        assert os.environ["TEST_KEY_1"] == "value1"
+
+    def test_apply_config_does_not_overwrite(self, monkeypatch):
+        import os
+
+        monkeypatch.setenv("TEST_KEY_2", "original")
+        config = {"TEST_KEY_2": "new_value"}
+        apply_config(config)
+        assert os.environ["TEST_KEY_2"] == "original"
+
+    def test_apply_config_ignores_empty_values(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("TEST_KEY_3", raising=False)
+        config = {"TEST_KEY_3": ""}
+        apply_config(config)
+        assert "TEST_KEY_3" not in os.environ
