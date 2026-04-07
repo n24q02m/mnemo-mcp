@@ -36,9 +36,11 @@ async def test_list_limit_clamping():
         actual_limit = kwargs.get("limit")
         assert actual_limit == 100, f"Limit expected to be 100, got {actual_limit}"
 
+
 def test_db_search_tags_limit(tmp_path):
     """Verify that search tags are limited to prevent DoS."""
     from mnemo_mcp.db import MemoryDB
+
     db = MemoryDB(tmp_path / "test.db", embedding_dims=0)
     tags = [f"tag{i}" for i in range(51)]
     with pytest.raises(ValueError, match="Maximum 50 tags allowed in search"):
