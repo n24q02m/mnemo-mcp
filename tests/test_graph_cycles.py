@@ -1,10 +1,11 @@
 from mnemo_mcp.db import MemoryDB
 from mnemo_mcp.graph import (
-    upsert_entities,
-    link_memory_entities,
     create_relations,
     find_related_memory_ids,
+    link_memory_entities,
+    upsert_entities,
 )
+
 
 def test_graph_traversal_with_cycles(tmp_db: MemoryDB):
     """Test that graph traversal handles cycles correctly."""
