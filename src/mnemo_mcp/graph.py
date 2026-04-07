@@ -344,9 +344,13 @@ def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[st
             JOIN traverse t ON r.target_id = t.entity_id
             WHERE t.depth < ?
         )
+        -- Bolt Performance Optimization:
+        -- Use a subquery to deduplicate entities found at different depths
+        -- before joining with memory_entities. This prevents redundant joins
+        -- and improves performance in graphs with many cycles.
         SELECT DISTINCT me.memory_id
         FROM memory_entities me
-        JOIN traverse t ON me.entity_id = t.entity_id
+        JOIN (SELECT DISTINCT entity_id FROM traverse) t ON me.entity_id = t.entity_id
         WHERE me.memory_id != ?
     """
     rows = conn.execute(query, (memory_id, max_depth, max_depth, memory_id)).fetchall()
