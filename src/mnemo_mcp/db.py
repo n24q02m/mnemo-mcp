@@ -929,17 +929,21 @@ class MemoryDB:
             "FROM archived_memories ORDER BY archived_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [
-            {
-                "id": r[0],
-                "content": r[1][:200],
-                "category": r[2],
-                "tags": json.loads(r[3]),
-                "importance": r[4],
-                "archived_at": r[5],
-            }
-            for r in rows
-        ]
+        results = []
+        for r in rows:
+            tags_raw = r[3]
+            tags = [] if tags_raw == "[]" else json.loads(tags_raw)
+            results.append(
+                {
+                    "id": r[0],
+                    "content": r[1][:200],
+                    "category": r[2],
+                    "tags": tags,
+                    "importance": r[4],
+                    "archived_at": r[5],
+                }
+            )
+        return results
 
     def check_duplicate(self, content: str, threshold: float = 0.9) -> dict | None:
         """Check if similar memory exists. Returns match info or None."""

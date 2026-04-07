@@ -301,13 +301,19 @@ def _format_memory(mem: dict) -> dict:
     - Parse ``tags`` from JSON string to list
     - Round ``score`` to 3 decimal places
     """
-    if isinstance(mem.get("tags"), str):
-        try:
-            mem["tags"] = json.loads(mem["tags"])
-        except (json.JSONDecodeError, TypeError):
-            pass
-    if "score" in mem:
-        mem["score"] = round(mem["score"], 3)
+    tags = mem.get("tags")
+    if isinstance(tags, str):
+        if tags == "[]":
+            mem["tags"] = []
+        else:
+            try:
+                mem["tags"] = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    score = mem.get("score")
+    if score is not None:
+        mem["score"] = round(score, 3)
     return mem
 
 
