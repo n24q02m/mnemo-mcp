@@ -282,3 +282,14 @@ class TestGoogleDriveClientId:
         )
         s = Settings(api_keys=None)
         assert s.google_drive_client_id == "123456.apps.googleusercontent.com"
+
+
+class TestGoogleDriveClientSecret:
+    def test_default_empty(self):
+        s = Settings(api_keys=None)
+        assert s.google_drive_client_secret == ""
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_DRIVE_CLIENT_SECRET", "test-secret-123")
+        s = Settings(api_keys=None)
+        assert s.google_drive_client_secret == "test-secret-123"
