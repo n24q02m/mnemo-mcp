@@ -41,7 +41,7 @@ CREDENTIAL_ENV_VARS = [
 EXPECTED_TOOLS = {"memory", "config", "help"}
 
 
-# -- Fixtures ----------------------------------------------------------------
+# -- Test Setup ----------------------------------------------------------------
 
 
 def _build_server_env(
