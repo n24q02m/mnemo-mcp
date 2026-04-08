@@ -749,11 +749,6 @@ def test_invalid_embedding_dims_bounds(tmp_path):
         MemoryDB(tmp_path / "fail2.db", embedding_dims=-1)
 
 
-import pytest
-import json
-from mnemo_mcp.db import MemoryDB
-
-
 def test_tag_validation(tmp_path):
     db_path = tmp_path / "test.db"
     db = MemoryDB(db_path)
