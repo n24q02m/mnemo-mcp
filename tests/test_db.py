@@ -758,10 +758,10 @@ def test_tag_validation(tmp_path):
 
     # Invalid tags type
     with pytest.raises(ValueError, match="tags must be a list of strings"):
-        db.search("test", tags="not a list")
+        db.search("test", tags="not a list")  # type: ignore
 
     with pytest.raises(ValueError, match="tags must be a list of strings"):
-        db.search("test", tags=[1, 2])
+        db.search("test", tags=[1, 2])  # type: ignore
 
     # Too many tags
     with pytest.raises(ValueError, match="Too many tags"):
