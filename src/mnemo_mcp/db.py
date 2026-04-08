@@ -155,6 +155,14 @@ class MemoryDB:
         """)
 
         # FTS5 full-text search (always available)
+        # Migration: Check if 'category' column exists in FTS table
+        cursor = self._conn.execute("PRAGMA table_info(memories_fts)")
+        fts_cols = [row[1] for row in cursor.fetchall()]
+
+        if fts_cols and "category" not in fts_cols:
+            logger.info("Migrating memories_fts to include category column")
+            self._conn.execute("DROP TABLE memories_fts")
+
         self._conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
             USING fts5(
