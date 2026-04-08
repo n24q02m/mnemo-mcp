@@ -285,6 +285,7 @@ class TestGoogleDriveClientId:
         s = Settings(api_keys=None)
         assert s.google_drive_client_id == "123456.apps.googleusercontent.com"
 
+
 class TestGpuDetection:
     def test_detect_gpu_success_cuda(self):
         mock_ort = MagicMock()
@@ -400,6 +401,7 @@ class TestResolveLocalModelVariants:
             s = Settings(api_keys=None)
             assert "ONNX" in s.resolve_local_rerank_model()
 
+
 class TestConfigCoverageExtra:
     def test_setup_providers_sdk_mode(self, monkeypatch):
         s = Settings(api_keys="GOOGLE_API_KEY:test-key")
@@ -437,7 +439,15 @@ class TestConfigCoverageExtra:
 
     def test_resolve_provider_mode_env_vars(self, monkeypatch):
         """Test resolve_provider_mode by setting one of the env vars."""
-        for k in ["JINA_AI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "COHERE_API_KEY", "CO_API_KEY", "XAI_API_KEY"]:
+        for k in [
+            "JINA_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ]:
             monkeypatch.delenv(k, raising=False)
 
         s = Settings(api_keys=None)
