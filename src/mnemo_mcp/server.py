@@ -224,7 +224,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     ctx = {
         "db": db,
         "embedding_model": None,
-        "embedding_dims": embedding_dims,
+        "embedding_dims": db.embedding_dims,
     }
 
     # 5. Initialize embedding backend in background (non-blocking).

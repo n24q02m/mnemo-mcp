@@ -271,7 +271,7 @@ class MemoryDB:
             if row:
                 # Auto-detect dimensions from existing table
                 sql = row["sql"]
-                match = re.search(r"float\[(\d+)\]", sql)
+                match = re.search(r"float\s*\[\s*(\d+)\s*\]", sql)
                 if match:
                     detected_dims = int(match.group(1))
                     if detected_dims != self._embedding_dims:
@@ -304,6 +304,11 @@ class MemoryDB:
     def vec_enabled(self) -> bool:
         """Whether vector search is available."""
         return self._vec_enabled
+
+    @property
+    def embedding_dims(self) -> int:
+        """Current embedding dimensions (detected or configured)."""
+        return self._embedding_dims
 
     def add(
         self,
