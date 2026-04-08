@@ -160,9 +160,13 @@ class TestEnsureConfig:
 
     @patch("mcp_relay_core.relay.client.create_session", new_callable=AsyncMock)
     @patch("mcp_relay_core.storage.config_file.read_config")
-    async def test_relay_setup_fails_gracefully(self, mock_read, mock_session):
+    async def test_relay_setup_fails_gracefully(
+        self, mock_read, mock_session, monkeypatch
+    ):
+        for key in CLOUD_KEYS:
+            monkeypatch.delenv(key, raising=False)
         mock_read.return_value = None
-        mock_session.side_effect = ConnectionError("Cannot reach server")
+        mock_session.side_effect = Exception("Cannot reach server")
         result = await ensure_config()
         assert result is None
 
@@ -205,10 +209,14 @@ class TestEnsureConfig:
     @patch("mcp_relay_core.relay.client.poll_for_result", new_callable=AsyncMock)
     @patch("mcp_relay_core.relay.client.create_session", new_callable=AsyncMock)
     @patch("mcp_relay_core.storage.config_file.read_config")
-    async def test_relay_setup_timeout(self, mock_read, mock_session, mock_poll):
+    async def test_relay_setup_timeout(
+        self, mock_read, mock_session, mock_poll, monkeypatch
+    ):
+        for key in CLOUD_KEYS:
+            monkeypatch.delenv(key, raising=False)
         mock_read.return_value = None
         mock_session.return_value = MagicMock(relay_url="https://example.com")
-        mock_poll.side_effect = RuntimeError("Timeout")
+        mock_poll.side_effect = RuntimeError("Session timed out after 300s")
         result = await ensure_config()
         assert result is None
 
@@ -224,22 +232,6 @@ class TestEnsureConfig:
         mock_read.return_value = None
         mock_session.return_value = MagicMock(relay_url="https://example.com")
         mock_poll.side_effect = RuntimeError("RELAY_SKIPPED by user")
-
-        result = await ensure_config()
-        assert result is None
-
-    @patch("mcp_relay_core.relay.client.poll_for_result", new_callable=AsyncMock)
-    @patch("mcp_relay_core.relay.client.create_session", new_callable=AsyncMock)
-    @patch("mcp_relay_core.storage.config_file.read_config")
-    async def test_relay_timed_out(
-        self, mock_read, mock_session, mock_poll, monkeypatch
-    ):
-        """Returns None when relay times out."""
-        for key in CLOUD_KEYS:
-            monkeypatch.delenv(key, raising=False)
-        mock_read.return_value = None
-        mock_session.return_value = MagicMock(relay_url="https://example.com")
-        mock_poll.side_effect = RuntimeError("Session timed out after 300s")
 
         result = await ensure_config()
         assert result is None
