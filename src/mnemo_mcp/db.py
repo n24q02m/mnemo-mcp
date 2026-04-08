@@ -932,7 +932,13 @@ class MemoryDB:
         results = []
         for r in rows:
             tags_raw = r[3]
-            tags = [] if tags_raw == "[]" else json.loads(tags_raw)
+            if tags_raw == "[]":
+                tags = []
+            else:
+                try:
+                    tags = json.loads(tags_raw)
+                except (json.JSONDecodeError, TypeError):
+                    tags = []
             results.append(
                 {
                     "id": r[0],
