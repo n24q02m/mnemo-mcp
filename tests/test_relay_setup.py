@@ -160,9 +160,7 @@ class TestEnsureConfig:
 
     @patch("mcp_relay_core.relay.client.create_session", new_callable=AsyncMock)
     @patch("mcp_relay_core.storage.config_file.read_config")
-    async def test_relay_setup_fails_gracefully(
-        self, mock_read, mock_session, monkeypatch
-    ):
+    async def test_relay_setup_fails_gracefully(self, mock_read, mock_session, monkeypatch):
         for key in CLOUD_KEYS:
             monkeypatch.delenv(key, raising=False)
         mock_read.return_value = None
@@ -209,9 +207,7 @@ class TestEnsureConfig:
     @patch("mcp_relay_core.relay.client.poll_for_result", new_callable=AsyncMock)
     @patch("mcp_relay_core.relay.client.create_session", new_callable=AsyncMock)
     @patch("mcp_relay_core.storage.config_file.read_config")
-    async def test_relay_setup_timeout(
-        self, mock_read, mock_session, mock_poll, monkeypatch
-    ):
+    async def test_relay_setup_timeout(self, mock_read, mock_session, mock_poll, monkeypatch):
         for key in CLOUD_KEYS:
             monkeypatch.delenv(key, raising=False)
         mock_read.return_value = None
