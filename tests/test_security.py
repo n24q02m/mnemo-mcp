@@ -1,6 +1,7 @@
 import pytest
-import json
+
 from mnemo_mcp.db import MemoryDB
+
 
 def test_tag_filtering_security(tmp_db: MemoryDB):
     # Setup
@@ -20,8 +21,9 @@ def test_tag_filtering_security(tmp_db: MemoryDB):
     results = tmp_db.search("memory", tags=["nonexistent"])
     assert len(results) == 0
 
+
 def test_max_tags_limit(tmp_db: MemoryDB):
     # This will test our new limit
-    large_tags = ["tag" + str(i) for i in range(51)]
+    large_tags = [f"tag{i}" for i in range(51)]
     with pytest.raises(ValueError, match="Maximum of 50 tags allowed in search filter"):
         tmp_db.search("memory", tags=large_tags)
