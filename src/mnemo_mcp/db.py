@@ -171,22 +171,25 @@ class MemoryDB:
         # FTS5 triggers to keep index in sync
         self._conn.executescript("""
             CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
+                INSERT INTO memories_fts(rowid, id, content, category, tags)
+                VALUES (new.rowid, new.id, new.content, new.category, new.tags);
             END;
 
             CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
+                INSERT INTO memories_fts(memories_fts, rowid, id, content, category, tags)
+                VALUES ('delete', old.rowid, old.id, old.content, old.category, old.tags);
             END;
 
             CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
+                INSERT INTO memories_fts(memories_fts, rowid, id, content, category, tags)
+                VALUES ('delete', old.rowid, old.id, old.content, old.category, old.tags);
+                INSERT INTO memories_fts(rowid, id, content, category, tags)
+                VALUES (new.rowid, new.id, new.content, new.category, new.tags);
             END;
         """)
+
+        # Sync existing records to FTS
+        self._conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
 
         # Add importance column to memories (migration for existing DBs)
         try:
