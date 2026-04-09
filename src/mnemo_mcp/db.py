@@ -878,36 +878,44 @@ class MemoryDB:
         """Move old, low-importance memories to archive. Returns count archived."""
         cursor = self._conn.cursor()
 
-        # Calculate cutoff date using SQLite format to ensure lexicographical consistency,
-        # but do it once up front to avoid clock skew between INSERT and DELETE statements.
+        # Determine exactly which rows will be archived
         cutoff_date = cursor.execute(
             "SELECT datetime('now', ?)", (f"-{days} days",)
         ).fetchone()[0]
+
+        rows = cursor.execute(
+            """SELECT id, content, category, tags, source, importance,
+                      created_at, updated_at, access_count, last_accessed
+               FROM memories
+               WHERE last_accessed < ? AND importance < ?""",
+            (cutoff_date, importance_threshold),
+        ).fetchall()
+
+        if not rows:
+            return 0
+
         now = _now_iso()
 
-        cursor.execute(
+        # Use executemany for updates to avoid any SQLite transaction or trigger edge cases
+        # while still being relatively efficient.
+        insert_data = [(*row, now) for row in rows]
+        delete_data = [(row[0],) for row in rows]
+
+        cursor.executemany(
             """INSERT OR REPLACE INTO archived_memories
                (id, content, category, tags, source, importance,
                 created_at, updated_at, access_count, last_accessed, archived_at)
-               SELECT id, content, category, tags, source, importance,
-                      created_at, updated_at, access_count, last_accessed, ?
-               FROM memories
-               WHERE last_accessed < ? AND importance < ?""",
-            (now, cutoff_date, importance_threshold),
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            insert_data,
+        )
+        cursor.executemany(
+            "DELETE FROM memories WHERE id = ?",
+            delete_data,
         )
 
-        count = cursor.rowcount
-
-        if count > 0:
-            cursor.execute(
-                """DELETE FROM memories
-                   WHERE last_accessed < ? AND importance < ?""",
-                (cutoff_date, importance_threshold),
-            )
-            logger.info(f"[AUDIT] archived count={count}")
-
+        count = len(rows)
         self._conn.commit()
-
+        logger.info(f"[AUDIT] archived count={count}")
         return count
 
     def restore_memory(self, memory_id: str) -> bool:
