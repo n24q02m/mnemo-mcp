@@ -84,7 +84,6 @@ def mock_db_with_fixed_sql(vec_db: MemoryDB):
         def execute(self, sql, params=None):
             return _execute_fixed(self._cursor, sql, params)
 
-
     vec_db._conn = ConnProxy()
     return vec_db
 
