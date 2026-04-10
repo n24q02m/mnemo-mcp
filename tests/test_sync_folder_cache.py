@@ -209,7 +209,11 @@ class TestFindOrCreateFolderCache:
                     new_callable=AsyncMock,
                     side_effect=[verify_stale, search_resp],
                 ),
-                patch("mnemo_mcp.sync._load_folder_id", new_callable=AsyncMock, return_value=None),
+                patch(
+                    "mnemo_mcp.sync._load_folder_id",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
                 patch("mnemo_mcp.sync._save_folder_id", new_callable=AsyncMock),
             ):
                 result = await _find_or_create_folder(
@@ -232,7 +236,11 @@ class TestFindOrCreateFolderCache:
             verify_resp.json.return_value = {"id": "disk-id", "trashed": False}
 
             with (
-                patch("mnemo_mcp.sync._load_folder_id", new_callable=AsyncMock, return_value="disk-id"),
+                patch(
+                    "mnemo_mcp.sync._load_folder_id",
+                    new_callable=AsyncMock,
+                    return_value="disk-id",
+                ),
                 patch(
                     "mnemo_mcp.sync._drive_request",
                     new_callable=AsyncMock,
@@ -261,13 +269,19 @@ class TestFindOrCreateFolderCache:
             search_resp.json.return_value = {"files": [{"id": "search-id"}]}
 
             with (
-                patch("mnemo_mcp.sync._load_folder_id", new_callable=AsyncMock, return_value=None),
+                patch(
+                    "mnemo_mcp.sync._load_folder_id",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
                 patch(
                     "mnemo_mcp.sync._drive_request",
                     new_callable=AsyncMock,
                     return_value=search_resp,
                 ),
-                patch("mnemo_mcp.sync._save_folder_id", new_callable=AsyncMock) as mock_save,
+                patch(
+                    "mnemo_mcp.sync._save_folder_id", new_callable=AsyncMock
+                ) as mock_save,
             ):
                 result = await _find_or_create_folder(
                     {"access_token": "t"}, "test-folder"
@@ -294,13 +308,19 @@ class TestFindOrCreateFolderCache:
             create_resp.json.return_value = {"id": "new-id"}
 
             with (
-                patch("mnemo_mcp.sync._load_folder_id", new_callable=AsyncMock, return_value=None),
+                patch(
+                    "mnemo_mcp.sync._load_folder_id",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
                 patch(
                     "mnemo_mcp.sync._drive_request",
                     new_callable=AsyncMock,
                     side_effect=[search_resp, search_resp, search_resp, create_resp],
                 ),
-                patch("mnemo_mcp.sync._save_folder_id", new_callable=AsyncMock) as mock_save,
+                patch(
+                    "mnemo_mcp.sync._save_folder_id", new_callable=AsyncMock
+                ) as mock_save,
                 patch("asyncio.sleep", return_value=None),
             ):
                 result = await _find_or_create_folder(
