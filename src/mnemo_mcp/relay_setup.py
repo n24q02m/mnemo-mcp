@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
 from loguru import logger
 
@@ -62,43 +63,24 @@ async def ensure_config() -> dict[str, str] | None:
     """Resolve config: env vars -> config file -> relay setup -> local fallback.
 
     Relay is ONLY triggered when steps 1-2 are ALL empty.
-    Uses 30s timeout since mnemo-mcp works locally without credentials.
+    Uses 300s timeout since mnemo-mcp works locally without credentials.
 
     Returns:
         Config dict with credential keys, or None if skipped/failed (local mode).
     """
-    # 1. Check if env vars already provide cloud keys (highest priority)
-    if any(os.environ.get(k) for k in CLOUD_KEYS):
-        logger.info("Cloud API keys found in environment, skipping relay")
-        return None  # env vars take priority, no relay needed
-
-    # 2. Check saved relay config file
-    config = load_relay_config()
+    # 1 & 2. Check for existing credentials
+    config = _check_local_credentials()
     if config is not None:
-        return config
+        # If config is empty dict, it means env vars are set (skip relay)
+        return config if config else None
 
     # 3. No local credentials found -- trigger relay setup
     logger.info("No cloud credentials found. Starting relay setup...")
 
     relay_url = DEFAULT_RELAY_URL
-    try:
-        from mcp_relay_core.relay.client import create_session, poll_for_result
-
-        from .relay_schema import RELAY_SCHEMA
-
-        session = await create_session(relay_url, SERVER_NAME, RELAY_SCHEMA)  # ty: ignore[invalid-argument-type]
-    except Exception:
-        logger.debug("Cannot reach relay server at {}. Using local mode.", relay_url)
+    session = await _initiate_relay_session(relay_url)
+    if not session:
         return None
-
-    # Log URL to stderr (visible to user in MCP client)
-    print(
-        f"\nConfigure cloud providers (optional, 30s timeout):"
-        f"\n{session.relay_url}"
-        f"\nSkip to use local mode (Qwen3-Embedding ONNX).\n",
-        file=sys.stderr,
-        flush=True,
-    )
 
     # Poll for result with shorter timeout
     try:
@@ -113,59 +95,121 @@ async def ensure_config() -> dict[str, str] | None:
 
         apply_config(config)
 
-        # Notify relay page: config saved (info, NOT complete — GDrive OAuth follows)
-        try:
-            import httpx
-
-            async with httpx.AsyncClient() as http:
-                await http.post(
-                    f"{relay_url}/api/sessions/{session.session_id}/messages",
-                    json={
-                        "type": "info",
-                        "text": "API keys saved. Starting Google Drive sync setup...",
-                    },
-                )
-        except Exception:
-            pass
-
-        # Trigger GDrive OAuth Device Code using default client ID from settings
-        from mnemo_mcp.config import settings as _settings
-
-        gdrive_ok = False
-        if _settings.google_drive_client_id:
-            logger.info("Starting Google Drive OAuth setup...")
-            try:
-                from mnemo_mcp.sync import setup_google_auth
-
-                gdrive_ok = await setup_google_auth(
-                    relay_url=relay_url,
-                    session_id=session.session_id,
-                )
-            except Exception as e:
-                logger.warning(f"GDrive OAuth setup failed: {e}")
-
-        # NOW send complete (after GDrive OAuth finishes or skips)
-        try:
-            async with httpx.AsyncClient() as http:
-                msg = (
-                    "Setup complete!"
-                    if gdrive_ok
-                    else "API keys saved. Google Drive sync can be configured later via config tool."
-                )
-                await http.post(
-                    f"{relay_url}/api/sessions/{session.session_id}/messages",
-                    json={"type": "complete", "text": msg},
-                )
-        except Exception:
-            pass
+        # Post-config setup (GDrive OAuth, notifications)
+        await _handle_post_config_setup(relay_url, session)
 
         return config
 
     except RuntimeError as e:
-        if "RELAY_SKIPPED" in str(e):
-            logger.info("Relay setup skipped by user. Using local mode.")
-        elif "timed out" in str(e).lower():
-            logger.info("Relay setup timed out. Using local mode.")
-        else:
-            logger.debug("Relay setup ended: {}", e)
+        _handle_relay_error(e)
         return None
+
+
+def _check_local_credentials() -> dict[str, str] | None:
+    """Check if credentials already exist in env vars or config file.
+
+    Returns:
+        {} if env vars are present (skip relay),
+        Config dict if config file is present,
+        None if no credentials found (proceed to relay).
+    """
+    if any(os.environ.get(k) for k in CLOUD_KEYS):
+        logger.info("Cloud API keys found in environment, skipping relay")
+        return {}
+
+    config = load_relay_config()
+    if config is not None:
+        return config
+
+    return None
+
+
+async def _initiate_relay_session(relay_url: str) -> Any | None:
+    """Create a new relay session and print the setup URL."""
+    try:
+        from mcp_relay_core.relay.client import create_session
+
+        from .relay_schema import RELAY_SCHEMA
+
+        session = await create_session(relay_url, SERVER_NAME, RELAY_SCHEMA)  # ty: ignore[invalid-argument-type]
+
+        # Log URL to stderr (visible to user in MCP client)
+        print(
+            f"\nConfigure cloud providers (optional, 30s timeout):"
+            f"\n{session.relay_url}"
+            f"\nSkip to use local mode (Qwen3-Embedding ONNX).\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        return session
+    except Exception:
+        logger.debug("Cannot reach relay server at {}. Using local mode.", relay_url)
+        return None
+
+
+async def _handle_post_config_setup(relay_url: str, session: Any) -> None:
+    """Handle Google Drive setup and relay status notifications after config is received."""
+    # Notify relay page: config saved (info, NOT complete — GDrive OAuth follows)
+    await _send_relay_message(
+        relay_url,
+        session.session_id,
+        "info",
+        "API keys saved. Starting Google Drive sync setup...",
+    )
+
+    # Trigger GDrive OAuth Device Code using default client ID from settings
+    gdrive_ok = await _setup_gdrive_sync(relay_url, session)
+
+    # NOW send complete (after GDrive OAuth finishes or skips)
+    msg = (
+        "Setup complete!"
+        if gdrive_ok
+        else "API keys saved. Google Drive sync can be configured later via config tool."
+    )
+    await _send_relay_message(relay_url, session.session_id, "complete", msg)
+
+
+async def _setup_gdrive_sync(relay_url: str, session: Any) -> bool:
+    """Trigger Google Drive OAuth setup if configured."""
+    from mnemo_mcp.config import settings as _settings
+
+    if not _settings.google_drive_client_id:
+        return False
+
+    logger.info("Starting Google Drive OAuth setup...")
+    try:
+        from mnemo_mcp.sync import setup_google_auth
+
+        return await setup_google_auth(
+            relay_url=relay_url,
+            session_id=session.session_id,
+        )
+    except Exception as e:
+        logger.warning(f"GDrive OAuth setup failed: {e}")
+        return False
+
+
+async def _send_relay_message(
+    relay_url: str, session_id: str, msg_type: str, text: str
+) -> None:
+    """Send a status message to the relay server."""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as http:
+            await http.post(
+                f"{relay_url}/api/sessions/{session_id}/messages",
+                json={"type": msg_type, "text": text},
+            )
+    except Exception:
+        pass
+
+
+def _handle_relay_error(e: RuntimeError) -> None:
+    """Log relay error or skip/timeout message."""
+    if "RELAY_SKIPPED" in str(e):
+        logger.info("Relay setup skipped by user. Using local mode.")
+    elif "timed out" in str(e).lower():
+        logger.info("Relay setup timed out. Using local mode.")
+    else:
+        logger.debug("Relay setup ended: {}", e)
