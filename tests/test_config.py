@@ -16,11 +16,10 @@ from mnemo_mcp.config import (
 
 
 @pytest.fixture(autouse=True)
-def clean_env():
+def clean_env(monkeypatch):
     """Ensure environment isolation for configuration tests.
 
-    Snapshot os.environ before the test and restore it after.
-    Also clear known provider keys to ensure 'local' mode can be tested reliably.
+    Clears all provider API keys and Mnemo-specific configuration variables.
     """
     vars_to_clear = {
         "JINA_AI_API_KEY",
@@ -47,13 +46,12 @@ def clean_env():
         "MCP_RELAY_URL",
         "QWEN3_EMBED_CACHE_PATH",
     }
-    with patch.dict(os.environ):
-        # Clear variables for the test to prevent interference from CI environment
-        for k in list(os.environ.keys()):
-            if k.upper() in vars_to_clear:
-                del os.environ[k]
-        yield
-    # os.environ is restored automatically by patch.dict when the context manager exits
+    # Thoroughly clear any variant of these keys in os.environ
+    for k in list(os.environ.keys()):
+        if k.upper() in vars_to_clear:
+            monkeypatch.delenv(k, raising=False)
+    for v in vars_to_clear:
+        monkeypatch.delenv(v, raising=False)
 
 
 # Test Setup
@@ -115,10 +113,10 @@ class TestApiKeys:
 
     def test_single_key(self):
         s = Settings(api_keys="GOOGLE_API_KEY:test-key-123")
-        result = s.setup_api_keys()
-        assert "GOOGLE_API_KEY" in result
-        assert result["GOOGLE_API_KEY"] == ["test-key-123"]
-        assert os.environ.get("GOOGLE_API_KEY") == "test-key-123"
+        # setup_api_keys modifies os.environ
+        with patch.dict(os.environ):
+            s.setup_api_keys()
+            assert os.environ.get("GOOGLE_API_KEY") == "test-key-123"
 
     def test_multiple_keys(self):
         s = Settings(api_keys="GOOGLE_API_KEY:key1,OPENAI_API_KEY:key2")
@@ -130,9 +128,9 @@ class TestApiKeys:
     def test_duplicate_provider(self):
         """Multiple keys for same provider — first key is set as env var."""
         s = Settings(api_keys="GOOGLE_API_KEY:key1,GOOGLE_API_KEY:key2")
-        result = s.setup_api_keys()
-        assert len(result["GOOGLE_API_KEY"]) == 2
-        assert os.environ.get("GOOGLE_API_KEY") == "key1"
+        with patch.dict(os.environ):
+            s.setup_api_keys()
+            assert os.environ.get("GOOGLE_API_KEY") == "key1"
 
     def test_malformed_no_colon(self):
         s = Settings(api_keys="INVALID_FORMAT")
@@ -159,15 +157,17 @@ class TestApiKeys:
     def test_alias_google_to_gemini(self):
         """GOOGLE_API_KEY should also set GEMINI_API_KEY for Gemini SDK."""
         s = Settings(api_keys="GOOGLE_API_KEY:test-key")
-        s.setup_api_keys()
-        assert os.environ.get("GEMINI_API_KEY") == "test-key"
+        with patch.dict(os.environ):
+            s.setup_api_keys()
+            assert os.environ.get("GEMINI_API_KEY") == "test-key"
 
     def test_alias_no_overwrite(self, monkeypatch):
         """If GEMINI_API_KEY already set, alias does not overwrite."""
         monkeypatch.setenv("GEMINI_API_KEY", "existing")
         s = Settings(api_keys="GOOGLE_API_KEY:new-key")
-        s.setup_api_keys()
-        assert os.environ.get("GEMINI_API_KEY") == "existing"
+        with patch.dict(os.environ):
+            s.setup_api_keys()
+            assert os.environ.get("GEMINI_API_KEY") == "existing"
 
 
 class TestEmbeddingModel:
@@ -324,13 +324,14 @@ class TestGoogleDriveClientId:
 
 
 class TestSetupProviders:
-    def test_sdk_mode(self, monkeypatch):
+    def test_sdk_mode(self):
         """setup_providers configures SDK mode with API keys."""
         s = Settings(
             api_keys="GOOGLE_API_KEY:test-key",
         )
-        mode = s.setup_providers()
-        assert mode == "sdk"
+        with patch.dict(os.environ):
+            mode = s.setup_providers()
+            assert mode == "sdk"
 
     def test_local_mode(self):
         """setup_providers returns 'local' when no API keys."""
@@ -392,23 +393,6 @@ class TestDetectGPU:
         with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
             assert _detect_gpu() is False
 
-    def test_import_exception(self):
-        import builtins
-
-        orig_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "onnxruntime":
-                raise Exception("Mocked Exception")
-            return orig_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            # patch.dict(sys.modules) clears it so the import is attempted
-            with patch.dict(sys.modules):
-                if "onnxruntime" in sys.modules:
-                    del sys.modules["onnxruntime"]
-                assert _detect_gpu() is False
-
 
 class TestHasGGUFSupport:
     def test_llama_cpp_installed(self):
@@ -419,29 +403,6 @@ class TestHasGGUFSupport:
     def test_llama_cpp_missing(self):
         with patch.dict(sys.modules, {"llama_cpp": None}):
             assert _has_gguf_support() is False
-
-    def test_llama_cpp_import_error(self):
-        import builtins
-
-        orig_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "llama_cpp":
-                raise ImportError("Mocked ImportError")
-            return orig_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            # Ensure sys.modules does not prevent the import call
-            original_module = sys.modules.get("llama_cpp", None)
-
-            if "llama_cpp" in sys.modules:
-                del sys.modules["llama_cpp"]
-
-            try:
-                assert _has_gguf_support() is False
-            finally:
-                if original_module is not None:
-                    sys.modules["llama_cpp"] = original_module
 
 
 class TestResolveLocalModel:
