@@ -48,6 +48,34 @@ MAX_CONTENT_LENGTH = 5000
 # Maximum tags allowed in a search filter to prevent complexity attacks.
 MAX_TAGS_FILTER = 50
 
+# Common column definitions for active and archived memory tables.
+_MEMORY_COLUMNS_SQL = """
+    id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    tags TEXT NOT NULL DEFAULT '[]',
+    source TEXT,
+    importance REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed TEXT NOT NULL
+"""
+
+# Common column definitions for active and archived memory tables.
+_MEMORY_COLUMNS_SQL = """
+    id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    tags TEXT NOT NULL DEFAULT '[]',
+    source TEXT,
+    importance REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed TEXT NOT NULL
+"""
+
 
 def _build_fts_queries(query: str) -> list[str]:
     """Build tiered FTS5 queries: PHRASE -> AND -> OR.
@@ -129,17 +157,9 @@ class MemoryDB:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
-        self._conn.executescript("""
+        self._conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL
+                {_MEMORY_COLUMNS_SQL.strip()}
             );
 
             CREATE INDEX IF NOT EXISTS idx_memories_category
@@ -191,7 +211,7 @@ class MemoryDB:
         """)
 
         # Knowledge graph tables
-        self._conn.executescript("""
+        self._conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS entities (
                 id TEXT PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
@@ -228,16 +248,7 @@ class MemoryDB:
 
             -- Archive table
             CREATE TABLE IF NOT EXISTS archived_memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                importance REAL NOT NULL DEFAULT 0.5,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL,
+                {_MEMORY_COLUMNS_SQL.strip()},
                 archived_at TEXT NOT NULL
             );
 
