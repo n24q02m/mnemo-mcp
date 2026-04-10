@@ -5,55 +5,87 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mnemo_mcp.config import Settings, _detect_gpu, _has_gguf_support
+
+
+@pytest.fixture(autouse=True)
+def clean_env(monkeypatch):
+    """Clear provider and config environment variables before each test."""
+    vars_to_clear = [
+        "JINA_AI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_KEY",
+        "COHERE_API_KEY",
+        "CO_API_KEY",
+        "XAI_API_KEY",
+        "API_KEYS",
+        "EMBEDDING_MODEL",
+        "EMBEDDING_DIMS",
+        "EMBEDDING_BACKEND",
+        "RERANK_ENABLED",
+        "RERANK_BACKEND",
+        "RERANK_MODEL",
+        "SYNC_ENABLED",
+        "SYNC_FOLDER",
+        "SYNC_INTERVAL",
+        "GOOGLE_DRIVE_CLIENT_ID",
+        "GOOGLE_DRIVE_CLIENT_SECRET",
+        "DB_PATH",
+        "LOG_LEVEL",
+    ]
+    for v in vars_to_clear:
+        monkeypatch.delenv(v, raising=False)
 
 
 class TestSettingsDefaults:
     def test_db_path_empty(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.db_path == ""
 
     def test_sync_enabled_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.sync_enabled is True
 
     def test_sync_folder(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.sync_folder == "mnemo-mcp"
 
     def test_log_level(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.log_level == "INFO"
 
     def test_embedding_dims_zero(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.embedding_dims == 0
 
     def test_embedding_model_empty(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.embedding_model == ""
 
 
 class TestDbPath:
     def test_default_path(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         expected = Path.home() / ".mnemo-mcp" / "memories.db"
         assert s.get_db_path() == expected
 
     def test_custom_path(self):
-        s = Settings(db_path="/tmp/custom.db", api_keys=None)
+        s = Settings(db_path="/tmp/custom.db")
         assert s.get_db_path() == Path("/tmp/custom.db")
 
     def test_expanduser(self):
-        s = Settings(db_path="~/test.db", api_keys=None)
+        s = Settings(db_path="~/test.db")
         assert s.get_db_path() == Path.home() / "test.db"
 
     def test_data_dir(self):
-        s = Settings(db_path="/tmp/data/test.db", api_keys=None)
+        s = Settings(db_path="/tmp/data/test.db")
         assert s.get_data_dir() == Path("/tmp/data")
 
     def test_data_dir_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.get_data_dir() == Path.home() / ".mnemo-mcp"
 
 
@@ -68,27 +100,20 @@ class TestApiKeys:
         assert "GOOGLE_API_KEY" in result
         assert result["GOOGLE_API_KEY"] == ["test-key-123"]
         assert os.environ.get("GOOGLE_API_KEY") == "test-key-123"
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    def test_multiple_keys(self, monkeypatch):
+    def test_multiple_keys(self):
         s = Settings(api_keys="GOOGLE_API_KEY:key1,OPENAI_API_KEY:key2")
         result = s.setup_api_keys()
         assert len(result) == 2
         assert "GOOGLE_API_KEY" in result
         assert "OPENAI_API_KEY" in result
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    def test_duplicate_provider(self, monkeypatch):
+    def test_duplicate_provider(self):
         """Multiple keys for same provider — first key is set as env var."""
         s = Settings(api_keys="GOOGLE_API_KEY:key1,GOOGLE_API_KEY:key2")
         result = s.setup_api_keys()
         assert len(result["GOOGLE_API_KEY"]) == 2
         assert os.environ.get("GOOGLE_API_KEY") == "key1"
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     def test_malformed_no_colon(self):
         s = Settings(api_keys="INVALID_FORMAT")
@@ -100,31 +125,23 @@ class TestApiKeys:
         result = s.setup_api_keys()
         assert result == {}
 
-    def test_whitespace_handling(self, monkeypatch):
+    def test_whitespace_handling(self):
         s = Settings(api_keys="  GOOGLE_API_KEY : key1 , OPENAI_API_KEY : key2  ")
         result = s.setup_api_keys()
         assert "GOOGLE_API_KEY" in result
         assert result["GOOGLE_API_KEY"] == ["key1"]
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    def test_colon_in_key_value(self, monkeypatch):
+    def test_colon_in_key_value(self):
         """API keys can contain colons (e.g., base64-encoded keys)."""
         s = Settings(api_keys="GOOGLE_API_KEY:abc:def:ghi")
         result = s.setup_api_keys()
         assert result["GOOGLE_API_KEY"] == ["abc:def:ghi"]
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    def test_alias_google_to_gemini(self, monkeypatch):
+    def test_alias_google_to_gemini(self):
         """GOOGLE_API_KEY should also set GEMINI_API_KEY for Gemini SDK."""
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         s = Settings(api_keys="GOOGLE_API_KEY:test-key")
         s.setup_api_keys()
         assert os.environ.get("GEMINI_API_KEY") == "test-key"
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     def test_alias_no_overwrite(self, monkeypatch):
         """If GEMINI_API_KEY already set, alias does not overwrite."""
@@ -132,13 +149,11 @@ class TestApiKeys:
         s = Settings(api_keys="GOOGLE_API_KEY:new-key")
         s.setup_api_keys()
         assert os.environ.get("GEMINI_API_KEY") == "existing"
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 class TestEmbeddingModel:
     def test_explicit_model(self):
-        s = Settings(embedding_model="custom/model", api_keys=None)
+        s = Settings(embedding_model="custom/model")
         assert s.resolve_embedding_model() == "custom/model"
 
     def test_no_model_returns_none(self):
@@ -147,7 +162,7 @@ class TestEmbeddingModel:
         assert s.resolve_embedding_model() is None
 
     def test_no_keys_returns_none(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_embedding_model() is None
 
     def test_explicit_overrides_auto(self):
@@ -161,22 +176,22 @@ class TestEmbeddingModel:
 
 class TestEmbeddingDims:
     def test_explicit_dims(self):
-        s = Settings(embedding_dims=512, api_keys=None)
+        s = Settings(embedding_dims=512)
         assert s.resolve_embedding_dims() == 512
 
     def test_default_zero(self):
         """Without explicit EMBEDDING_DIMS, returns 0 (auto-detect at runtime)."""
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_embedding_dims() == 0
 
 
 class TestEmbeddingBackend:
     def test_explicit_litellm(self):
-        s = Settings(embedding_backend="litellm", api_keys=None)
+        s = Settings(embedding_backend="litellm")
         assert s.resolve_embedding_backend() == "cloud"
 
     def test_explicit_local(self):
-        s = Settings(embedding_backend="local", api_keys=None)
+        s = Settings(embedding_backend="local")
         assert s.resolve_embedding_backend() == "local"
 
     def test_auto_detect_cloud_with_keys(self):
@@ -184,65 +199,55 @@ class TestEmbeddingBackend:
         s = Settings(api_keys="GOOGLE_API_KEY:key")
         assert s.resolve_embedding_backend() in ("cloud", "local")
 
-    def test_auto_detect_no_keys_no_local(self, monkeypatch):
+    def test_auto_detect_no_keys_no_local(self):
         """Returns 'local' when no keys configured."""
-        for k in (
-            "JINA_AI_API_KEY",
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "OPENAI_API_KEY",
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "XAI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(api_keys=None)
+        s = Settings()
         result = s.resolve_embedding_backend()
         assert result == "local"
 
     def test_explicit_overrides_auto(self):
         """Explicit backend takes priority over auto-detection."""
-        s = Settings(embedding_backend="litellm", api_keys=None)
+        s = Settings(embedding_backend="litellm")
         assert s.resolve_embedding_backend() == "cloud"
 
 
 class TestRerankSettings:
     def test_rerank_enabled_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.rerank_enabled is True
 
     def test_rerank_backend_empty_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.rerank_backend == ""
 
     def test_rerank_model_empty_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.rerank_model == ""
 
     def test_rerank_top_n_default(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.rerank_top_n == 10
 
     def test_resolve_rerank_backend_disabled(self):
-        s = Settings(rerank_enabled=False, api_keys=None)
+        s = Settings(rerank_enabled=False)
         assert s.resolve_rerank_backend() == ""
 
     def test_resolve_rerank_backend_explicit(self):
-        s = Settings(rerank_backend="litellm", api_keys=None)
+        s = Settings(rerank_backend="litellm")
         assert s.resolve_rerank_backend() == "cloud"
 
     def test_resolve_rerank_backend_custom(self):
         """resolve_rerank_backend returns custom backend if set."""
-        s = Settings(rerank_backend="custom", api_keys=None)
+        s = Settings(rerank_backend="custom")
         assert s.resolve_rerank_backend() == "custom"
 
     def test_resolve_rerank_backend_model_set(self):
-        s = Settings(rerank_model="custom/reranker", api_keys=None)
+        s = Settings(rerank_model="custom/reranker")
         assert s.resolve_rerank_backend() == "cloud"
 
     def test_resolve_rerank_backend_cohere_env(self, monkeypatch):
         monkeypatch.setenv("COHERE_API_KEY", "test-key")
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_rerank_backend() == "cloud"
 
     def test_resolve_rerank_backend_cohere_in_api_keys(self):
@@ -253,23 +258,17 @@ class TestRerankSettings:
         s = Settings(api_keys="JINA_AI_API_KEY:test-key")
         assert s.resolve_rerank_backend() == "cloud"
 
-    def test_resolve_rerank_backend_local_fallback(self, monkeypatch):
-        for k in (
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "JINA_AI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(api_keys=None)
+    def test_resolve_rerank_backend_local_fallback(self):
+        s = Settings()
         assert s.resolve_rerank_backend() == "local"
 
     def test_resolve_rerank_model_explicit(self):
-        s = Settings(rerank_model="custom/reranker", api_keys=None)
+        s = Settings(rerank_model="custom/reranker")
         assert s.resolve_rerank_model() == "custom/reranker"
 
     def test_resolve_rerank_model_cohere_env(self, monkeypatch):
         monkeypatch.setenv("COHERE_API_KEY", "test-key")
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_rerank_model() == "rerank-v4.0-pro"
 
     def test_resolve_rerank_model_cohere_in_api_keys(self):
@@ -280,18 +279,12 @@ class TestRerankSettings:
         s = Settings(api_keys="JINA_AI_API_KEY:test-key")
         assert s.resolve_rerank_model() == "jina_ai/jina-reranker-v3"
 
-    def test_resolve_rerank_model_none_no_keys(self, monkeypatch):
-        for k in (
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "JINA_AI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(api_keys=None)
+    def test_resolve_rerank_model_none_no_keys(self):
+        s = Settings()
         assert s.resolve_rerank_model() is None
 
     def test_resolve_local_rerank_model(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         model = s.resolve_local_rerank_model()
         # Should return ONNX or GGUF depending on environment
         assert "Qwen3-Reranker-0.6B" in model
@@ -299,7 +292,7 @@ class TestRerankSettings:
 
 class TestGoogleDriveClientId:
     def test_default_ships_oauth_client_id(self):
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.google_drive_client_id != ""
         assert "apps.googleusercontent.com" in s.google_drive_client_id
 
@@ -307,34 +300,22 @@ class TestGoogleDriveClientId:
         monkeypatch.setenv(
             "GOOGLE_DRIVE_CLIENT_ID", "123456.apps.googleusercontent.com"
         )
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.google_drive_client_id == "123456.apps.googleusercontent.com"
 
 
 class TestSetupProviders:
-    def test_sdk_mode(self, monkeypatch):
+    def test_sdk_mode(self):
         """setup_providers configures SDK mode with API keys."""
         s = Settings(
             api_keys="GOOGLE_API_KEY:test-key",
         )
         mode = s.setup_providers()
         assert mode == "sdk"
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    def test_local_mode(self, monkeypatch):
+    def test_local_mode(self):
         """setup_providers returns 'local' when no API keys."""
-        for k in (
-            "JINA_AI_API_KEY",
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "OPENAI_API_KEY",
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "XAI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(api_keys=None)
+        s = Settings()
         mode = s.setup_providers()
         assert mode == "local"
 
@@ -345,25 +326,15 @@ class TestResolveProviderMode:
         s = Settings(api_keys="KEY:value")
         assert s.resolve_provider_mode() == "sdk"
 
-    def test_local_mode_default(self, monkeypatch):
+    def test_local_mode_default(self):
         """Returns 'local' when nothing is configured."""
-        for k in (
-            "JINA_AI_API_KEY",
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "OPENAI_API_KEY",
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "XAI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_provider_mode() == "local"
 
     def test_sdk_mode_with_env_var(self, monkeypatch):
         """Returns 'sdk' when a provider env var is set."""
         monkeypatch.setenv("JINA_AI_API_KEY", "test-key")
-        s = Settings(api_keys=None)
+        s = Settings()
         assert s.resolve_provider_mode() == "sdk"
 
 
@@ -374,7 +345,7 @@ class TestResolveLocalModel:
             patch("mnemo_mcp.config._detect_gpu", return_value=False),
             patch("mnemo_mcp.config._has_gguf_support", return_value=False),
         ):
-            s = Settings(api_keys=None)
+            s = Settings()
             model = s.resolve_local_embedding_model()
             assert "ONNX" in model
 
@@ -384,7 +355,7 @@ class TestResolveLocalModel:
             patch("mnemo_mcp.config._detect_gpu", return_value=True),
             patch("mnemo_mcp.config._has_gguf_support", return_value=True),
         ):
-            s = Settings(api_keys=None)
+            s = Settings()
             model = s.resolve_local_embedding_model()
             assert "GGUF" in model
 
@@ -398,19 +369,9 @@ class TestResolveEmbeddingBackendAuto:
         )
         assert s.resolve_embedding_backend() == "cloud"
 
-    def test_auto_detect_with_no_config(self, monkeypatch):
+    def test_auto_detect_with_no_config(self):
         """Auto-detect returns 'local' when nothing is configured."""
-        for k in (
-            "JINA_AI_API_KEY",
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "OPENAI_API_KEY",
-            "COHERE_API_KEY",
-            "CO_API_KEY",
-            "XAI_API_KEY",
-        ):
-            monkeypatch.delenv(k, raising=False)
-        s = Settings(embedding_backend="", api_keys=None)
+        s = Settings(embedding_backend="")
         assert s.resolve_embedding_backend() == "local"
 
 
