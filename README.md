@@ -47,7 +47,7 @@ mcp-name: io.github.n24q02m/mnemo-mcp
 
 | Tool | Actions | Description |
 |:-----|:--------|:------------|
-| `memory` | `add`, `search`, `list`, `update`, `delete`, `export`, `import`, `stats`, `restore`, `archived`, `consolidate` | Core memory CRUD, hybrid search, import/export, archival, and LLM consolidation |
+| `add_memory`, `search_memory`, `list_memories`, `update_memory`, `delete_memory`, `export_memories`, `import_memories`, `memory_stats`, `restore_memory`, `list_archived_memories`, `consolidate_memories` | -- | Core memory CRUD, hybrid search, import/export, archival, and LLM consolidation |
 | `config` | `status`, `sync`, `set`, `warmup`, `setup_sync` | Server status, trigger sync, update settings, pre-download embedding model, authenticate sync provider |
 | `help` | -- | Full documentation for any tool |
 

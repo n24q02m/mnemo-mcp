@@ -1,7 +1,7 @@
 """Mnemo MCP Server - Persistent AI memory with embedded sync.
 
 MCP Interface:
-- memory tool: add/search/list/update/delete/export/import/stats
+- memory tools: add_memory, search_memory, list_memories, etc.
 - config tool: status/sync/set/warmup/setup_sync
 - help tool: full documentation on demand
 - Resources: mnemo://stats, mnemo://recent
@@ -620,7 +620,7 @@ async def _handle_export(
 
 async def _handle_import(
     db: MemoryDB,
-    data: str | list | None,
+    data: str | list | dict | None,
     mode: str,
 ) -> str:
     if not data:
@@ -749,31 +749,162 @@ async def _handle_consolidate(
 
 
 @mcp.tool(
-    description=(
-        "Persistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
-        "\n"
-        "ACTION GUIDE — when to use each:\n"
-        "- add: Store NEW information. Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
-        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
-        "- search: Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.\n"
-        "  Example: action='search', query='dark mode preference'\n"
-        "- update: Modify an EXISTING memory by ID. Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
-        "  Example: action='update', memory_id='abc123', content='User now prefers light mode'\n"
-        "- list: Browse all memories, optionally filtered by category. No query needed.\n"
-        "- delete: Remove a memory by ID. Requires 'memory_id'.\n"
-        "- stats: Show database statistics (total memories, categories, embedding status).\n"
-        "\n"
-        "WORKFLOW: search -> not found? -> add. Found outdated? -> update (with memory_id from results).\n"
-        "PROACTIVE: save user preferences, decisions, corrections, project conventions."
-    ),
-    annotations=ToolAnnotations(
-        title="Memory",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=False,
-    ),
+    description="Store NEW information in persistent memory. Requires 'content'. Use when saving preferences, decisions, facts for the first time.",
+    annotations=ToolAnnotations(title="Add Memory", destructiveHint=False),
 )
+async def add_memory(
+    content: str,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Store NEW information (content required, category/tags optional)."""
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_add(
+        db, content, category, tags, embedding_model, embedding_dims
+    )
+
+
+@mcp.tool(
+    description="Find existing memories by natural language query. Requires 'query'. Use BEFORE add to avoid duplicates.",
+    annotations=ToolAnnotations(title="Search Memory", readOnlyHint=True),
+)
+async def search_memory(
+    query: str,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    limit: int = 5,
+    ctx: Context | None = None,
+) -> str:
+    """Find memories by natural language (query required, category/tags/limit optional)."""
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    limit = max(1, min(limit, 100))
+    return await _handle_search(
+        db, query, category, tags, limit, embedding_model, embedding_dims
+    )
+
+
+@mcp.tool(
+    description="Browse all memories, optionally filtered by category.",
+    annotations=ToolAnnotations(title="List Memories", readOnlyHint=True),
+)
+async def list_memories(
+    category: str | None = None,
+    limit: int = 5,
+    ctx: Context | None = None,
+) -> str:
+    """Browse all memories (category/limit optional)."""
+    db, _, _ = _get_ctx(ctx)
+    limit = max(1, min(limit, 100))
+    return await _handle_list(db, category, limit)
+
+
+@mcp.tool(
+    description="Modify an EXISTING memory by ID. Get memory_id from search/list results first.",
+    annotations=ToolAnnotations(title="Update Memory", destructiveHint=False),
+)
+async def update_memory(
+    memory_id: str,
+    content: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Modify EXISTING memory (memory_id required, content/category/tags optional)."""
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_update(
+        db, memory_id, content, category, tags, embedding_model, embedding_dims
+    )
+
+
+@mcp.tool(
+    description="Remove a memory by ID permanently.",
+    annotations=ToolAnnotations(title="Delete Memory", destructiveHint=True),
+)
+async def delete_memory(
+    memory_id: str,
+    ctx: Context | None = None,
+) -> str:
+    """Remove memory (memory_id required)."""
+    db, _, _ = _get_ctx(ctx)
+    return await _handle_delete(db, memory_id)
+
+
+@mcp.tool(
+    description="Show database statistics (total memories, categories, embedding status).",
+    annotations=ToolAnnotations(title="Memory Stats", readOnlyHint=True),
+)
+async def memory_stats(ctx: Context | None = None) -> str:
+    """Database statistics."""
+    db, embedding_model, embedding_dims = _get_ctx(ctx)
+    return await _handle_stats(db, embedding_model, embedding_dims)
+
+
+@mcp.tool(
+    description="Export all memories as JSONL for backup.",
+    annotations=ToolAnnotations(title="Export Memories", readOnlyHint=True),
+)
+async def export_memories(ctx: Context | None = None) -> str:
+    """Export all as JSONL."""
+    db, _, _ = _get_ctx(ctx)
+    return await _handle_export(db)
+
+
+@mcp.tool(
+    description="Import memories from JSONL data.",
+    annotations=ToolAnnotations(title="Import Memories", destructiveHint=True),
+)
+async def import_memories(
+    data: str | list | dict,
+    mode: str = "merge",
+    ctx: Context | None = None,
+) -> str:
+    """Import from JSONL (data required, mode: merge|replace)."""
+    db, _, _ = _get_ctx(ctx)
+    return await _handle_import(db, data, mode)
+
+
+@mcp.tool(
+    description="Restore a previously archived memory back to active status.",
+    annotations=ToolAnnotations(title="Restore Memory", destructiveHint=False),
+)
+async def restore_memory(
+    memory_id: str,
+    ctx: Context | None = None,
+) -> str:
+    """Restore archived memory (memory_id required)."""
+    db, _, _ = _get_ctx(ctx)
+    return await _handle_restore(db, memory_id)
+
+
+@mcp.tool(
+    description="Browse memories that have been auto-archived (old + low importance).",
+    annotations=ToolAnnotations(title="List Archived Memories", readOnlyHint=True),
+)
+async def list_archived_memories(
+    limit: int = 5,
+    ctx: Context | None = None,
+) -> str:
+    """List archived memories (limit optional)."""
+    db, _, _ = _get_ctx(ctx)
+    limit = max(1, min(limit, 100))
+    return await _handle_archived(db, limit)
+
+
+@mcp.tool(
+    description="LLM summarize similar memories in a category for better long-term recall.",
+    annotations=ToolAnnotations(title="Consolidate Memories", destructiveHint=False),
+)
+async def consolidate_memories(
+    category: str,
+    ctx: Context | None = None,
+) -> str:
+    """LLM summarize similar memories (category required)."""
+    db, _, _ = _get_ctx(ctx)
+    return await _handle_consolidate(db, category)
+
+
+# Legacy dispatcher for backward compatibility (internal use, not exposed as tool)
 async def memory(
     action: str,
     content: str | None = None,
@@ -786,30 +917,10 @@ async def memory(
     mode: str = "merge",
     ctx: Context | None = None,
 ) -> str:
-    """Execute a memory action.
-
-    Actions:
-    - add: Store NEW information (content required, category/tags optional).
-      Use for first-time storage of preferences, decisions, facts.
-    - search: Find memories by natural language (query required, category/tags/limit optional).
-      Always search before adding to avoid duplicates.
-    - list: Browse all memories (category/limit optional). No query needed.
-    - update: Modify EXISTING memory (memory_id required, content/category/tags optional).
-      Get memory_id from search or list results first.
-    - delete: Remove memory (memory_id required)
-    - export: Export all as JSONL
-    - import: Import from JSONL (data required, mode: merge|replace)
-    - stats: Database statistics
-    - restore: Restore archived memory (memory_id required)
-    - archived: List archived memories (limit optional)
-    - consolidate: LLM summarize similar memories (category required)
-    """
+    """Execute a memory action (legacy internal dispatcher)."""
     db, embedding_model, embedding_dims = _get_ctx(ctx)
-
-    # Clamp limit to reasonable bounds to prevent DoS
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
-
     match action:
         case "add":
             return await _handle_add(
@@ -840,30 +951,7 @@ async def memory(
         case "consolidate":
             return await _handle_consolidate(db, category)
         case _:
-            import difflib
-
-            valid_actions = [
-                "add",
-                "archived",
-                "consolidate",
-                "delete",
-                "export",
-                "import",
-                "list",
-                "restore",
-                "search",
-                "stats",
-                "update",
-            ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
-            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-            return _json(
-                {
-                    "error": f"Unknown action '{action}'.{suggestion}",
-                    "valid_actions": valid_actions,
-                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
-                }
-            )
+            return _json({"error": f"Unknown action '{action}'"})
 
 
 @mcp.tool(
@@ -1199,7 +1287,7 @@ def save_summary(summary: str) -> str:
     """Generate a prompt to save a conversation summary as memory."""
     return (
         f"Save this conversation summary as a memory:\n\n{summary}\n\n"
-        "Use the memory tool with action='add', category='context', "
+        "Use the 'add_memory' tool with category='context', "
         "and appropriate tags."
     )
 
@@ -1209,7 +1297,7 @@ def recall_context(topic: str) -> str:
     """Generate a prompt to recall relevant memories about a topic."""
     return (
         f"Search your memories for relevant context about: {topic}\n\n"
-        "Use the memory tool with action='search' and this query. "
+        "Use the 'search_memory' tool with this query. "
         "Include any relevant findings in your response."
     )
 

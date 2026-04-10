@@ -2,12 +2,12 @@
 
 ## Overview
 
-The `memory` tool manages persistent AI memories with hybrid search (text + semantic).
+The memory tools manage persistent AI memories with hybrid search (text + semantic).
 Memories survive across sessions, projects, and machines (with sync enabled).
 
-## Actions
+## Tools
 
-### `add` - Save a new memory
+## `add_memory` - Save a new memory
 
 Save facts, preferences, decisions, code patterns, project context.
 
@@ -26,10 +26,10 @@ Save facts, preferences, decisions, code patterns, project context.
 
 **Example:**
 ```json
-{"action": "add", "content": "User prefers Polars over Pandas for DataFrames", "category": "preference", "tags": ["python", "dataframes"]}
+{"content": "User prefers Polars over Pandas for DataFrames", "category": "preference", "tags": ["python", "dataframes"]}
 ```
 
-### `search` - Find relevant memories
+## `search_memory`
 
 Hybrid search combining full-text and semantic similarity.
 
@@ -47,10 +47,10 @@ Hybrid search combining full-text and semantic similarity.
 
 **Example:**
 ```json
-{"action": "search", "query": "dataframe library preference"}
+{"query": "dataframe library preference"}
 ```
 
-### `list` - Browse memories
+## `list_memories`
 
 List memories with optional filtering, ordered by most recently updated.
 
@@ -60,10 +60,10 @@ List memories with optional filtering, ordered by most recently updated.
 
 **Example:**
 ```json
-{"action": "list", "category": "decision", "limit": 10}
+{"category": "decision", "limit": 10}
 ```
 
-### `update` - Modify an existing memory
+## `update_memory`
 
 Update content, category, or tags of a memory.
 
@@ -75,26 +75,26 @@ Update content, category, or tags of a memory.
 
 **Example:**
 ```json
-{"action": "update", "memory_id": "abc123", "content": "Updated preference: Polars > Pandas > DuckDB"}
+{"memory_id": "abc123", "content": "Updated preference: Polars > Pandas > DuckDB"}
 ```
 
-### `delete` - Remove a memory
+## `delete_memory`
 
 **Parameters:**
 - `memory_id` (required): ID of the memory to delete
 
 **Example:**
 ```json
-{"action": "delete", "memory_id": "abc123"}
+{"memory_id": "abc123"}
 ```
 
-### `export` - Export all memories as JSONL
+## `export_memories`
 
 Returns all memories as a JSONL string for backup or migration.
 
 **Parameters:** None
 
-### `import` - Import memories from JSONL
+## `import_memories`
 
 Import memories from JSONL string, list of objects, or single object.
 
@@ -102,13 +102,13 @@ Import memories from JSONL string, list of objects, or single object.
 - `data` (required): JSONL string, list of objects, or single object
 - `mode` (optional): "merge" (skip existing, default) or "replace" (clear + import)
 
-### `stats` - Get database statistics
+## `memory_stats`
 
 Returns total count, categories breakdown, last update time, and sync status.
 
 **Parameters:** None
 
-### `restore` - Restore an archived memory
+## `restore_memory`
 
 Restore a previously archived memory back to active status.
 
@@ -117,10 +117,10 @@ Restore a previously archived memory back to active status.
 
 **Example:**
 ```json
-{"action": "restore", "memory_id": "abc123"}
+{"memory_id": "abc123"}
 ```
 
-### `archived` - List archived memories
+## `list_archived_memories`
 
 Browse memories that have been auto-archived (old + low importance).
 
@@ -129,10 +129,10 @@ Browse memories that have been auto-archived (old + low importance).
 
 **Example:**
 ```json
-{"action": "archived", "limit": 10}
+{"limit": 10}
 ```
 
-### `consolidate` - Summarize related memories
+## `consolidate_memories`
 
 Uses LLM to summarize multiple memories in a category into a single consolidated text.
 Requires LLM access (proxy or SDK mode). Returns a summary for review — does not
@@ -143,7 +143,7 @@ automatically modify memories.
 
 **Example:**
 ```json
-{"action": "consolidate", "category": "decision"}
+{"category": "decision"}
 ```
 
 ## Intelligence Features
