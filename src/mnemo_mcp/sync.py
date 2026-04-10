@@ -54,6 +54,9 @@ _TOKEN_PROVIDER = "google_drive"
 # In-memory folder ID cache to avoid duplicate folder creation
 _folder_id_cache: dict[str, str] = {}
 
+# Lock for synchronizing folder ID disk cache access
+_folder_id_disk_lock = asyncio.Lock()
+
 
 # ---------------------------------------------------------------------------
 # Token management
@@ -184,8 +187,8 @@ async def _drive_request(
     return response
 
 
-def _load_folder_id(folder_name: str) -> str | None:
-    """Load cached folder ID from disk."""
+def _load_folder_id_sync(folder_name: str) -> str | None:
+    """Load cached folder ID from disk (synchronous)."""
     path = settings.get_data_dir() / "sync_folder_ids.json"
     try:
         if path.exists():
@@ -196,8 +199,14 @@ def _load_folder_id(folder_name: str) -> str | None:
     return None
 
 
-def _save_folder_id(folder_name: str, folder_id: str) -> None:
-    """Persist folder ID to disk."""
+async def _load_folder_id(folder_name: str) -> str | None:
+    """Load cached folder ID from disk (asynchronous)."""
+    async with _folder_id_disk_lock:
+        return await asyncio.to_thread(_load_folder_id_sync, folder_name)
+
+
+def _save_folder_id_sync(folder_name: str, folder_id: str) -> None:
+    """Persist folder ID to disk (synchronous)."""
     path = settings.get_data_dir() / "sync_folder_ids.json"
     data: dict[str, str] = {}
     try:
@@ -208,6 +217,12 @@ def _save_folder_id(folder_name: str, folder_id: str) -> None:
     data[folder_name] = folder_id
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data), encoding="utf-8")
+
+
+async def _save_folder_id(folder_name: str, folder_id: str) -> None:
+    """Persist folder ID to disk (asynchronous)."""
+    async with _folder_id_disk_lock:
+        await asyncio.to_thread(_save_folder_id_sync, folder_name, folder_id)
 
 
 async def _verify_folder_exists(token: dict, folder_id: str) -> bool:
@@ -237,7 +252,7 @@ async def _find_or_create_folder(token: dict, folder_name: str) -> str | None:
         del _folder_id_cache[folder_name]
 
     # 2. Check disk cache
-    saved_id = _load_folder_id(folder_name)
+    saved_id = await _load_folder_id(folder_name)
     if saved_id:
         if await _verify_folder_exists(token, saved_id):
             _folder_id_cache[folder_name] = saved_id
@@ -263,7 +278,7 @@ async def _find_or_create_folder(token: dict, folder_name: str) -> str | None:
             if files:
                 fid = files[0]["id"]
                 _folder_id_cache[folder_name] = fid
-                _save_folder_id(folder_name, fid)
+                await _save_folder_id(folder_name, fid)
                 return fid
 
         if attempt < 2:
@@ -286,7 +301,7 @@ async def _find_or_create_folder(token: dict, folder_name: str) -> str | None:
         fid = response.json().get("id")
         if fid:
             _folder_id_cache[folder_name] = fid
-            _save_folder_id(folder_name, fid)
+            await _save_folder_id(folder_name, fid)
         return fid
 
     logger.error(f"Failed to create folder '{folder_name}': {response.text}")
