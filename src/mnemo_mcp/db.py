@@ -286,7 +286,7 @@ class MemoryDB:
 
         if row:
             # Extract dimension from 'float[N]'
-            match = re.search(r"float\[(\d+)\]", row["sql"])
+            match = re.search(r"float\s*\[\s*(\d+)\s*\]", row["sql"], re.IGNORECASE)
             if match:
                 detected_dims = int(match.group(1))
                 if detected_dims != dims:
