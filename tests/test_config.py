@@ -1,9 +1,11 @@
 """Tests for mnemo_mcp.config — Settings, API keys, embedding resolution."""
 
 import os
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from mnemo_mcp.config import Settings
+from mnemo_mcp.config import Settings, _detect_gpu, _has_gguf_support
 
 
 class TestSettingsDefaults:
@@ -229,6 +231,11 @@ class TestRerankSettings:
         s = Settings(rerank_backend="litellm", api_keys=None)
         assert s.resolve_rerank_backend() == "cloud"
 
+    def test_resolve_rerank_backend_custom(self):
+        """resolve_rerank_backend returns custom backend if set."""
+        s = Settings(rerank_backend="custom", api_keys=None)
+        assert s.resolve_rerank_backend() == "custom"
+
     def test_resolve_rerank_backend_model_set(self):
         s = Settings(rerank_model="custom/reranker", api_keys=None)
         assert s.resolve_rerank_backend() == "cloud"
@@ -242,7 +249,17 @@ class TestRerankSettings:
         s = Settings(api_keys="COHERE_API_KEY:test-key")
         assert s.resolve_rerank_backend() == "cloud"
 
-    def test_resolve_rerank_backend_local_fallback(self):
+    def test_resolve_rerank_backend_jina_in_api_keys(self):
+        s = Settings(api_keys="JINA_AI_API_KEY:test-key")
+        assert s.resolve_rerank_backend() == "cloud"
+
+    def test_resolve_rerank_backend_local_fallback(self, monkeypatch):
+        for k in (
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "JINA_AI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
         s = Settings(api_keys=None)
         assert s.resolve_rerank_backend() == "local"
 
@@ -259,7 +276,17 @@ class TestRerankSettings:
         s = Settings(api_keys="COHERE_API_KEY:test-key")
         assert s.resolve_rerank_model() == "rerank-v4.0-pro"
 
-    def test_resolve_rerank_model_none_no_keys(self):
+    def test_resolve_rerank_model_jina_in_api_keys(self):
+        s = Settings(api_keys="JINA_AI_API_KEY:test-key")
+        assert s.resolve_rerank_model() == "jina_ai/jina-reranker-v3"
+
+    def test_resolve_rerank_model_none_no_keys(self, monkeypatch):
+        for k in (
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "JINA_AI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
         s = Settings(api_keys=None)
         assert s.resolve_rerank_model() is None
 
@@ -282,3 +309,148 @@ class TestGoogleDriveClientId:
         )
         s = Settings(api_keys=None)
         assert s.google_drive_client_id == "123456.apps.googleusercontent.com"
+
+
+class TestSetupProviders:
+    def test_sdk_mode(self, monkeypatch):
+        """setup_providers configures SDK mode with API keys."""
+        s = Settings(
+            api_keys="GOOGLE_API_KEY:test-key",
+        )
+        mode = s.setup_providers()
+        assert mode == "sdk"
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    def test_local_mode(self, monkeypatch):
+        """setup_providers returns 'local' when no API keys."""
+        for k in (
+            "JINA_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        s = Settings(api_keys=None)
+        mode = s.setup_providers()
+        assert mode == "local"
+
+
+class TestResolveProviderMode:
+    def test_sdk_mode_with_api_keys(self):
+        """Returns 'sdk' when api_keys is set."""
+        s = Settings(api_keys="KEY:value")
+        assert s.resolve_provider_mode() == "sdk"
+
+    def test_local_mode_default(self, monkeypatch):
+        """Returns 'local' when nothing is configured."""
+        for k in (
+            "JINA_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        s = Settings(api_keys=None)
+        assert s.resolve_provider_mode() == "local"
+
+    def test_sdk_mode_with_env_var(self, monkeypatch):
+        """Returns 'sdk' when a provider env var is set."""
+        monkeypatch.setenv("JINA_AI_API_KEY", "test-key")
+        s = Settings(api_keys=None)
+        assert s.resolve_provider_mode() == "sdk"
+
+
+class TestResolveLocalModel:
+    def test_returns_onnx_by_default(self):
+        """Returns ONNX model when no GPU or no GGUF support."""
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=False),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=False),
+        ):
+            s = Settings(api_keys=None)
+            model = s.resolve_local_embedding_model()
+            assert "ONNX" in model
+
+    def test_returns_gguf_with_gpu_and_llama(self):
+        """Returns GGUF model when GPU is available and llama-cpp is installed."""
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=True),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=True),
+        ):
+            s = Settings(api_keys=None)
+            model = s.resolve_local_embedding_model()
+            assert "GGUF" in model
+
+
+class TestResolveEmbeddingBackendAuto:
+    def test_auto_detect_with_api_keys(self):
+        """Auto-detect returns 'cloud' when API keys are set."""
+        s = Settings(
+            api_keys="COHERE_API_KEY:test",
+            embedding_backend="",
+        )
+        assert s.resolve_embedding_backend() == "cloud"
+
+    def test_auto_detect_with_no_config(self, monkeypatch):
+        """Auto-detect returns 'local' when nothing is configured."""
+        for k in (
+            "JINA_AI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "COHERE_API_KEY",
+            "CO_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(k, raising=False)
+        s = Settings(embedding_backend="", api_keys=None)
+        assert s.resolve_embedding_backend() == "local"
+
+
+class TestDetection:
+    def test_detect_gpu_success(self):
+        """_detect_gpu returns True when CUDA or DML is available."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = ["CUDAExecutionProvider"]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+        mock_ort.get_available_providers.return_value = ["DmlExecutionProvider"]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+    def test_detect_gpu_failure(self):
+        """_detect_gpu returns False when no GPU provider is available."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+    def test_detect_gpu_import_error(self):
+        """_detect_gpu returns False when onnxruntime is not installed."""
+        with patch.dict(sys.modules, {"onnxruntime": None}):
+            assert _detect_gpu() is False
+
+    def test_detect_gpu_runtime_exception(self):
+        """_detect_gpu returns False when get_available_providers raises."""
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+    def test_has_gguf_support_success(self):
+        """_has_gguf_support returns True when llama-cpp-python is installed."""
+        with patch.dict(sys.modules, {"llama_cpp": MagicMock()}):
+            assert _has_gguf_support() is True
+
+    def test_has_gguf_support_import_error(self):
+        """_has_gguf_support returns False when llama-cpp-python is not installed."""
+        with patch.dict(sys.modules, {"llama_cpp": None}):
+            assert _has_gguf_support() is False
