@@ -7,9 +7,5 @@
 **Action:** Refactored `_search_fts` in `db.py` to only fetch `m.id` (while retaining necessary joins for filtering) and calculate the `bm25_score` in the `all_matches` CTE, then select the top results in a `best_tier` CTE, and finally `JOIN` with the `memories` table at the outermost level to retrieve full record data. This ensures we don't depend on unindexed columns in the FTS virtual table for filtering, preventing crashes.
 
 ## 2026-04-10 - Async I/O for Sync Folder ID Cache
-**Learning:** Synchronous file I/O operations (read/write) in an asyncio event loop can cause significant latency spikes and block other concurrent tasks. Using  to offload these operations to a separate thread pool, combined with an  for synchronization during read-modify-write cycles, ensures thread safety and maintains event loop responsiveness.
-**Action:** Refactored  and  in  to be asynchronous wrappers around synchronous helpers. Implemented  to prevent race conditions when multiple sync tasks access the  file. Updated call sites in  to use .
-
-## 2026-04-10 - Async I/O for Sync Folder ID Cache
 **Learning:** Synchronous file I/O operations (read/write) in an asyncio event loop can cause significant latency spikes and block other concurrent tasks. Using `asyncio.to_thread` to offload these operations to a separate thread pool, combined with an `asyncio.Lock` for synchronization during read-modify-write cycles, ensures thread safety and maintains event loop responsiveness.
 **Action:** Refactored `_load_folder_id` and `_save_folder_id` in `sync.py` to be asynchronous wrappers around synchronous helpers. Implemented `_folder_id_disk_lock` to prevent race conditions when multiple sync tasks access the `sync_folder_ids.json` file. Updated call sites in `_find_or_create_folder` to use `await`.
