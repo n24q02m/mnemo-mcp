@@ -257,3 +257,41 @@ class TestGetTokenPath:
             m.get_data_dir.return_value = token_dir.parent
             path = get_token_path("drive")
         assert path == token_dir / "drive.json"
+
+
+class TestAsyncTokenOperations:
+    @pytest.mark.asyncio
+    async def test_async_save_load_delete(self, token_dir):
+        from mnemo_mcp.token_store import (
+            async_delete_token,
+            async_load_token,
+            async_save_token,
+        )
+
+        token = {"access_token": "async_test", "token_type": "Bearer"}
+        provider = "async_provider"
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+
+            # Test async save
+            await async_save_token(provider, token)
+            assert (token_dir / f"{provider}.json").exists()
+
+            # Test async load
+            loaded = await async_load_token(provider)
+            assert loaded == token
+
+            # Test async delete
+            deleted = await async_delete_token(provider)
+            assert deleted is True
+            assert not (token_dir / f"{provider}.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_async_load_missing(self, token_dir):
+        from mnemo_mcp.token_store import async_load_token
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            result = await async_load_token("nonexistent")
+            assert result is None

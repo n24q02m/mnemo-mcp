@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 
 import mnemo_mcp.sync
 from mnemo_mcp.sync import (
@@ -21,16 +22,21 @@ from mnemo_mcp.sync import (
 
 
 class TestTokenManagement:
-    def test_has_token_false_when_no_token(self):
-        with patch("mnemo_mcp.sync._load_token", return_value=None):
-            assert _has_token_available() is False
+    @pytest.mark.asyncio
+    async def test_has_token_false_when_no_token(self):
+        with patch(
+            "mnemo_mcp.sync._load_token", new_callable=AsyncMock, return_value=None
+        ):
+            assert await _has_token_available() is False
 
-    def test_has_token_true_when_token_exists(self):
+    @pytest.mark.asyncio
+    async def test_has_token_true_when_token_exists(self):
         with patch(
             "mnemo_mcp.sync._load_token",
+            new_callable=AsyncMock,
             return_value={"access_token": "ya29.abc"},
         ):
-            assert _has_token_available() is True
+            assert await _has_token_available() is True
 
     async def test_refresh_token_success(self):
         from mnemo_mcp.sync import _refresh_token
@@ -103,7 +109,9 @@ class TestTokenManagement:
     async def test_get_valid_token_no_token(self):
         from mnemo_mcp.sync import _get_valid_token
 
-        with patch("mnemo_mcp.sync._load_token", return_value=None):
+        with patch(
+            "mnemo_mcp.sync._load_token", new_callable=AsyncMock, return_value=None
+        ):
             result = await _get_valid_token()
         assert result is None
 
