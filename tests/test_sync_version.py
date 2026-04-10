@@ -27,7 +27,7 @@ async def test_token_refresh_preserves_refresh_token():
 
     with (
         patch("httpx.AsyncClient") as mock_client_cls,
-        patch("mnemo_mcp.sync._save_token") as mock_save,
+        patch("mnemo_mcp.sync._save_token", new_callable=AsyncMock) as mock_save,
         patch("mnemo_mcp.sync.settings") as mock_settings,
     ):
         mock_settings.google_drive_client_secret = "secret123"
@@ -70,7 +70,7 @@ async def test_token_refresh_updates_refresh_token():
 
     with (
         patch("httpx.AsyncClient") as mock_client_cls,
-        patch("mnemo_mcp.sync._save_token"),
+        patch("mnemo_mcp.sync._save_token", new_callable=AsyncMock),
         patch("mnemo_mcp.sync.settings") as mock_settings,
     ):
         mock_settings.google_drive_client_secret = "secret123"
@@ -107,7 +107,7 @@ async def test_token_refresh_uses_settings_client_id():
 
     with (
         patch("httpx.AsyncClient") as mock_client_cls,
-        patch("mnemo_mcp.sync._save_token"),
+        patch("mnemo_mcp.sync._save_token", new_callable=AsyncMock),
         patch("mnemo_mcp.sync.settings") as mock_settings,
     ):
         mock_settings.google_drive_client_id = "settings_client_id"
