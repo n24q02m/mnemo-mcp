@@ -7,13 +7,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mnemo_mcp.config import Settings, _detect_gpu, _has_gguf_support
+from mnemo_mcp.config import (
+    Settings,
+    _detect_gpu,
+    _has_gguf_support,
+    _resolve_local_model,
+)
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
-    """Clear provider and config environment variables before each test."""
-    vars_to_clear = [
+def clean_env():
+    """Ensure environment isolation for configuration tests.
+
+    Snapshot os.environ before the test and restore it after.
+    Also clear known provider keys to ensure 'local' mode can be tested reliably.
+    """
+    vars_to_clear = {
         "JINA_AI_API_KEY",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
@@ -35,9 +44,19 @@ def clean_env(monkeypatch):
         "GOOGLE_DRIVE_CLIENT_SECRET",
         "DB_PATH",
         "LOG_LEVEL",
-    ]
-    for v in vars_to_clear:
-        monkeypatch.delenv(v, raising=False)
+        "MCP_RELAY_URL",
+        "QWEN3_EMBED_CACHE_PATH",
+    }
+    with patch.dict(os.environ):
+        # Clear variables for the test to prevent interference from CI environment
+        for k in list(os.environ.keys()):
+            if k.upper() in vars_to_clear:
+                del os.environ[k]
+        yield
+    # os.environ is restored automatically by patch.dict when the context manager exits
+
+
+# Test Setup
 
 
 class TestSettingsDefaults:
@@ -94,7 +113,7 @@ class TestApiKeys:
         s = Settings(api_keys=None)
         assert s.setup_api_keys() == {}
 
-    def test_single_key(self, monkeypatch):
+    def test_single_key(self):
         s = Settings(api_keys="GOOGLE_API_KEY:test-key-123")
         result = s.setup_api_keys()
         assert "GOOGLE_API_KEY" in result
@@ -305,7 +324,7 @@ class TestGoogleDriveClientId:
 
 
 class TestSetupProviders:
-    def test_sdk_mode(self):
+    def test_sdk_mode(self, monkeypatch):
         """setup_providers configures SDK mode with API keys."""
         s = Settings(
             api_keys="GOOGLE_API_KEY:test-key",
@@ -338,9 +357,117 @@ class TestResolveProviderMode:
         assert s.resolve_provider_mode() == "sdk"
 
 
+class TestDetectGPU:
+    def test_cuda_available(self):
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+    def test_dml_available(self):
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = [
+            "DmlExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is True
+
+    def test_no_gpu_provider(self):
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.return_value = ["CPUExecutionProvider"]
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+    def test_import_error(self):
+        with patch.dict(sys.modules, {"onnxruntime": None}):
+            assert _detect_gpu() is False
+
+    def test_runtime_exception(self):
+        mock_ort = MagicMock()
+        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
+        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
+            assert _detect_gpu() is False
+
+    def test_import_exception(self):
+        import builtins
+
+        orig_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "onnxruntime":
+                raise Exception("Mocked Exception")
+            return orig_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            # patch.dict(sys.modules) clears it so the import is attempted
+            with patch.dict(sys.modules):
+                if "onnxruntime" in sys.modules:
+                    del sys.modules["onnxruntime"]
+                assert _detect_gpu() is False
+
+
+class TestHasGGUFSupport:
+    def test_llama_cpp_installed(self):
+        mock_llama = MagicMock()
+        with patch.dict(sys.modules, {"llama_cpp": mock_llama}):
+            assert _has_gguf_support() is True
+
+    def test_llama_cpp_missing(self):
+        with patch.dict(sys.modules, {"llama_cpp": None}):
+            assert _has_gguf_support() is False
+
+    def test_llama_cpp_import_error(self):
+        import builtins
+
+        orig_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "llama_cpp":
+                raise ImportError("Mocked ImportError")
+            return orig_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            # Ensure sys.modules does not prevent the import call
+            original_module = sys.modules.get("llama_cpp", None)
+
+            if "llama_cpp" in sys.modules:
+                del sys.modules["llama_cpp"]
+
+            try:
+                assert _has_gguf_support() is False
+            finally:
+                if original_module is not None:
+                    sys.modules["llama_cpp"] = original_module
+
+
 class TestResolveLocalModel:
-    def test_returns_onnx_by_default(self):
-        """Returns ONNX model when no GPU or no GGUF support."""
+    def test_gpu_and_gguf(self):
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=True),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=True),
+        ):
+            assert _resolve_local_model("onnx-model", "gguf-model") == "gguf-model"
+
+    def test_gpu_no_gguf(self):
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=True),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=False),
+        ):
+            assert _resolve_local_model("onnx-model", "gguf-model") == "onnx-model"
+
+    def test_no_gpu(self):
+        with (
+            patch("mnemo_mcp.config._detect_gpu", return_value=False),
+            patch("mnemo_mcp.config._has_gguf_support", return_value=True),
+        ):
+            assert _resolve_local_model("onnx-model", "gguf-model") == "onnx-model"
+
+    def test_returns_onnx_by_default_settings(self):
+        """Returns ONNX model when no GPU or no GGUF support (via Settings)."""
         with (
             patch("mnemo_mcp.config._detect_gpu", return_value=False),
             patch("mnemo_mcp.config._has_gguf_support", return_value=False),
@@ -349,8 +476,8 @@ class TestResolveLocalModel:
             model = s.resolve_local_embedding_model()
             assert "ONNX" in model
 
-    def test_returns_gguf_with_gpu_and_llama(self):
-        """Returns GGUF model when GPU is available and llama-cpp is installed."""
+    def test_returns_gguf_with_gpu_and_llama_settings(self):
+        """Returns GGUF model when GPU is available and llama-cpp is installed (via Settings)."""
         with (
             patch("mnemo_mcp.config._detect_gpu", return_value=True),
             patch("mnemo_mcp.config._has_gguf_support", return_value=True),
@@ -373,45 +500,3 @@ class TestResolveEmbeddingBackendAuto:
         """Auto-detect returns 'local' when nothing is configured."""
         s = Settings(embedding_backend="")
         assert s.resolve_embedding_backend() == "local"
-
-
-class TestDetection:
-    def test_detect_gpu_success(self):
-        """_detect_gpu returns True when CUDA or DML is available."""
-        mock_ort = MagicMock()
-        mock_ort.get_available_providers.return_value = ["CUDAExecutionProvider"]
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
-            assert _detect_gpu() is True
-
-        mock_ort.get_available_providers.return_value = ["DmlExecutionProvider"]
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
-            assert _detect_gpu() is True
-
-    def test_detect_gpu_failure(self):
-        """_detect_gpu returns False when no GPU provider is available."""
-        mock_ort = MagicMock()
-        mock_ort.get_available_providers.return_value = ["CPUExecutionProvider"]
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
-            assert _detect_gpu() is False
-
-    def test_detect_gpu_import_error(self):
-        """_detect_gpu returns False when onnxruntime is not installed."""
-        with patch.dict(sys.modules, {"onnxruntime": None}):
-            assert _detect_gpu() is False
-
-    def test_detect_gpu_runtime_exception(self):
-        """_detect_gpu returns False when get_available_providers raises."""
-        mock_ort = MagicMock()
-        mock_ort.get_available_providers.side_effect = Exception("Runtime error")
-        with patch.dict(sys.modules, {"onnxruntime": mock_ort}):
-            assert _detect_gpu() is False
-
-    def test_has_gguf_support_success(self):
-        """_has_gguf_support returns True when llama-cpp-python is installed."""
-        with patch.dict(sys.modules, {"llama_cpp": MagicMock()}):
-            assert _has_gguf_support() is True
-
-    def test_has_gguf_support_import_error(self):
-        """_has_gguf_support returns False when llama-cpp-python is not installed."""
-        with patch.dict(sys.modules, {"llama_cpp": None}):
-            assert _has_gguf_support() is False
