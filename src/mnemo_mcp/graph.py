@@ -344,15 +344,10 @@ def find_related_memory_ids(conn, memory_id: str, max_depth: int = 2) -> list[st
             JOIN traverse t ON r.target_id = t.entity_id
             WHERE t.depth < ?
         )
-        -- Bolt Performance Optimization:
-        -- Replaced `JOIN traverse t ON me.entity_id = t.entity_id` with `IN (SELECT entity_id FROM traverse)`.
-        -- Since the `traverse` CTE can produce the same entity_id at different depths, an INNER JOIN causes
-        -- row multiplication and forces SQLite to process significantly more rows before DISTINCT filtering.
-        -- Using IN acts as a semi-join, allowing the execution engine to stop evaluating early,
-        -- yielding a ~3x speedup on highly-connected graphs (e.g. 0.37s -> 0.11s per 100 queries).
         SELECT DISTINCT me.memory_id
         FROM memory_entities me
-        WHERE me.memory_id != ? AND me.entity_id IN (SELECT entity_id FROM traverse)
+        JOIN traverse t ON me.entity_id = t.entity_id
+        WHERE me.memory_id != ?
     """
     rows = conn.execute(query, (memory_id, max_depth, max_depth, memory_id)).fetchall()
 
