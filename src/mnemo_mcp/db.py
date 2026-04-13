@@ -55,7 +55,6 @@ _MEMORY_COLUMNS_SQL = """
     category TEXT NOT NULL DEFAULT 'general',
     tags TEXT NOT NULL DEFAULT '[]',
     source TEXT,
-    importance REAL NOT NULL DEFAULT 0.5,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     access_count INTEGER NOT NULL DEFAULT 0,
@@ -235,6 +234,7 @@ class MemoryDB:
             -- Archive table
             CREATE TABLE IF NOT EXISTS archived_memories (
                 {_MEMORY_COLUMNS_SQL.strip()},
+                importance REAL NOT NULL DEFAULT 0.5,
                 archived_at TEXT NOT NULL
             );
 
