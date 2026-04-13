@@ -40,6 +40,7 @@ def test_update_security(tmp_db: MemoryDB):
     # Normal update works
     assert tmp_db.update(mid, content="new content") is True
     mem = tmp_db.get(mid)
+    assert mem is not None
     assert mem["content"] == "new content"
 
     # Try to inject something into a parameter (though it'\''s already safe due to placeholders)
@@ -47,5 +48,6 @@ def test_update_security(tmp_db: MemoryDB):
     malicious_content = "content', category='pwned"
     tmp_db.update(mid, content=malicious_content)
     mem = tmp_db.get(mid)
+    assert mem is not None
     assert mem["content"] == malicious_content
     assert mem["category"] == "cat"  # Category remains unchanged
