@@ -1048,7 +1048,7 @@ async def config(
             )
 
         case "setup_skip":
-            from mcp_relay_core import set_local_mode
+            from mcp_core import set_local_mode
 
             from mnemo_mcp.credential_state import CredentialState, set_state
 
@@ -1217,8 +1217,28 @@ def recall_context(topic: str) -> str:
 # --- Entrypoint ---
 
 
+async def run_http(port: int = 0) -> None:
+    """Run as HTTP server with local OAuth 2.1 AS."""
+    from mcp_core.transport.local_server import run_local_server
+
+    from mnemo_mcp.credential_state import (
+        save_credentials,
+        set_gdrive_complete_callback,
+    )
+    from mnemo_mcp.relay_schema import RELAY_SCHEMA
+
+    await run_local_server(
+        mcp,
+        server_name="mnemo-mcp",
+        relay_schema=RELAY_SCHEMA,
+        port=port,
+        on_credentials_saved=save_credentials,
+        setup_complete_hook=set_gdrive_complete_callback,
+    )
+
+
 def main() -> None:
-    """Run the MCP server."""
+    """Run the MCP server. Defaults to HTTP, --stdio for backward compat."""
     logger.remove()
     valid_levels = {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}
     level = settings.log_level.upper() if settings.log_level else "WARNING"
@@ -1227,4 +1247,7 @@ def main() -> None:
     logger.add(sys.stderr, level=level)
     logger.info("Starting Mnemo MCP Server...")
 
-    mcp.run()
+    if "--stdio" in sys.argv or os.environ.get("MCP_TRANSPORT") == "stdio":
+        mcp.run()
+    else:
+        asyncio.run(run_http())

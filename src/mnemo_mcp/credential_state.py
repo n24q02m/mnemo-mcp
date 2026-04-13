@@ -11,6 +11,7 @@ happens while in awaiting_setup state.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from enum import Enum
 
 from loguru import logger
@@ -38,6 +39,13 @@ class CredentialState(Enum):
 # Module-level state
 _state = CredentialState.AWAITING_SETUP
 _setup_url: str | None = None
+_on_gdrive_complete: Callable[[], None] | None = None
+
+
+def set_gdrive_complete_callback(cb: Callable[[], None]) -> None:
+    """Set callback for when GDrive OAuth completes (used by HTTP server)."""
+    global _on_gdrive_complete
+    _on_gdrive_complete = cb
 
 
 def get_state() -> CredentialState:
@@ -71,7 +79,7 @@ def resolve_credential_state() -> CredentialState:
 
     # 2. Check config file
     try:
-        from mcp_relay_core.storage.config_file import read_config
+        from mcp_core.storage.config_file import read_config
 
         saved = read_config(SERVER_NAME)
         if saved and any(saved.get(k) for k in _ALL_CONFIG_KEYS):
@@ -89,7 +97,7 @@ def resolve_credential_state() -> CredentialState:
 
     # 3. Check local mode marker
     try:
-        from mcp_relay_core import get_mode
+        from mcp_core import get_mode
 
         mode = get_mode(SERVER_NAME)
         if mode == "local":
@@ -123,7 +131,7 @@ async def trigger_relay_setup(
 
     try:
         # Check for existing session via lock
-        from mcp_relay_core import acquire_session_lock
+        from mcp_core import acquire_session_lock
 
         existing = await acquire_session_lock(SERVER_NAME)
         if existing:
@@ -132,7 +140,7 @@ async def trigger_relay_setup(
             return _setup_url
 
         # Create new session
-        from mcp_relay_core.relay.client import create_session
+        from mcp_core.relay.client import create_session
 
         from mnemo_mcp.relay_schema import RELAY_SCHEMA
 
@@ -142,7 +150,7 @@ async def trigger_relay_setup(
         # Save session lock for parallel processes
         import time
 
-        from mcp_relay_core import SessionInfo, write_session_lock
+        from mcp_core import SessionInfo, write_session_lock
 
         await write_session_lock(
             SERVER_NAME,
@@ -156,7 +164,7 @@ async def trigger_relay_setup(
         _setup_url = session.relay_url
 
         # Try to open browser (best-effort)
-        from mcp_relay_core import try_open_browser
+        from mcp_core import try_open_browser
 
         try_open_browser(session.relay_url)
 
@@ -185,8 +193,8 @@ async def _poll_relay_background(
     """
     global _state
     try:
-        from mcp_relay_core.relay.client import poll_for_result
-        from mcp_relay_core.storage.config_file import write_config
+        from mcp_core.relay.client import poll_for_result
+        from mcp_core.storage.config_file import write_config
 
         poll_timeout = timeout if timeout is not None else 300.0
         config = await poll_for_result(relay_base, session, timeout_s=poll_timeout)  # ty: ignore[invalid-argument-type]
@@ -234,7 +242,7 @@ async def _poll_relay_background(
         # Notify browser: setup complete
         if session_id:
             try:
-                from mcp_relay_core.relay.client import send_message
+                from mcp_core.relay.client import send_message
 
                 await send_message(
                     relay_base,
@@ -248,7 +256,7 @@ async def _poll_relay_background(
                 pass
 
         # Release session lock
-        from mcp_relay_core import release_session_lock
+        from mcp_core import release_session_lock
 
         await release_session_lock(SERVER_NAME)
 
@@ -256,7 +264,7 @@ async def _poll_relay_background(
         if "RELAY_SKIPPED" in str(e):
             _state = CredentialState.LOCAL
             try:
-                from mcp_relay_core import set_local_mode
+                from mcp_core import set_local_mode
 
                 set_local_mode(SERVER_NAME)
             except Exception:
@@ -270,7 +278,7 @@ async def _poll_relay_background(
 def _share_cloud_keys_to_peers(config: dict[str, str]) -> None:
     """Write shared cloud API keys to wet-mcp and CRG config files."""
     try:
-        from mcp_relay_core.storage.config_file import write_config
+        from mcp_core.storage.config_file import write_config
 
         shared = {k: v for k, v in config.items() if k in CLOUD_KEYS and v}
         if not shared:
@@ -285,6 +293,148 @@ def _share_cloud_keys_to_peers(config: dict[str, str]) -> None:
         logger.debug("_share_cloud_keys_to_peers failed (non-fatal): {}", e)
 
 
+def save_credentials(config: dict[str, str]) -> dict | None:
+    """Save credentials from OAuth form to config.enc and apply to environment.
+
+    Called by the local OAuth AS when the user submits API keys via the
+    browser form. Returns optional dict with next_step info.
+    """
+    global _state
+
+    from mcp_core.storage.config_file import write_config
+
+    from mnemo_mcp.relay_setup import apply_config
+
+    write_config(SERVER_NAME, config)
+    apply_config(config)
+    _state = CredentialState.CONFIGURED
+    logger.info("Credentials saved via local OAuth form")
+
+    try:
+        from mnemo_mcp.config import settings
+
+        settings.setup_providers()
+    except Exception:
+        logger.opt(exception=True).debug(
+            "Provider re-init after save failed (non-fatal)"
+        )
+
+    _share_cloud_keys_to_peers(config)
+
+    # Trigger GDrive OAuth Device Code flow if configured
+    try:
+        from mnemo_mcp.config import settings as s
+
+        if s.google_drive_client_id and s.google_drive_client_secret:
+            import httpx
+
+            response = httpx.post(
+                "https://oauth2.googleapis.com/device/code",
+                data={
+                    "client_id": s.google_drive_client_id,
+                    "scope": "https://www.googleapis.com/auth/drive.file",
+                },
+                timeout=15.0,
+            )
+            if response.status_code == 200:
+                device_data = response.json()
+                logger.info(
+                    "GDrive device code requested, user_code={}",
+                    device_data.get("user_code"),
+                )
+
+                import asyncio
+                import threading
+
+                def _poll_gdrive_token():
+                    asyncio.run(
+                        _gdrive_token_poll(
+                            s.google_drive_client_id,
+                            s.google_drive_client_secret,
+                            device_data["device_code"],
+                            device_data.get("interval", 5),
+                            device_data.get("expires_in", 1800),
+                        )
+                    )
+
+                threading.Thread(target=_poll_gdrive_token, daemon=True).start()
+
+                # Auto-launch the default browser at Google's device-code page.
+                # Best-effort -- headless hosts silently no-op and the user
+                # still sees the URL rendered in the credential form.
+                from mcp_core import try_open_browser
+
+                try_open_browser(device_data["verification_url"])
+
+                return {
+                    "type": "oauth_device_code",
+                    "verification_url": device_data["verification_url"],
+                    "user_code": device_data["user_code"],
+                }
+    except Exception:
+        logger.opt(exception=True).debug(
+            "GDrive device code request failed (non-fatal)"
+        )
+
+    return None
+
+
+async def _gdrive_token_poll(
+    client_id: str,
+    client_secret: str,
+    device_code: str,
+    interval: int,
+    expires_in: int,
+) -> None:
+    """Background poll Google OAuth for device code token completion."""
+    import asyncio
+    import time
+
+    import httpx
+
+    deadline = time.time() + expires_in
+    async with httpx.AsyncClient() as client:
+        while time.time() < deadline:
+            await asyncio.sleep(interval)
+            try:
+                resp = await client.post(
+                    "https://oauth2.googleapis.com/token",
+                    data={
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    },
+                    timeout=15.0,
+                )
+                data = resp.json()
+                if "access_token" in data:
+                    from mnemo_mcp.token_store import save_token
+
+                    save_token("google_drive", data)
+                    logger.info("GDrive OAuth token saved successfully")
+                    logger.info(
+                        "GDrive authorized. Sync will start on next server restart."
+                    )
+                    if _on_gdrive_complete:
+                        try:
+                            _on_gdrive_complete()
+                        except Exception:
+                            logger.opt(exception=True).debug(
+                                "GDrive complete callback failed"
+                            )
+                    return
+                elif data.get("error") == "authorization_pending":
+                    continue
+                elif data.get("error") == "slow_down":
+                    interval += 5
+                else:
+                    logger.warning("GDrive token poll error: {}", data.get("error"))
+                    return
+            except Exception:
+                logger.opt(exception=True).debug("GDrive token poll request failed")
+
+
 def set_state(state: CredentialState) -> None:
     """For testing and setup tool actions."""
     global _state
@@ -297,8 +447,8 @@ def reset_state() -> None:
     _state = CredentialState.AWAITING_SETUP
     _setup_url = None
     try:
-        from mcp_relay_core import clear_mode
-        from mcp_relay_core.storage.config_file import delete_config
+        from mcp_core import clear_mode
+        from mcp_core.storage.config_file import delete_config
 
         clear_mode(SERVER_NAME)
         delete_config(SERVER_NAME)
