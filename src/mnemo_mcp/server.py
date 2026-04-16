@@ -486,8 +486,8 @@ async def _handle_search(
                     reranked_results.append(r)
                 results = reranked_results
                 reranked = True
-        except Exception as e:
-            logger.debug(f"Reranking failed, using original order: {e}")
+        except Exception:
+            logger.exception("Reranking failed, using original order")
 
     # Graph boost: find related memories via entity graph
     if results:
@@ -503,8 +503,8 @@ async def _handle_search(
                 for r in results:
                     if r["id"] in related_set:
                         r["graph_related"] = True
-        except Exception as e:
-            logger.warning(f"Graph boost failed (non-blocking): {e}")
+        except Exception:
+            logger.exception("Graph boost failed (non-blocking)")
 
     response: dict = {
         "count": len(results),
