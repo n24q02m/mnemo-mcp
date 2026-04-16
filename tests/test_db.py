@@ -338,7 +338,7 @@ class TestExportImport:
 
     def test_import_merge(self, tmp_db: MemoryDB):
         data = json.dumps({"id": "test001", "content": "imported memory"})
-        result = tmp_db.import_jsonl(data, mode="merge")
+        result = tmp_db.import_jsonl(data, mode="skip")
         assert result["imported"] == 1
         assert result["skipped"] == 0
         mem = tmp_db.get("test001")
@@ -348,7 +348,7 @@ class TestExportImport:
     def test_import_merge_skips_existing(self, tmp_db: MemoryDB):
         mid = tmp_db.add("original")
         data = json.dumps({"id": mid, "content": "should not replace"})
-        result = tmp_db.import_jsonl(data, mode="merge")
+        result = tmp_db.import_jsonl(data, mode="skip")
         assert result["skipped"] == 1
         assert result["imported"] == 0
         mem = tmp_db.get(mid)
@@ -400,7 +400,7 @@ class TestExportImport:
                 "access_count": 5,
             }
         )
-        tmp_db.import_jsonl(data, mode="merge")
+        tmp_db.import_jsonl(data, mode="skip")
         mem = tmp_db.get("meta1")
         assert mem is not None
         assert mem["category"] == "special"
@@ -415,7 +415,7 @@ class TestExportImport:
             + json.dumps({"id": "a2", "content": "second"})
             + "\n"
         )
-        result = tmp_db.import_jsonl(data, mode="merge")
+        result = tmp_db.import_jsonl(data, mode="skip")
         assert result["imported"] == 2
 
 
