@@ -9,3 +9,7 @@
 ## 2026-04-11 - Graph Traversal Semi-Join Optimization
 **Learning:** When using recursive CTEs to traverse knowledge graphs in SQLite, yielding the same entity across different depths and subsequently `JOIN`ing it against association tables (like `memory_entities`) will exponentially multiply rows for highly-connected networks, bloating the intermediate results before `DISTINCT` can filter them. By replacing the `JOIN` with a Semi-Join using `IN (SELECT entity_id FROM traverse)`, SQLite short-circuits the evaluation and avoids row explosion, yielding ~2.5x speedups on complex graph traversals.
 **Action:** Refactored the final query in `find_related_memory_ids` within `src/mnemo_mcp/graph.py` to use `WHERE entity_id IN (SELECT entity_id FROM traverse)` instead of joining directly on the `traverse` CTE.
+
+## 2026-05-15 - Schema Initialization Refactoring
+**Learning:** Extracting large SQL schema definitions into module-level constants improves readability and maintainability of database initialization methods without affecting performance. Using f-strings for schema composition (e.g., shared column definitions) reduces duplication and ensures consistency across tables.
+**Action:** Extracted the long schema initialization SQL in `db.py` into `_MEMORY_COLUMNS_SQL` and `_SCHEMA_SQL` constants. Refactored `_init_schema` to use these constants, making the method much more concise while preserving existing migration logic and vector table setup.

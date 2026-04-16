@@ -84,6 +84,114 @@ def _build_fts_queries(query: str) -> list[str]:
     ]
 
 
+_MEMORY_COLUMNS_SQL = """
+    id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    tags TEXT NOT NULL DEFAULT '[]',
+    source TEXT,
+    importance REAL NOT NULL DEFAULT 0.5,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_accessed TEXT NOT NULL
+"""
+
+_SCHEMA_SQL = f"""
+    -- Main memories table
+    CREATE TABLE IF NOT EXISTS memories (
+        {_MEMORY_COLUMNS_SQL}
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+    CREATE INDEX IF NOT EXISTS idx_memories_updated ON memories(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(last_accessed);
+
+    -- Bolt Performance Optimization:
+    -- Compound index to eliminate O(N log N) file-sort overhead during
+    -- list_memories pagination queries (WHERE category = ? ORDER BY updated_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_memories_category_updated
+        ON memories(category, updated_at DESC);
+
+    -- FTS5 full-text search (always available)
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+    USING fts5(
+        id UNINDEXED,
+        content,
+        category UNINDEXED,
+        tags,
+        content=memories,
+        content_rowid=rowid,
+        tokenize='porter unicode61'
+    );
+
+    -- FTS5 triggers to keep index in sync
+    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, id, content, tags)
+        VALUES (new.rowid, new.id, new.content, new.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
+        VALUES ('delete', old.rowid, old.id, old.content, old.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
+        VALUES ('delete', old.rowid, old.id, old.content, old.tags);
+        INSERT INTO memories_fts(rowid, id, content, tags)
+        VALUES (new.rowid, new.id, new.content, new.tags);
+    END;
+
+    -- Knowledge graph tables
+    CREATE TABLE IF NOT EXISTS entities (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name_type
+        ON entities(name, entity_type);
+
+    CREATE TABLE IF NOT EXISTS relations (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+        target_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+        relation_type TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique ON relations(source_id, target_id, relation_type);
+
+    CREATE TABLE IF NOT EXISTS memory_entities (
+        memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+        PRIMARY KEY (memory_id, entity_id)
+    );
+
+    -- Bolt Performance Optimization:
+    -- Index on entity_id to eliminate full table scans during knowledge graph
+    -- traversal in find_related_memory_ids. Improves search performance significantly
+    -- as the database grows.
+    CREATE INDEX IF NOT EXISTS idx_memory_entities_entity_id
+        ON memory_entities(entity_id);
+
+    -- Archive table
+    CREATE TABLE IF NOT EXISTS archived_memories (
+        {_MEMORY_COLUMNS_SQL},
+        archived_at TEXT NOT NULL
+    );
+
+    -- Bolt Performance Optimization:
+    -- Index on archived_at DESC to eliminate O(N log N) file-sort overhead during
+    -- list_archived pagination queries.
+    CREATE INDEX IF NOT EXISTS idx_archived_memories_archived_at
+        ON archived_memories(archived_at DESC);
+"""
+
+
 class MemoryDB:
     """SQLite database for persistent AI memories."""
 
@@ -139,124 +247,7 @@ class MemoryDB:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_memories_category
-                ON memories(category);
-            CREATE INDEX IF NOT EXISTS idx_memories_updated
-                ON memories(updated_at);
-            CREATE INDEX IF NOT EXISTS idx_memories_accessed
-                ON memories(last_accessed);
-
-            -- Bolt Performance Optimization:
-            -- Compound index to eliminate O(N log N) file-sort overhead during
-            -- list_memories pagination queries (WHERE category = ? ORDER BY updated_at DESC)
-            CREATE INDEX IF NOT EXISTS idx_memories_category_updated
-                ON memories(category, updated_at DESC);
-        """)
-
-        # FTS5 full-text search (always available)
-        self._conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-            USING fts5(
-                id UNINDEXED,
-                content,
-                category UNINDEXED,
-                tags,
-                content=memories,
-                content_rowid=rowid,
-                tokenize='porter unicode61'
-            )
-        """)
-
-        # FTS5 triggers to keep index in sync
-        self._conn.executescript("""
-            CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, id, content, tags)
-                VALUES ('delete', old.rowid, old.id, old.content, old.tags);
-                INSERT INTO memories_fts(rowid, id, content, tags)
-                VALUES (new.rowid, new.id, new.content, new.tags);
-            END;
-        """)
-
-        # Knowledge graph tables
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS entities (
-                id TEXT PRIMARY KEY NOT NULL,
-                name TEXT NOT NULL,
-                entity_type TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_name_type
-                ON entities(name, entity_type);
-
-            CREATE TABLE IF NOT EXISTS relations (
-                id TEXT PRIMARY KEY NOT NULL,
-                source_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-                target_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-                relation_type TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
-            CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique ON relations(source_id, target_id, relation_type);
-
-            CREATE TABLE IF NOT EXISTS memory_entities (
-                memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-                entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-                PRIMARY KEY (memory_id, entity_id)
-            );
-
-            -- Bolt Performance Optimization:
-            -- Index on entity_id to eliminate full table scans during knowledge graph
-            -- traversal in find_related_memory_ids. Improves search performance significantly
-            -- as the database grows.
-            CREATE INDEX IF NOT EXISTS idx_memory_entities_entity_id
-                ON memory_entities(entity_id);
-
-            -- Archive table
-            CREATE TABLE IF NOT EXISTS archived_memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                importance REAL NOT NULL DEFAULT 0.5,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL,
-                archived_at TEXT NOT NULL
-            );
-
-            -- Bolt Performance Optimization:
-            -- Index on archived_at DESC to eliminate O(N log N) file-sort overhead during
-            -- list_archived pagination queries.
-            CREATE INDEX IF NOT EXISTS idx_archived_memories_archived_at
-                ON archived_memories(archived_at DESC);
-        """)
+        self._conn.executescript(_SCHEMA_SQL)
 
         # Add importance column to memories (migration for existing DBs)
         try:
@@ -267,7 +258,6 @@ class MemoryDB:
             pass  # Column already exists
 
         self._ensure_vec_table(self._embedding_dims)
-
         self._conn.commit()
 
     def _ensure_vec_table(self, dims: int) -> None:
