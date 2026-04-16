@@ -62,6 +62,7 @@ def test_update_security_extended(tmp_db: MemoryDB):
     # Verify we can update new fields
     tmp_db.update(mid, source="new source", importance=0.8)
     mem = tmp_db.get(mid)
+    assert mem is not None
     assert mem["source"] == "new source"
     assert mem["importance"] == 0.8
 
@@ -73,5 +74,6 @@ def test_update_security_extended(tmp_db: MemoryDB):
     malicious_val = "ignored' --"
     tmp_db.update(mid, category=malicious_val)
     mem = tmp_db.get(mid)
+    assert mem is not None
     assert mem["category"] == malicious_val
     assert mem["content"] == "original content"
