@@ -84,6 +84,18 @@ def _build_fts_queries(query: str) -> list[str]:
     ]
 
 
+_MEMORY_COLUMNS_SQL = """                id TEXT PRIMARY KEY NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'general',
+                tags TEXT NOT NULL DEFAULT '[]',
+                source TEXT,
+                importance REAL NOT NULL DEFAULT 0.5,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed TEXT NOT NULL"""
+
+
 class MemoryDB:
     """SQLite database for persistent AI memories."""
 
@@ -139,17 +151,9 @@ class MemoryDB:
 
     def _init_schema(self) -> None:
         """Initialize database schema."""
-        self._conn.executescript("""
+        self._conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL
+                {_MEMORY_COLUMNS_SQL}
             );
 
             CREATE INDEX IF NOT EXISTS idx_memories_category
@@ -201,7 +205,7 @@ class MemoryDB:
         """)
 
         # Knowledge graph tables
-        self._conn.executescript("""
+        self._conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS entities (
                 id TEXT PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
@@ -238,16 +242,7 @@ class MemoryDB:
 
             -- Archive table
             CREATE TABLE IF NOT EXISTS archived_memories (
-                id TEXT PRIMARY KEY NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'general',
-                tags TEXT NOT NULL DEFAULT '[]',
-                source TEXT,
-                importance REAL NOT NULL DEFAULT 0.5,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TEXT NOT NULL,
+                {_MEMORY_COLUMNS_SQL},
                 archived_at TEXT NOT NULL
             );
 
