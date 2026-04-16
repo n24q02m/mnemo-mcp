@@ -795,16 +795,23 @@ class MemoryDB:
         if isinstance(data, dict):
             return [data], 0
         if isinstance(data, str):
-            # Check if it's a file path
+            data_str = data.strip()
+            if not data_str:
+                return [], 0
+
+            # Heuristic: if it starts with { or [, it is JSON, not a file path.
+            is_json = data_str.startswith(("{", "["))
+
             try:
-                # If it doesn't look like JSONL (no newlines) and exists as a file
-                if "\n" not in data.strip() and Path(data).exists():
-                    with open(data) as f:
+                # If it doesn't look like JSON and exists as a file
+                if not is_json and Path(data_str).exists():
+                    with open(data_str) as f:
                         lines = f.readlines()
                 else:
-                    lines = data.strip().split("\n")
+                    lines = data_str.splitlines()
             except Exception:
-                return [], 1
+                # Fallback to splitting if Path() raised OSError (e.g. string too long)
+                lines = data_str.splitlines()
 
             items = []
             for line in lines:
@@ -816,6 +823,7 @@ class MemoryDB:
                 except Exception:
                     rejected += 1
             return items, rejected
+        return [], 0
         return [], 0
 
     def _process_import_batch(
