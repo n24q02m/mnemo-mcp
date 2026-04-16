@@ -257,3 +257,33 @@ class TestGetTokenPath:
             m.get_data_dir.return_value = token_dir.parent
             path = get_token_path("drive")
         assert path == token_dir / "drive.json"
+
+
+@pytest.mark.asyncio
+class TestAsyncTokenStore:
+    async def test_async_save_load_token(self, token_dir):
+        from mnemo_mcp.token_store import async_load_token, async_save_token
+
+        token = {"access_token": "async_test", "token_type": "Bearer"}
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            await async_save_token("async_drive", token)
+
+            result = await async_load_token("async_drive")
+
+        assert result == token
+
+    async def test_async_delete_token(self, token_dir):
+        from mnemo_mcp.token_store import async_delete_token, async_save_token
+
+        token = {"access_token": "to_delete"}
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            await async_save_token("delete_me", token)
+
+            deleted = await async_delete_token("delete_me")
+            assert deleted is True
+
+            # Second delete should be False
+            deleted_again = await async_delete_token("delete_me")
+            assert deleted_again is False

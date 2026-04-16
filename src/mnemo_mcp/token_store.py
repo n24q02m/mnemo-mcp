@@ -13,6 +13,7 @@ Token lifecycle:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import stat
@@ -104,3 +105,18 @@ def delete_token(provider: str) -> bool:
         logger.info(f"Token deleted: {path}")
         return True
     return False
+
+
+async def async_load_token(provider: str) -> dict | None:
+    """Asynchronously load stored OAuth token for a provider."""
+    return await asyncio.to_thread(load_token, provider)
+
+
+async def async_save_token(provider: str, token: dict) -> None:
+    """Asynchronously save OAuth token to local storage."""
+    await asyncio.to_thread(save_token, provider, token)
+
+
+async def async_delete_token(provider: str) -> bool:
+    """Asynchronously delete a stored token."""
+    return await asyncio.to_thread(delete_token, provider)

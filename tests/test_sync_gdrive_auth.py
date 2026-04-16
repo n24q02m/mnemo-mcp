@@ -22,20 +22,22 @@ from mnemo_mcp.sync import (
 
 
 class TestTokenWrappers:
-    def test_load_token_delegates_to_store(self):
+    async def test_load_token_delegates_to_store(self):
         """_load_token calls token_store.load_token with 'google_drive'."""
         with patch(
             "mnemo_mcp.token_store.load_token", return_value={"access_token": "abc"}
         ) as mock:
-            result = _load_token()
+            result = await _load_token()
             assert result == {"access_token": "abc"}
             mock.assert_called_once_with("google_drive")
 
-    def test_save_token_delegates_to_store(self):
+    async def test_save_token_delegates_to_store(self):
         """_save_token calls token_store.save_token with 'google_drive'."""
         token = {"access_token": "xyz"}
-        with patch("mnemo_mcp.token_store.save_token") as mock:
-            _save_token(token)
+        with patch(
+            "mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock
+        ) as mock:
+            await _save_token(token)
             mock.assert_called_once_with("google_drive", token)
 
 
