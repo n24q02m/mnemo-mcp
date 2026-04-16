@@ -106,6 +106,7 @@ def delete_token(provider: str) -> bool:
         return True
     return False
 
+
 async def async_load_token(provider: str) -> dict | None:
     """Load stored OAuth token for a provider asynchronously."""
     return await asyncio.to_thread(load_token, provider)

@@ -258,6 +258,7 @@ class TestGetTokenPath:
             path = get_token_path("drive")
         assert path == token_dir / "drive.json"
 
+
 class TestAsyncTokenStore:
     @pytest.mark.asyncio
     async def test_async_load_valid_token(self, token_dir):

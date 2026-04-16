@@ -25,7 +25,9 @@ class TestTokenWrappers:
     async def test_load_token_delegates_to_store(self):
         """_load_token calls token_store.load_token with 'google_drive'."""
         with patch(
-            "mnemo_mcp.token_store.async_load_token", new_callable=AsyncMock, return_value={"access_token": "abc"}
+            "mnemo_mcp.token_store.async_load_token",
+            new_callable=AsyncMock,
+            return_value={"access_token": "abc"},
         ) as mock:
             result = await _load_token()
             assert result == {"access_token": "abc"}
@@ -34,7 +36,9 @@ class TestTokenWrappers:
     async def test_save_token_delegates_to_store(self):
         """_save_token calls token_store.save_token with 'google_drive'."""
         token = {"access_token": "xyz"}
-        with patch("mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock) as mock:
+        with patch(
+            "mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock
+        ) as mock:
             await _save_token(token)
             mock.assert_called_once_with("google_drive", token)
 
@@ -535,7 +539,11 @@ class TestSyncFullMergeSuccess:
 
         with (
             patch("mnemo_mcp.sync.settings") as mock_settings,
-            patch("mnemo_mcp.sync._has_token_available", new_callable=AsyncMock, return_value=True),
+            patch(
+                "mnemo_mcp.sync._has_token_available",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
             patch(
                 "mnemo_mcp.sync._get_valid_token",
                 new_callable=AsyncMock,
