@@ -1,0 +1,7 @@
+<<<<<<< SEARCH
+                vec_sql += " AND k = ?"
+                vec_params.append(limit * 3)
+=======
+                vec_sql += " AND k = ? ORDER BY distance"
+                vec_params.append(limit * 3)
+>>>>>>> REPLACE
