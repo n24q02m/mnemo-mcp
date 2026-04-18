@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from mnemo_mcp.db import MemoryDB
@@ -24,12 +26,7 @@ def test_import_jsonl_modes(db):
 
     # Merge mode (update existing)
     merge_data = [
-        {
-            "id": "1",
-            "content": "Memory 1 Updated",
-            "category": "cat1",
-            "importance": 0.9,
-        },
+        {"id": "1", "content": "Memory 1 Updated", "category": "cat1", "importance": 0.9},
         {"id": "3", "content": "Memory 3", "category": "cat3", "importance": 0.3},
     ]
     db.import_jsonl(merge_data, mode="merge")
@@ -42,12 +39,7 @@ def test_import_jsonl_modes(db):
 
     # Skip mode (ignore existing)
     skip_data = [
-        {
-            "id": "2",
-            "content": "Memory 2 Updated",
-            "category": "cat2",
-            "importance": 0.8,
-        },
+        {"id": "2", "content": "Memory 2 Updated", "category": "cat2", "importance": 0.8},
         {"id": "4", "content": "Memory 4", "category": "cat4", "importance": 0.4},
     ]
     db.import_jsonl(skip_data, mode="skip")
@@ -72,14 +64,6 @@ def test_import_jsonl_string(db):
     db.import_jsonl(jsonl_data, mode="replace")
     assert len(db.list_memories()) == 2
     assert db.get("1")["content"] == "String Memory"
-
-
-def test_import_jsonl_file(db, tmp_path):
-    p = tmp_path / "data.jsonl"
-    p.write_text('{"id": "1", "content": "File Memory"}\n')
-    db.import_jsonl(str(p), mode="replace")
-    assert len(db.list_memories()) == 1
-    assert db.get("1")["content"] == "File Memory"
 
 
 def test_import_jsonl_rejected(db):
