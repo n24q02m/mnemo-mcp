@@ -424,7 +424,6 @@ class TestHasGGUFSupport:
             assert _has_gguf_support() is False
 
 
-
 @pytest.fixture(autouse=True)
 def clear_caches():
     _detect_gpu.cache_clear()
