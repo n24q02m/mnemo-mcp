@@ -536,7 +536,7 @@ async def _handle_list(
         category=category,
         limit=limit,
     )
-    response = {
+    response: dict = {
         "count": len(results),
         "results": [_format_memory(r) for r in results],
     }
@@ -684,7 +684,7 @@ async def _handle_archived(
         limit = max(1, min(limit, 100))
 
     results = await asyncio.to_thread(db.list_archived, limit)
-    response = {
+    response: dict = {
         "count": len(results),
         "results": results,
     }
