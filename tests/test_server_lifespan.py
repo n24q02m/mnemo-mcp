@@ -205,7 +205,7 @@ class TestConfigActions:
         assert "error" in result
         assert "Unknown action" in result["error"]
         assert "valid_actions" in result
-        assert "suggestion" in result
+        assert "suggestion" not in result
 
     async def test_config_unknown_action_no_match(self, ctx_with_db):
         """Config with completely invalid action returns error without suggestion."""
@@ -228,7 +228,7 @@ class TestHelpTool:
         assert "error" in result
         assert "Unknown topic" in result["error"]
         assert "valid_topics" in result
-        assert "suggestion" in result
+        assert "suggestion" not in result
 
     async def test_help_no_match(self):
         """Completely invalid topic returns error without suggestion."""
