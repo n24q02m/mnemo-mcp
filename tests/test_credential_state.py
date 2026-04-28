@@ -188,9 +188,7 @@ class TestResolveCredentialState:
                 "mcp_core.storage.config_file.read_config",
                 return_value=mock_config,
             ),
-            patch(
-                "mcp_core.storage.config_file.write_config"
-            ) as mock_write,
+            patch("mcp_core.storage.config_file.write_config") as mock_write,
         ):
             result = resolve_credential_state()
             assert result == CredentialState.CONFIGURED
