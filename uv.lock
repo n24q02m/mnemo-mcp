@@ -842,7 +842,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "1.23.0"
+version = "1.24.0"
 source = { editable = "." }
 dependencies = [
     { name = "cohere" },
