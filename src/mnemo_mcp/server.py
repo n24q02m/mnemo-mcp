@@ -924,10 +924,16 @@ async def memory(
 
 @mcp.tool(
     description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
-        "status: show config. sync: manual sync. set: change setting. "
-        "warmup: pre-download embedding model (~570 MB). "
-        "setup_sync: authenticate Google Drive via Device Code OAuth."
+        "Server configuration, sync control, and setup. Actions: status|sync|set|warmup|setup_sync.\n"
+        "\n"
+        "ACTION GUIDE — when to use each:\n"
+        "- status: Show current config (database stats, embedding model info, sync status).\n"
+        "- sync: Trigger manual Google Drive sync. Requires 'sync_enabled' = true and 'google_drive_client_id'.\n"
+        "- set: Update a configuration value. Requires 'key' and 'value'. Changes persist for the current session.\n"
+        "  Valid keys: 'sync_enabled' (true/false), 'sync_interval' (seconds, 0=manual), 'log_level' (DEBUG/INFO/WARNING/ERROR).\n"
+        "  Example: action='set', key='log_level', value='DEBUG'\n"
+        "- warmup: Pre-download embedding model (~570 MB) to avoid first-run delays. Validates API keys if present.\n"
+        "- setup_sync: Authenticate Google Drive via Device Code OAuth flow. Follow the provided URL and code."
     ),
     annotations=ToolAnnotations(
         title="Config",
@@ -946,9 +952,10 @@ async def config(
     """Server configuration, sync control, and setup.
 
     Actions:
-    - status: Show current config
-    - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
-    - set: Update setting (key + value required)
+    - status: Show current config (database stats, embedding model info, sync status)
+    - sync: Trigger manual Google Drive sync. Requires sync_enabled + google_drive_client_id
+    - set: Update a configuration value. Requires 'key' and 'value'. Valid keys:
+      sync_enabled, sync_interval, log_level. Example: action='set', key='sync_interval', value='300'
     - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
     - setup_sync: Authenticate Google Drive via Device Code OAuth flow
     """
@@ -1116,7 +1123,12 @@ async def _handle_config_setup_sync() -> str:
 async def _handle_config_setup_status() -> str:
     from mcp_core.storage.per_plugin_store import PerPluginStore
 
-    from mnemo_mcp.credential_state import CLOUD_KEYS, CredentialState, get_setup_url, get_state
+    from mnemo_mcp.credential_state import (
+        CLOUD_KEYS,
+        CredentialState,
+        get_setup_url,
+        get_state,
+    )
 
     # Derive providers_configured from live PerPluginStore load + env
     # so status is accurate even if module-level _state is stale.
