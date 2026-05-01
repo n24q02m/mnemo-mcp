@@ -20,6 +20,7 @@ that is reserved for explicit ``MCP_MODE`` HTTP deployments. See
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -297,7 +298,8 @@ def _sub_data_dir(sub: str) -> Path:
     directory so credentials never bleed across users.
     """
     base = Path(os.environ.get("MNEMO_DATA_DIR", str(Path.home() / ".mnemo-mcp")))
-    d = base / "subs" / sub
+    sub_hash = hashlib.sha256(sub.encode("utf-8")).hexdigest()
+    d = base / "subs" / sub_hash
     d.mkdir(parents=True, exist_ok=True)
     return d
 

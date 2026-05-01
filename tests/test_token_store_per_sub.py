@@ -27,16 +27,22 @@ def data_dir(tmp_path):
 
 class TestPerSubPaths:
     def test_token_dir_for_sub_uses_subs_layout(self, data_dir):
+        import hashlib
+
         from mnemo_mcp.token_store import _get_token_dir_for_sub
 
         path = _get_token_dir_for_sub("sub-abc")
-        assert path == data_dir / "subs" / "sub-abc" / "tokens"
+        sub_hash = hashlib.sha256(b"sub-abc").hexdigest()
+        assert path == data_dir / "subs" / sub_hash / "tokens"
 
     def test_token_path_for_sub_includes_provider(self, data_dir):
+        import hashlib
+
         from mnemo_mcp.token_store import get_token_path_for_sub
 
         path = get_token_path_for_sub("sub-abc", "google_drive")
-        assert path == data_dir / "subs" / "sub-abc" / "tokens" / "google_drive.json"
+        sub_hash = hashlib.sha256(b"sub-abc").hexdigest()
+        assert path == data_dir / "subs" / sub_hash / "tokens" / "google_drive.json"
 
 
 class TestSaveTokenForSub:
