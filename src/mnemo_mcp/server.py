@@ -1116,12 +1116,7 @@ async def _handle_config_setup_sync() -> str:
 async def _handle_config_setup_status() -> str:
     from mcp_core.storage.per_plugin_store import PerPluginStore
 
-    from mnemo_mcp.credential_state import (
-        CLOUD_KEYS,
-        CredentialState,
-        get_setup_url,
-        get_state,
-    )
+    from mnemo_mcp.credential_state import CLOUD_KEYS, CredentialState, get_setup_url, get_state
 
     # Derive providers_configured from live PerPluginStore load + env
     # so status is accurate even if module-level _state is stale.
