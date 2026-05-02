@@ -925,10 +925,15 @@ async def memory(
 
 @mcp.tool(
     description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync. "
-        "status: show config. sync: manual sync. set: change setting. "
-        "warmup: pre-download embedding model (~570 MB). "
-        "setup_sync: authenticate Google Drive via Device Code OAuth."
+        "Server configuration, sync control, and setup.\n"
+        "\n"
+        "ACTION GUIDE — when to use each:\n"
+        "- status: Show current config and setup state.\n"
+        "- sync: Trigger manual Google Drive sync. Requires 'sync_enabled' = true.\n"
+        "- set: Update a setting. Requires 'key' and 'value'.\n"
+        "  Valid keys: 'sync_enabled' (true/false), 'sync_interval' (seconds), 'log_level' (TRACE/DEBUG/INFO/WARNING/ERROR).\n"
+        "- warmup: Pre-download the local embedding model (~570 MB) to avoid first-run delays.\n"
+        "- setup_sync: Authenticate Google Drive via Device Code OAuth flow.\n"
     ),
     annotations=ToolAnnotations(
         title="Config",
@@ -949,7 +954,7 @@ async def config(
     Actions:
     - status: Show current config
     - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
-    - set: Update setting (key + value required)
+    - set: Update setting (key + value required). Valid keys: 'sync_enabled', 'sync_interval', 'log_level'
     - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
     - setup_sync: Authenticate Google Drive via Device Code OAuth flow
     """
