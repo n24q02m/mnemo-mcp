@@ -842,7 +842,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "1.25.0b8"
+version = "1.25.0b5"
 source = { editable = "." }
 dependencies = [
     { name = "cohere" },
@@ -879,7 +879,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "loguru" },
     { name = "mcp", extras = ["cli"] },
-    { name = "n24q02m-mcp-core", specifier = ">=1.13.0b9" },
+    { name = "n24q02m-mcp-core", specifier = ">=1.13.0b4" },
     { name = "openai", specifier = ">=2.33.0" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -921,7 +921,7 @@ wheels = [
 
 [[package]]
 name = "n24q02m-mcp-core"
-version = "1.13.0b9"
+version = "1.13.0b5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -935,9 +935,9 @@ dependencies = [
     { name = "starlette" },
     { name = "tomli-w" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/83/62231d50dc150328f58c78fac135962e5a7641a00035d1e2b332d7b340a2/n24q02m_mcp_core-1.13.0b9.tar.gz", hash = "sha256:45ca969044f84a06db37d54705f03928dfaf53fd23ab3d13b4e59b86a70e4f3f", size = 192382, upload-time = "2026-05-03T14:27:54.192Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/5a/34fb2a2494e9d00edd041a1054bb814eb9ed76da8868d3b21c9d98803187/n24q02m_mcp_core-1.13.0b5.tar.gz", hash = "sha256:467b3eabbfb8c2a87262288ef3eed35c11f635b4b37ea0de79237bb450cec8eb", size = 185546, upload-time = "2026-05-02T06:52:04.834Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/89/7fac8548690857aa6932af2987a9ff19bce595cc975b890c8d83eff27381/n24q02m_mcp_core-1.13.0b9-py3-none-any.whl", hash = "sha256:32ebc4b96b12b8c033bf0f50a938c891020e393a67e5bebde6944f6d4a555eae", size = 123359, upload-time = "2026-05-03T14:27:55.796Z" },
+    { url = "https://files.pythonhosted.org/packages/20/64/b7cfff730a47b9520d7a8cbe39f8362cbe517c06828639fd0e0331f3c246/n24q02m_mcp_core-1.13.0b5-py3-none-any.whl", hash = "sha256:db0d395aefdb5c5d6599bf93f90da9c21c225c36c10f84703a5357a4fce018d7", size = 118638, upload-time = "2026-05-02T06:52:06.14Z" },
 ]
 
 [[package]]

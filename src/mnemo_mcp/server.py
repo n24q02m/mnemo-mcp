@@ -12,7 +12,7 @@ import asyncio
 import json
 import os
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib import resources as pkg_resources
 
@@ -925,14 +925,15 @@ async def memory(
 
 @mcp.tool(
     description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync.\n"
+        "Server configuration, sync control, and setup.\n"
         "\n"
         "ACTION GUIDE — when to use each:\n"
-        "- status: Show current config.\n"
-        "- sync: Trigger manual Google Drive sync.\n"
-        "- set: Update setting. Requires 'key' and 'value'. Valid keys: 'sync_enabled', 'sync_interval', 'log_level'.\n"
-        "- warmup: Pre-download embedding model (~570 MB).\n"
-        "- setup_sync: Authenticate Google Drive via Device Code OAuth."
+        "- status: Show current config and setup state.\n"
+        "- sync: Trigger manual Google Drive sync. Requires 'sync_enabled' = true.\n"
+        "- set: Update a setting. Requires 'key' and 'value'.\n"
+        "  Valid keys: 'sync_enabled' (true/false), 'sync_interval' (seconds), 'log_level' (TRACE/DEBUG/INFO/WARNING/ERROR).\n"
+        "- warmup: Pre-download the local embedding model (~570 MB) to avoid first-run delays.\n"
+        "- setup_sync: Authenticate Google Drive via Device Code OAuth flow.\n"
     ),
     annotations=ToolAnnotations(
         title="Config",
@@ -953,7 +954,7 @@ async def config(
     Actions:
     - status: Show current config
     - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
-    - set: Update setting (key + value required)
+    - set: Update setting (key + value required). Valid keys: 'sync_enabled', 'sync_interval', 'log_level'
     - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
     - setup_sync: Authenticate Google Drive via Device Code OAuth flow
     """
@@ -1124,26 +1125,15 @@ async def _handle_config_setup_status() -> str:
     from mnemo_mcp.credential_state import (
         CLOUD_KEYS,
         CredentialState,
-        credentials_for_current_request,
-        get_current_sub,
         get_setup_url,
         get_state,
     )
 
-    # In HTTP multi-user remote mode the per-request JWT sub is set; resolve
-    # cred providers from the per-sub config so status reflects the *caller*,
-    # not the shared host process env. Stdio + single-user HTTP keep the
-    # legacy env + PerPluginStore derivation.
-    if get_current_sub() is not None:
-        _per_sub = credentials_for_current_request()
-        _env_keys: list[str] = []
-        _store_keys = [k for k in CLOUD_KEYS if _per_sub.get(k)]
-    else:
-        # Derive providers_configured from live PerPluginStore load + env
-        # so status is accurate even if module-level _state is stale.
-        _saved = PerPluginStore("mnemo").load() or {}
-        _env_keys = [k for k in CLOUD_KEYS if os.environ.get(k)]
-        _store_keys = [k for k in CLOUD_KEYS if _saved.get(k)]
+    # Derive providers_configured from live PerPluginStore load + env
+    # so status is accurate even if module-level _state is stale.
+    _saved = PerPluginStore("mnemo").load() or {}
+    _env_keys = [k for k in CLOUD_KEYS if os.environ.get(k)]
+    _store_keys = [k for k in CLOUD_KEYS if _saved.get(k)]
     _providers = list(dict.fromkeys(_env_keys + _store_keys))
     if _providers:
         _derived_state = "configured"
@@ -1358,7 +1348,6 @@ async def run_http(port: int = 0) -> None:
     from mcp_core.transport.local_server import run_http_server
 
     from mnemo_mcp.credential_state import (
-        _current_sub,
         save_credentials,
         wire_gdrive_callbacks,
     )
@@ -1378,21 +1367,6 @@ async def run_http(port: int = 0) -> None:
     else:
         host = "127.0.0.1"
 
-    # HTTP multi-user remote mode (PUBLIC_URL set) wires an auth_scope
-    # middleware that pins the decoded JWT ``sub`` into a contextvar for the
-    # duration of the request so per-tool-call credential lookups can resolve
-    # against ``$MNEMO_DATA_DIR/subs/<sub>/config.json`` instead of process
-    # environment. Single-user HTTP (PUBLIC_URL unset) keeps the existing
-    # env-driven flow untouched.
-    async def _per_request_sub_scope(
-        claims: dict, next_: Callable[[], Awaitable[None]]
-    ) -> None:
-        token = _current_sub.set(claims.get("sub"))
-        try:
-            await next_()
-        finally:
-            _current_sub.reset(token)
-
     await run_http_server(
         mcp,  # ty: ignore[invalid-argument-type]
         server_name="mnemo-mcp",
@@ -1405,7 +1379,6 @@ async def run_http(port: int = 0) -> None:
         # /setup-status poll instead of leaving the form stuck on
         # "Waiting for authorization..." forever. Accepts legacy 1-arg core.
         setup_complete_hook=wire_gdrive_callbacks,
-        auth_scope=_per_request_sub_scope if public_url else None,
     )
 
 
