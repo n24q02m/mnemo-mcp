@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hashlib
 import json
 import os
 import sys
@@ -306,7 +307,8 @@ def _sub_data_dir(sub: str) -> Path:
     directory so credentials never bleed across users.
     """
     base = Path(os.environ.get("MNEMO_DATA_DIR", str(Path.home() / ".mnemo-mcp")))
-    d = base / "subs" / sub
+    hashed_sub = hashlib.sha256(sub.encode("utf-8")).hexdigest()
+    d = base / "subs" / hashed_sub
     d.mkdir(parents=True, exist_ok=True)
     return d
 

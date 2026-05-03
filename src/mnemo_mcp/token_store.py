@@ -14,6 +14,7 @@ Token lifecycle:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import stat
@@ -46,7 +47,8 @@ def _get_token_dir_for_sub(sub: str) -> Path:
     JWT ``sub`` so user A's GDrive refresh-token is not visible to
     user B sharing the same mnemo-mcp deployment.
     """
-    return settings.get_data_dir() / "subs" / sub / "tokens"
+    hashed_sub = hashlib.sha256(sub.encode("utf-8")).hexdigest()
+    return settings.get_data_dir() / "subs" / hashed_sub / "tokens"
 
 
 def get_token_path_for_sub(sub: str, provider: str) -> Path:
