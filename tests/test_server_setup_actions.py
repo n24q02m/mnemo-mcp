@@ -139,7 +139,7 @@ class TestSetupReset:
 
         with (
             patch("mcp_core.clear_mode"),
-            patch("mcp_core.storage.config_file.delete_config"),
+            patch("mcp_core.storage.per_plugin_store.PerPluginStore"),
         ):
             result = json.loads(await config(action="setup_reset", ctx=ctx))
 
