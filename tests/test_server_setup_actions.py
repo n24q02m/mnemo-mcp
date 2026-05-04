@@ -54,7 +54,7 @@ class TestSetupStatus:
         ):
             result = json.loads(await config(action="setup_status", ctx=ctx))
 
-        assert result["state"] == "configured"
+        assert result["state"] == CredentialState.CONFIGURED.value
         assert result["setup_url"] == "https://setup.url"
         assert "cloud_keys_in_env" in result
 
@@ -165,7 +165,7 @@ class TestSetupComplete:
             result = json.loads(await config(action="setup_complete", ctx=ctx))
 
         assert result["status"] == "ok"
-        assert result["state"] == "configured"
+        assert result["state"] == CredentialState.CONFIGURED.value
 
     @patch(
         "mnemo_mcp.server.asyncio.to_thread",
@@ -211,7 +211,7 @@ class TestSetupComplete:
             result = json.loads(await config(action="setup_complete", ctx=ctx))
 
         assert result["status"] == "ok"
-        assert result["state"] == "local"
+        assert result["state"] == CredentialState.LOCAL.value
 
 
 # ---------------------------------------------------------------------------
