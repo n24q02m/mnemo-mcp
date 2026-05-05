@@ -26,8 +26,6 @@ def data_dir(tmp_path):
         yield tmp_path
 
 
-
-
 class TestPerSubPaths:
     def test_token_dir_for_sub_uses_subs_layout(self, data_dir):
         from mnemo_mcp.token_store import _get_token_dir_for_sub
@@ -41,7 +39,9 @@ class TestPerSubPaths:
 
         path = get_token_path_for_sub("sub-abc", "google_drive")
         expected_hash = hashlib.sha256(b"sub-abc").hexdigest()
-        assert path == data_dir / "subs" / expected_hash / "tokens" / "google_drive.json"
+        assert (
+            path == data_dir / "subs" / expected_hash / "tokens" / "google_drive.json"
+        )
 
 
 class TestSaveTokenForSub:
