@@ -23,7 +23,11 @@ def test_credential_state_sub_path_traversal(tmp_path, monkeypatch):
 def test_token_store_sub_path_traversal(tmp_path, monkeypatch):
     from mnemo_mcp.config import settings
 
-    monkeypatch.setattr(settings, "get_data_dir", lambda: tmp_path)
+    # We must not monkeypatch methods on Pydantic models with validate_assignment=True.
+    # Instead, we set the field that the method depends on.
+    # Settings.get_data_dir() returns Settings.get_db_path().parent.
+    # Settings.get_db_path() returns Path(Settings.db_path) if set.
+    monkeypatch.setattr(settings, "db_path", str(tmp_path / "fake" / "memories.db"))
 
     # Malicious sub
     malicious_sub = "../../../outside"
@@ -31,7 +35,8 @@ def test_token_store_sub_path_traversal(tmp_path, monkeypatch):
 
     # Verification
     expected_hash = hashlib.sha256(malicious_sub.encode("utf-8")).hexdigest()
-    assert d == tmp_path / "subs" / expected_hash / "tokens"
+    # d should be tmp_path / "fake" / "subs" / expected_hash / "tokens"
+    assert d == tmp_path / "fake" / "subs" / expected_hash / "tokens"
     assert "outside" not in str(d)
     assert ".." not in str(d)
-    assert str(d).startswith(str(tmp_path / "subs"))
+    assert str(d).startswith(str(tmp_path / "fake" / "subs"))
