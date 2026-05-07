@@ -10,8 +10,9 @@ load + env, and always includes providers_configured in the response.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -22,8 +23,7 @@ def _call_config_setup_status_sync() -> dict[str, Any]:
 
     from mnemo_mcp.server import _handle_config_setup_status
 
-    ctx = MagicMock()
-    raw = asyncio.run(_handle_config_setup_status(ctx))
+    raw = asyncio.run(_handle_config_setup_status())
     return json.loads(raw)
 
 
