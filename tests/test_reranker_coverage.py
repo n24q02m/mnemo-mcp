@@ -5,7 +5,7 @@ _strip_provider, CloudReranker Jina backend, CloudReranker._check_jina,
 CloudReranker._check_cohere, Qwen3Reranker lazy load.
 """
 
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
