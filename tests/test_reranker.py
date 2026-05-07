@@ -1,6 +1,6 @@
 """Tests for mnemo_mcp.reranker -- dual-backend reranking."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,7 +25,8 @@ def _reset_reranker_backend():
 
 
 class TestCohereReranker:
-    def test_rerank_success(self):
+    @pytest.mark.asyncio
+    async def test_rerank_success(self):
         """Cohere reranker returns sorted (index, score) tuples."""
         reranker = CohereReranker(api_key="test-key")
 
@@ -44,18 +45,21 @@ class TestCohereReranker:
         mock_response = MagicMock()
         mock_response.results = [mock_result_0, mock_result_1, mock_result_2]
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
-            results = reranker.rerank("test query", ["doc0", "doc1", "doc2"], top_n=2)
+            results = await reranker.rerank(
+                "test query", ["doc0", "doc1", "doc2"], top_n=2
+            )
 
         assert len(results) == 2
         assert results[0] == (1, 0.9)
         assert results[1] == (2, 0.6)
 
-    def test_rerank_with_dict_results(self):
+    @pytest.mark.asyncio
+    async def test_rerank_with_dict_results(self):
         """Cohere reranker handles dict-style results."""
         reranker = CohereReranker(api_key="test-key")
 
@@ -65,70 +69,75 @@ class TestCohereReranker:
             {"index": 1, "relevance_score": 0.5},
         ]
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
-            results = reranker.rerank("query", ["doc0", "doc1"])
+            results = await reranker.rerank("query", ["doc0", "doc1"])
 
         assert results[0] == (0, 0.8)
         assert results[1] == (1, 0.5)
 
-    def test_rerank_empty_docs(self):
+    @pytest.mark.asyncio
+    async def test_rerank_empty_docs(self):
         """Empty documents list returns empty results."""
         reranker = CohereReranker(api_key="test-key")
-        results = reranker.rerank("query", [])
+        results = await reranker.rerank("query", [])
         assert results == []
 
-    def test_rerank_failure_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_rerank_failure_returns_empty(self):
         """Reranker returns empty list on failure (never raises)."""
         reranker = CohereReranker(api_key="test-key")
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.side_effect = Exception("API error")
             mock_client_cls.return_value = mock_client
 
-            results = reranker.rerank("query", ["doc"])
+            results = await reranker.rerank("query", ["doc"])
 
         assert results == []
 
-    def test_check_available_success(self):
+    @pytest.mark.asyncio
+    async def test_check_available_success(self):
         """check_available returns True when API responds."""
         reranker = CohereReranker(api_key="test-key")
 
         mock_response = MagicMock()
         mock_response.results = [MagicMock()]
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
-            assert reranker.check_available() is True
+            assert await reranker.check_available() is True
 
-    def test_check_available_failure(self):
+    @pytest.mark.asyncio
+    async def test_check_available_failure(self):
         """check_available returns False on API failure."""
         reranker = CohereReranker(api_key="test-key")
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.side_effect = Exception("connection error")
             mock_client_cls.return_value = mock_client
 
-            assert reranker.check_available() is False
+            assert await reranker.check_available() is False
 
-    def test_check_available_auth_error(self):
+    @pytest.mark.asyncio
+    async def test_check_available_auth_error(self):
         """check_available logs warning for auth errors."""
         reranker = CohereReranker(api_key="bad-key")
 
-        with patch("cohere.ClientV2") as mock_client_cls:
-            mock_client = MagicMock()
+        with patch("cohere.AsyncClientV2") as mock_client_cls:
+            mock_client = AsyncMock()
             mock_client.rerank.side_effect = Exception("401 unauthorized")
             mock_client_cls.return_value = mock_client
 
-            assert reranker.check_available() is False
+            assert await reranker.check_available() is False
 
     def test_litellm_backward_compat_alias(self):
         """LiteLLMReranker is an alias for CloudReranker."""
@@ -140,7 +149,8 @@ class TestCohereReranker:
 
 
 class TestQwen3Reranker:
-    def test_rerank_success(self):
+    @pytest.mark.asyncio
+    async def test_rerank_success(self):
         """Local reranker returns sorted (index, score) tuples."""
         reranker = Qwen3Reranker()
 
@@ -148,19 +158,21 @@ class TestQwen3Reranker:
         mock_model.rerank.return_value = [0.3, 0.9, 0.6]
 
         with patch.object(reranker, "_get_model", return_value=mock_model):
-            results = reranker.rerank("query", ["doc0", "doc1", "doc2"], top_n=2)
+            results = await reranker.rerank("query", ["doc0", "doc1", "doc2"], top_n=2)
 
         assert len(results) == 2
         assert results[0] == (1, 0.9)
         assert results[1] == (2, 0.6)
 
-    def test_rerank_empty_docs(self):
+    @pytest.mark.asyncio
+    async def test_rerank_empty_docs(self):
         """Empty documents list returns empty results."""
         reranker = Qwen3Reranker()
-        results = reranker.rerank("query", [])
+        results = await reranker.rerank("query", [])
         assert results == []
 
-    def test_rerank_failure_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_rerank_failure_returns_empty(self):
         """Local reranker returns empty list on failure."""
         reranker = Qwen3Reranker()
 
@@ -168,11 +180,12 @@ class TestQwen3Reranker:
         mock_model.rerank.side_effect = RuntimeError("ONNX error")
 
         with patch.object(reranker, "_get_model", return_value=mock_model):
-            results = reranker.rerank("query", ["doc"])
+            results = await reranker.rerank("query", ["doc"])
 
         assert results == []
 
-    def test_check_available_success(self):
+    @pytest.mark.asyncio
+    async def test_check_available_success(self):
         """check_available returns True when model loads."""
         reranker = Qwen3Reranker()
 
@@ -180,16 +193,17 @@ class TestQwen3Reranker:
         mock_model.rerank.return_value = [0.5]
 
         with patch.object(reranker, "_get_model", return_value=mock_model):
-            assert reranker.check_available() is True
+            assert await reranker.check_available() is True
 
-    def test_check_available_failure(self):
+    @pytest.mark.asyncio
+    async def test_check_available_failure(self):
         """check_available returns False when model fails."""
         reranker = Qwen3Reranker()
 
         with patch.object(
             reranker, "_get_model", side_effect=ImportError("no qwen3_embed")
         ):
-            assert reranker.check_available() is False
+            assert await reranker.check_available() is False
 
     def test_custom_model_name(self):
         """Custom model name is stored."""

@@ -549,7 +549,7 @@ class TestSearchRerankerAndGraph:
         db.add("Python for AI")
         db.add("Python for web")
         db.add("Python for data")
-        mock_reranker = MagicMock()
+        mock_reranker = AsyncMock()
         mock_reranker.rerank.return_value = [(1, 0.95), (0, 0.85), (2, 0.70)]
         with patch("mnemo_mcp.reranker.get_reranker", return_value=mock_reranker):
             result = json.loads(

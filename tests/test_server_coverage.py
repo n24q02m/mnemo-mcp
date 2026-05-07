@@ -317,7 +317,7 @@ class TestInitRerankerBackend:
         mock_settings.resolve_local_rerank_model.return_value = "local/r"
 
         mock_backend = MagicMock()
-        mock_backend.check_available.return_value = False
+        mock_backend.check_available = AsyncMock(return_value=False)
         mock_init.return_value = mock_backend
 
         with patch("mnemo_mcp.server.logger") as mock_logger:
