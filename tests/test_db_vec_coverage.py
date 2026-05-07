@@ -326,7 +326,7 @@ class TestSearchVecBranch:
         # mid1 will be found by FTS
         mid1 = db.add("alpha beta")
         # mid2 will be found by VEC but its fetch from 'memories' will fail
-        mid2 = db.add("gamma delta", embedding=[0.9, 0.9, 0.9])
+        mid2 = db.add("gamma delta")
 
         class _ConnProxy:
             def __init__(self, inner):
