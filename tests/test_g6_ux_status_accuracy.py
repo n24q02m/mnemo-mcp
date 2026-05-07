@@ -10,7 +10,6 @@ load + env, and always includes providers_configured in the response.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 from unittest.mock import patch
 
