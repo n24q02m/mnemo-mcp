@@ -450,6 +450,7 @@ def _trigger_gdrive_flow(
         )
     return None
 
+
 async def _gdrive_token_poll(
     client_id: str,
     client_secret: str,
