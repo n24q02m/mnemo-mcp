@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,7 +22,8 @@ def _call_config_setup_status_sync() -> dict[str, Any]:
 
     from mnemo_mcp.server import _handle_config_setup_status
 
-    raw = asyncio.run(_handle_config_setup_status())
+    ctx = MagicMock()
+    raw = asyncio.run(_handle_config_setup_status(ctx))
     return json.loads(raw)
 
 
