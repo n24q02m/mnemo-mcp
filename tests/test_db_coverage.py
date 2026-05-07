@@ -528,7 +528,7 @@ class TestScoringEdgeCases:
         now = datetime.now(UTC)
 
         # Test with None
-        assert tmp_db._calc_recency(None, now) == 0.0  # type: ignore[arg-type]
+        assert tmp_db._calc_recency(None, now) == 0.0  # ty: ignore[invalid-argument-type]
 
         # Test with naive datetime string
         assert tmp_db._calc_recency("2023-01-01T00:00:00", now) == 0.0
