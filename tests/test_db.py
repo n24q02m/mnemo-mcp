@@ -802,6 +802,7 @@ class TestDBMigration:
         # Verify it works by adding a memory
         mid = db.add("test content")
         mem = db.get(mid)
+        assert mem is not None
         assert mem["importance"] == 0.5
         db.close()
 
