@@ -146,7 +146,7 @@ async def _init_reranker_backend(mode: str) -> None:
         local_model = settings.resolve_local_rerank_model()
         try:
             backend = await asyncio.to_thread(init_reranker, "local", local_model)
-            available = await asyncio.to_thread(backend.check_available)
+            available = await backend.check_available()
             if available:
                 logger.info(f"Reranker: local {local_model}")
             else:
@@ -161,7 +161,7 @@ async def _init_reranker_backend(mode: str) -> None:
         if model:
             try:
                 backend = await asyncio.to_thread(init_reranker, "cloud", model)
-                available = await asyncio.to_thread(backend.check_available)
+                available = await backend.check_available()
                 if available:
                     logger.info(f"Reranker: {model}")
                     return
@@ -478,9 +478,7 @@ async def _handle_search(
     if reranker and len(results) > 1:
         documents = [r["content"] for r in results]
         try:
-            ranked = await asyncio.to_thread(
-                reranker.rerank, query, documents, top_n=limit
-            )
+            ranked = await reranker.rerank(query, documents, top_n=limit)
             if ranked:
                 reranked_results = []
                 for idx, score in ranked:
