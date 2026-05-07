@@ -598,47 +598,17 @@ class TestImportanceColumn:
 
 
 class TestArchive:
-    def test_archive_old_memories(self, tmp_db: MemoryDB):
-        # Add a memory with old last_accessed
-        mid = tmp_db.add("old memory", category="test")
-        tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
-        )
-        tmp_db._conn.commit()
-
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 1
-        assert tmp_db.get(mid) is None  # Removed from active
-
-    def test_archive_keeps_recent(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("recent memory")
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 0
-        assert tmp_db.get(mid) is not None
-
-    def test_archive_keeps_important(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("important memory")
-        tmp_db.update_importance(mid, 0.9)
-        tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days') WHERE id = ?",
-            (mid,),
-        )
-        tmp_db._conn.commit()
-
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 0
-        assert tmp_db.get(mid) is not None
-
     def test_restore_memory(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("to archive")
+        # Manually insert into archived_memories
+        mid = "test-archive-id"
+        now = "2024-01-01T00:00:00Z"
         tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
+            """INSERT INTO archived_memories
+               (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (mid, "to archive", "general", "[]", None, 0.1, now, now, 0, now, now),
         )
         tmp_db._conn.commit()
-
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         assert tmp_db.get(mid) is None
 
         ok = tmp_db.restore_memory(mid)
@@ -652,16 +622,29 @@ class TestArchive:
         assert ok is False
 
     def test_list_archived(self, tmp_db: MemoryDB):
-        mid1 = tmp_db.add("old1")
-        mid2 = tmp_db.add("old2")
-        for mid in (mid1, mid2):
+        now = "2024-01-01T00:00:00Z"
+        for i in range(2):
+            mid = f"old{i}"
             tmp_db._conn.execute(
-                "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-                (mid,),
+                """INSERT INTO archived_memories
+                   (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    mid,
+                    f"old content {i}",
+                    "general",
+                    "[]",
+                    None,
+                    0.1,
+                    now,
+                    now,
+                    0,
+                    now,
+                    now,
+                ),
             )
         tmp_db._conn.commit()
 
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         archived = tmp_db.list_archived()
         assert len(archived) == 2
         assert all("archived_at" in a for a in archived)
@@ -671,15 +654,29 @@ class TestArchive:
         assert tmp_db.list_archived() == []
 
     def test_list_archived_limit(self, tmp_db: MemoryDB):
+        now = "2024-01-01T00:00:00Z"
         for i in range(5):
-            mid = tmp_db.add(f"old {i}")
+            mid = f"limit{i}"
             tmp_db._conn.execute(
-                "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-                (mid,),
+                """INSERT INTO archived_memories
+                   (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    mid,
+                    f"old content {i}",
+                    "general",
+                    "[]",
+                    None,
+                    0.1,
+                    now,
+                    now,
+                    0,
+                    now,
+                    now,
+                ),
             )
         tmp_db._conn.commit()
 
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         archived = tmp_db.list_archived(limit=2)
         assert len(archived) == 2
 

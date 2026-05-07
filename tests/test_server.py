@@ -256,12 +256,25 @@ class TestMemoryRestore:
     async def test_restore(self, ctx_with_db):
         ctx, db = ctx_with_db
         mid = db.add("to archive and restore")
+        mid = "test-restore-id"
+        now = "2024-01-01T00:00:00Z"
         db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
+            "INSERT INTO archived_memories (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                mid,
+                "to archive and restore",
+                "general",
+                "[]",
+                None,
+                0.1,
+                now,
+                now,
+                0,
+                now,
+                now,
+            ),
         )
         db._conn.commit()
-        db.archive_old_memories(days=90, importance_threshold=0.3)
         assert db.get(mid) is None
 
         result = json.loads(await memory(action="restore", memory_id=mid, ctx=ctx))
@@ -291,13 +304,13 @@ class TestMemoryArchived:
 
     async def test_archived_with_data(self, ctx_with_db):
         ctx, db = ctx_with_db
-        mid = db.add("old memory")
+        mid = "test-archived-data-id"
+        now = "2024-01-01T00:00:00Z"
         db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
+            "INSERT INTO archived_memories (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mid, "old memory", "general", "[]", None, 0.1, now, now, 0, now, now),
         )
         db._conn.commit()
-        db.archive_old_memories(days=90, importance_threshold=0.3)
 
         result = json.loads(await memory(action="archived", ctx=ctx))
         assert result["count"] == 1
@@ -320,10 +333,12 @@ class TestMemoryConsolidate:
         assert "LLM" in result["error"]
 
     async def test_consolidate_no_category(self, ctx_with_db):
-        ctx, _ = ctx_with_db
-        result = json.loads(await memory(action="consolidate", ctx=ctx))
-        assert "error" in result
-        assert "suggestion" in result
+        ctx, db = ctx_with_db
+        with patch("mnemo_mcp.server.settings") as mock_settings:
+            mock_settings.resolve_provider_mode.return_value = "sdk"
+            result = json.loads(await memory(action="consolidate", ctx=ctx))
+            assert "error" in result
+            assert "suggestion" in result
 
 
 class TestMemoryUnknownAction:

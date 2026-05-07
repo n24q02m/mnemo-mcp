@@ -910,51 +910,6 @@ class MemoryDB:
             logger.info(f"[AUDIT] import count={imported} mode={mode}")
         return {"imported": imported, "skipped": skipped, "rejected": rejected}
 
-    def archive_old_memories(
-        self, days: int = 90, importance_threshold: float = 0.3
-    ) -> int:
-        """Move old, low-importance memories to archive. Returns count archived."""
-        cursor = self._conn.cursor()
-
-        # Precompute the cutoff timestamp once so SQLite does not re-evaluate
-        # datetime('now', ...) for every row in the WHERE clause.
-        cutoff_date = cursor.execute(
-            "SELECT datetime('now', ?)", (f"-{days} days",)
-        ).fetchone()[0]
-
-        rows = cursor.execute(
-            """SELECT id, content, category, tags, source, importance,
-                      created_at, updated_at, access_count, last_accessed
-               FROM memories
-               WHERE last_accessed < ? AND importance < ?""",
-            (cutoff_date, importance_threshold),
-        ).fetchall()
-
-        if not rows:
-            return 0
-
-        now = _now_iso()
-
-        insert_data = [(*row, now) for row in rows]
-        delete_data = [(row[0],) for row in rows]
-
-        cursor.executemany(
-            """INSERT OR REPLACE INTO archived_memories
-               (id, content, category, tags, source, importance,
-                created_at, updated_at, access_count, last_accessed, archived_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            insert_data,
-        )
-        cursor.executemany(
-            "DELETE FROM memories WHERE id = ?",
-            delete_data,
-        )
-
-        count = len(rows)
-        self._conn.commit()
-        logger.info(f"[AUDIT] archived count={count}")
-        return count
-
     def restore_memory(self, memory_id: str) -> bool:
         """Restore archived memory back to active."""
         cursor = self._conn.cursor()
