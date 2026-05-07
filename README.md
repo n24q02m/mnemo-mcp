@@ -79,7 +79,6 @@ mcp-name: io.github.n24q02m/mnemo-mcp
 | URI | Description |
 |:----|:------------|
 | `mnemo://stats` | Database statistics and server status |
-| `mnemo://recent` | 10 most recently updated memories |
 
 ### MCP Prompts
 
