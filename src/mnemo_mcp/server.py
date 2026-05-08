@@ -1323,7 +1323,13 @@ async def recent_resource(ctx: Context | None = None) -> str:
 
 @mcp.prompt()
 def save_summary(summary: str) -> str:
-    """Generate a prompt to save a conversation summary as memory."""
+    """Generate a prompt to save a conversation summary as memory.
+
+    ACTION GUIDE:
+    - This prompt instructs the agent to store a summarized block of text.
+    - It explicitly guides the agent to use the 'memory' tool with action='add'.
+    - Valid parameter expected: 'summary' (string containing the conversation context).
+    """
     return (
         f"Save this conversation summary as a memory:\n\n{summary}\n\n"
         "Use the memory tool with action='add', category='context', "
@@ -1333,7 +1339,13 @@ def save_summary(summary: str) -> str:
 
 @mcp.prompt()
 def recall_context(topic: str) -> str:
-    """Generate a prompt to recall relevant memories about a topic."""
+    """Generate a prompt to recall relevant memories about a topic.
+
+    ACTION GUIDE:
+    - This prompt instructs the agent to perform a semantic search.
+    - It explicitly guides the agent to use the 'memory' tool with action='search'.
+    - Valid parameter expected: 'topic' (string query to search for).
+    """
     return (
         f"Search your memories for relevant context about: {topic}\n\n"
         "Use the memory tool with action='search' and this query. "
