@@ -203,18 +203,18 @@ class TestLoadTokenForSub:
 
 
 class TestAsyncTokenForSub:
-    """async_save_token_for_sub / async_load_token_for_sub thin wrappers."""
+    """async_save_token_for_sub thin wrapper."""
 
     async def test_round_trip(self, data_dir):
         from mnemo_mcp.token_store import (
-            async_load_token_for_sub,
             async_save_token_for_sub,
+            load_token_for_sub,
         )
 
         await async_save_token_for_sub(
             "async-user", "google_drive", {"access_token": "tok"}
         )
-        result = await async_load_token_for_sub("async-user", "google_drive")
+        result = load_token_for_sub("async-user", "google_drive")
         assert result == {"access_token": "tok"}
 
 
