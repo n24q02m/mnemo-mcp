@@ -5,7 +5,9 @@ _strip_provider, CloudReranker Jina backend, CloudReranker._check_jina,
 CloudReranker._check_cohere, Qwen3Reranker lazy load.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from mnemo_mcp.reranker import (
     CloudReranker,
@@ -57,8 +59,9 @@ class TestStripProviderReranker:
 
 
 class TestCloudRerankerJina:
-    @patch("httpx.post")
-    def test_rerank_jina_success(self, mock_post):
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient")
+    async def test_rerank_jina_success(self, mock_client_cls):
         """Jina reranker returns sorted results."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -70,28 +73,37 @@ class TestCloudRerankerJina:
                 {"index": 2, "relevance_score": 0.6},
             ]
         }
-        mock_post.return_value = mock_response
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
             api_key="jina_test",
         )
-        results = reranker.rerank("query", ["doc0", "doc1", "doc2"], top_n=2)
+        results = await reranker.rerank("query", ["doc0", "doc1", "doc2"], top_n=2)
 
         assert len(results) == 2
         assert results[0] == (1, 0.9)
         assert results[1] == (2, 0.6)
 
-    @patch("httpx.post")
-    def test_rerank_jina_failure(self, mock_post):
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient")
+    async def test_rerank_jina_failure(self, mock_client_cls):
         """Jina reranker returns empty on failure."""
-        mock_post.side_effect = Exception("API error")
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(side_effect=Exception("API error"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
             api_key="jina_test",
         )
-        results = reranker.rerank("query", ["doc0"])
+        results = await reranker.rerank("query", ["doc0"])
         assert results == []
 
 
@@ -101,35 +113,46 @@ class TestCloudRerankerJina:
 
 
 class TestCheckAvailableReranker:
-    @patch("httpx.post")
-    def test_check_jina_available(self, mock_post):
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient")
+    async def test_check_jina_available(self, mock_client_cls):
         """Jina check_available returns True on success."""
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.json.return_value = {
             "results": [{"index": 0, "relevance_score": 0.5}]
         }
-        mock_post.return_value = mock_response
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
             api_key="jina_test",
         )
-        assert reranker.check_available() is True
+        assert await reranker.check_available() is True
 
-    @patch("httpx.post")
-    def test_check_jina_api_key_invalid(self, mock_post):
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient")
+    async def test_check_jina_api_key_invalid(self, mock_client_cls):
         """Jina check_available returns False and logs warning on 401."""
-        mock_post.side_effect = Exception("401 Unauthorized")
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(side_effect=Exception("401 Unauthorized"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
 
         reranker = CloudReranker(
             model="jina_ai/jina-reranker-v3",
             api_key="bad_key",
         )
-        assert reranker.check_available() is False
+        assert await reranker.check_available() is False
 
-    @patch("cohere.ClientV2")
-    def test_check_cohere_available(self, mock_client_cls):
+    @pytest.mark.asyncio
+    @patch("cohere.AsyncClientV2")
+    async def test_check_cohere_available(self, mock_client_cls):
         """Cohere check_available returns True on success."""
         mock_result = MagicMock()
         mock_result.index = 0
@@ -138,7 +161,7 @@ class TestCheckAvailableReranker:
         mock_response = MagicMock()
         mock_response.results = [mock_result]
 
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_client.rerank.return_value = mock_response
         mock_client_cls.return_value = mock_client
 
@@ -146,10 +169,11 @@ class TestCheckAvailableReranker:
             model="rerank-v4.0-pro",
             api_key="co_test",
         )
-        assert reranker.check_available() is True
+        assert await reranker.check_available() is True
 
-    @patch("cohere.ClientV2")
-    def test_check_cohere_non_auth_error(self, mock_client_cls):
+    @pytest.mark.asyncio
+    @patch("cohere.AsyncClientV2")
+    async def test_check_cohere_non_auth_error(self, mock_client_cls):
         """Cohere check_available returns False on non-auth error."""
         mock_client = MagicMock()
         mock_client.rerank.side_effect = Exception("Model not found")
@@ -159,7 +183,7 @@ class TestCheckAvailableReranker:
             model="rerank-v4.0-pro",
             api_key="co_test",
         )
-        assert reranker.check_available() is False
+        assert await reranker.check_available() is False
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +217,12 @@ class TestQwen3RerankerLazyLoad:
 
         mock_ce.assert_called_once()
 
-    def test_check_available_empty_scores(self):
+    @pytest.mark.asyncio
+    async def test_check_available_empty_scores(self):
         """check_available returns False when rerank returns empty."""
         reranker = Qwen3Reranker()
         mock_model = MagicMock()
         mock_model.rerank.return_value = []
 
         with patch.object(reranker, "_get_model", return_value=mock_model):
-            assert reranker.check_available() is False
+            assert await reranker.check_available() is False

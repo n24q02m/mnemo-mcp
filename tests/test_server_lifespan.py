@@ -53,7 +53,7 @@ class TestInitRerankerBackend:
         mock_settings.resolve_rerank_model.return_value = "rerank-v4.0-pro"
 
         mock_backend = MagicMock()
-        mock_backend.check_available.return_value = True
+        mock_backend.check_available = AsyncMock(return_value=True)
 
         with patch("mnemo_mcp.reranker.init_reranker", return_value=mock_backend):
             await _init_reranker_backend("sdk")
@@ -71,7 +71,7 @@ class TestInitRerankerBackend:
         mock_settings.resolve_rerank_model.return_value = "rerank-v4.0-pro"
 
         cloud_backend = MagicMock()
-        cloud_backend.check_available.return_value = False
+        cloud_backend.check_available = AsyncMock(return_value=False)
 
         call_count = 0
 
@@ -132,7 +132,7 @@ class TestInitRerankerBackend:
         mock_settings.resolve_local_rerank_model.return_value = "local/reranker"
 
         local_backend = MagicMock()
-        local_backend.check_available.return_value = False
+        local_backend.check_available = AsyncMock(return_value=False)
 
         with patch("mnemo_mcp.reranker.init_reranker", return_value=local_backend):
             await _init_reranker_backend("local")
