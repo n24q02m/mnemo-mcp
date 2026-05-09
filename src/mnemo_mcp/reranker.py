@@ -6,6 +6,7 @@ for better precision. Pipeline: retrieve top-N*3 -> rerank -> return top-N.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Protocol
 
@@ -37,7 +38,7 @@ def _strip_provider(model: str) -> str:
 class RerankerBackend(Protocol):
     """Protocol for reranker backends."""
 
-    def rerank(
+    async def rerank(
         self, query: str, documents: list[str], top_n: int = 10
     ) -> list[tuple[int, float]]:
         """Rerank documents by relevance to query.
@@ -46,7 +47,7 @@ class RerankerBackend(Protocol):
         """
         ...
 
-    def check_available(self) -> bool:
+    async def check_available(self) -> bool:
         """Check if the reranker backend is available."""
         ...
 
@@ -66,7 +67,7 @@ class CloudReranker:
         self._provider = _detect_rerank_provider(self.model)
         self._bare_model = _strip_provider(self.model)
 
-    def rerank(
+    async def rerank(
         self, query: str, documents: list[str], top_n: int = 10
     ) -> list[tuple[int, float]]:
         """Rerank documents via cloud API (Jina or Cohere)."""
@@ -74,13 +75,13 @@ class CloudReranker:
             return []
         try:
             if self._provider == "jina":
-                return self._rerank_jina(query, documents, top_n)
-            return self._rerank_cohere(query, documents, top_n)
+                return await self._rerank_jina(query, documents, top_n)
+            return await self._rerank_cohere(query, documents, top_n)
         except Exception as e:
             logger.warning(f"Cloud reranking failed ({self._provider}): {e}")
             return []
 
-    def _rerank_jina(
+    async def _rerank_jina(
         self, query: str, documents: list[str], top_n: int
     ) -> list[tuple[int, float]]:
         """Rerank via Jina AI REST API."""
@@ -94,15 +95,15 @@ class CloudReranker:
             "top_n": top_n,
         }
 
-        response = httpx.post(
-            "https://api.jina.ai/v1/rerank",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            timeout=60,
-        )
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.jina.ai/v1/rerank",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+            )
         response.raise_for_status()
         data = response.json()["results"]
 
@@ -112,7 +113,7 @@ class CloudReranker:
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_n]
 
-    def _rerank_cohere(
+    async def _rerank_cohere(
         self, query: str, documents: list[str], top_n: int
     ) -> list[tuple[int, float]]:
         """Rerank via Cohere SDK."""
@@ -121,13 +122,13 @@ class CloudReranker:
         key = (
             self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
         )
-        client = cohere.ClientV2(api_key=key)
-        response = client.rerank(
-            model=self._bare_model,
-            query=query,
-            documents=documents,
-            top_n=top_n,
-        )
+        async with cohere.AsyncClientV2(api_key=key) as client:
+            response = await client.rerank(
+                model=self._bare_model,
+                query=query,
+                documents=documents,
+                top_n=top_n,
+            )
         results: list[tuple[int, float]] = []
         for item in response.results:
             if isinstance(item, dict):
@@ -137,12 +138,12 @@ class CloudReranker:
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_n]
 
-    def check_available(self) -> bool:
+    async def check_available(self) -> bool:
         """Check if the cloud reranker model is reachable."""
         try:
             if self._provider == "jina":
-                return self._check_jina()
-            return self._check_cohere()
+                return await self._check_jina()
+            return await self._check_cohere()
         except Exception as e:
             msg = str(e).lower()
             if any(
@@ -153,42 +154,42 @@ class CloudReranker:
                 logger.debug(f"Reranker {self.model} not available: {e}")
             return False
 
-    def _check_jina(self) -> bool:
+    async def _check_jina(self) -> bool:
         """Check Jina reranker availability."""
         import httpx
 
         key = self.api_key or os.getenv("JINA_AI_API_KEY") or ""
-        response = httpx.post(
-            "https://api.jina.ai/v1/rerank",
-            json={
-                "model": self._bare_model,
-                "query": "test",
-                "documents": ["test"],
-                "top_n": 1,
-            },
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            timeout=30,
-        )
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://api.jina.ai/v1/rerank",
+                json={
+                    "model": self._bare_model,
+                    "query": "test",
+                    "documents": ["test"],
+                    "top_n": 1,
+                },
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+            )
         response.raise_for_status()
         return bool(response.json().get("results"))
 
-    def _check_cohere(self) -> bool:
+    async def _check_cohere(self) -> bool:
         """Check Cohere reranker availability."""
         import cohere
 
         key = (
             self.api_key or os.getenv("COHERE_API_KEY") or os.getenv("CO_API_KEY") or ""
         )
-        client = cohere.ClientV2(api_key=key)
-        response = client.rerank(
-            model=self._bare_model,
-            query="test",
-            documents=["test"],
-            top_n=1,
-        )
+        async with cohere.AsyncClientV2(api_key=key) as client:
+            response = await client.rerank(
+                model=self._bare_model,
+                query="test",
+                documents=["test"],
+                top_n=1,
+            )
         return bool(response.results)
 
 
@@ -222,28 +223,36 @@ class Qwen3Reranker:
             logger.info("Local reranker model loaded")
         return self._model
 
-    def rerank(
+    async def rerank(
         self, query: str, documents: list[str], top_n: int = 10
     ) -> list[tuple[int, float]]:
         """Rerank documents using local cross-encoder."""
         if not documents:
             return []
-        try:
+
+        def _sync_rerank():
             model = self._get_model()
             scores = list(model.rerank(query, documents))
             results = list(enumerate(scores))
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:top_n]
+
+        try:
+            return await asyncio.to_thread(_sync_rerank)
         except Exception as e:
             logger.warning(f"Local reranking failed: {e}")
             return []
 
-    def check_available(self) -> bool:
+    async def check_available(self) -> bool:
         """Check if the local reranker model is available."""
-        try:
+
+        def _sync_check():
             model = self._get_model()
             scores = list(model.rerank("test", ["test document"]))
             return len(scores) > 0
+
+        try:
+            return await asyncio.to_thread(_sync_check)
         except Exception as e:
             logger.debug(f"Local reranker not available: {e}")
             return False
