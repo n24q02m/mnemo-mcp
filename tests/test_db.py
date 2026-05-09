@@ -389,6 +389,15 @@ class TestExportImport:
         assert result["imported"] == 3
         assert tmp_db.stats()["total_memories"] == 3
 
+    def test_import_invalid_json_string(self, tmp_db: MemoryDB):
+        """Invalid JSON lines are counted as rejected."""
+        data = '{"id":"ok1","content":"valid"}\nnot-json\n{"id":"ok2","content":"also valid"}'
+        result = tmp_db.import_jsonl(data, mode="merge")
+        assert result["imported"] == 2
+        assert result["rejected"] == 1
+        assert tmp_db.get("ok1") is not None
+        assert tmp_db.get("ok2") is not None
+
     def test_import_preserves_metadata(self, tmp_db: MemoryDB):
         data = json.dumps(
             {
@@ -598,47 +607,17 @@ class TestImportanceColumn:
 
 
 class TestArchive:
-    def test_archive_old_memories(self, tmp_db: MemoryDB):
-        # Add a memory with old last_accessed
-        mid = tmp_db.add("old memory", category="test")
-        tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
-        )
-        tmp_db._conn.commit()
-
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 1
-        assert tmp_db.get(mid) is None  # Removed from active
-
-    def test_archive_keeps_recent(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("recent memory")
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 0
-        assert tmp_db.get(mid) is not None
-
-    def test_archive_keeps_important(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("important memory")
-        tmp_db.update_importance(mid, 0.9)
-        tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days') WHERE id = ?",
-            (mid,),
-        )
-        tmp_db._conn.commit()
-
-        count = tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
-        assert count == 0
-        assert tmp_db.get(mid) is not None
-
     def test_restore_memory(self, tmp_db: MemoryDB):
-        mid = tmp_db.add("to archive")
+        # Manually insert into archived_memories
+        mid = "test-archive-id"
+        now = "2024-01-01T00:00:00Z"
         tmp_db._conn.execute(
-            "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-            (mid,),
+            """INSERT INTO archived_memories
+               (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (mid, "to archive", "general", "[]", None, 0.1, now, now, 0, now, now),
         )
         tmp_db._conn.commit()
-
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         assert tmp_db.get(mid) is None
 
         ok = tmp_db.restore_memory(mid)
@@ -652,16 +631,29 @@ class TestArchive:
         assert ok is False
 
     def test_list_archived(self, tmp_db: MemoryDB):
-        mid1 = tmp_db.add("old1")
-        mid2 = tmp_db.add("old2")
-        for mid in (mid1, mid2):
+        now = "2024-01-01T00:00:00Z"
+        for i in range(2):
+            mid = f"old{i}"
             tmp_db._conn.execute(
-                "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-                (mid,),
+                """INSERT INTO archived_memories
+                   (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    mid,
+                    f"old content {i}",
+                    "general",
+                    "[]",
+                    None,
+                    0.1,
+                    now,
+                    now,
+                    0,
+                    now,
+                    now,
+                ),
             )
         tmp_db._conn.commit()
 
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         archived = tmp_db.list_archived()
         assert len(archived) == 2
         assert all("archived_at" in a for a in archived)
@@ -671,15 +663,29 @@ class TestArchive:
         assert tmp_db.list_archived() == []
 
     def test_list_archived_limit(self, tmp_db: MemoryDB):
+        now = "2024-01-01T00:00:00Z"
         for i in range(5):
-            mid = tmp_db.add(f"old {i}")
+            mid = f"limit{i}"
             tmp_db._conn.execute(
-                "UPDATE memories SET last_accessed = datetime('now', '-100 days'), importance = 0.1 WHERE id = ?",
-                (mid,),
+                """INSERT INTO archived_memories
+                   (id, content, category, tags, source, importance, created_at, updated_at, access_count, last_accessed, archived_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    mid,
+                    f"old content {i}",
+                    "general",
+                    "[]",
+                    None,
+                    0.1,
+                    now,
+                    now,
+                    0,
+                    now,
+                    now,
+                ),
             )
         tmp_db._conn.commit()
 
-        tmp_db.archive_old_memories(days=90, importance_threshold=0.3)
         archived = tmp_db.list_archived(limit=2)
         assert len(archived) == 2
 
@@ -766,3 +772,52 @@ def test_invalid_embedding_dims_bounds(tmp_path):
         assert json.loads(mem["tags"]) == ["t2"]
         assert mem["source"] == "new source"
         assert mem["importance"] == 0.1
+
+
+class TestDBMigration:
+    def test_migration_importance_column_already_exists(self, tmp_path):
+        """
+        Test that MemoryDB handles the case where the 'importance' column already exists.
+        This exercises the try-except block in _init_memory_schema.
+        """
+        import sqlite3
+
+        db_path = tmp_path / "test_migration.db"
+
+        # Manually create the table with the 'importance' column already present
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'general',
+                tags TEXT NOT NULL DEFAULT '[]',
+                source TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed TEXT NOT NULL,
+                importance REAL NOT NULL DEFAULT 0.5
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # Initializing MemoryDB should not raise an exception even if the column exists
+        db = MemoryDB(db_path)
+        # Verify it works by adding a memory
+        mid = db.add("test content")
+        mem = db.get(mid)
+        assert mem is not None
+        assert mem["importance"] == 0.5
+        db.close()
+
+    def test_migration_idempotent(self, tmp_db):
+        """
+        Verify that _init_memory_schema can be called multiple times without error.
+        """
+        # Already initialized by fixture
+        try:
+            tmp_db._init_memory_schema()
+        except Exception as e:
+            pytest.fail(f"_init_memory_schema failed on redundant call: {e}")

@@ -81,7 +81,8 @@ def credentials_for_current_request() -> dict[str, str]:
     sub = _current_sub.get()
     if sub is None:
         return {k: v for k, v in os.environ.items() if k in CLOUD_KEYS and v}
-    return read_for_sub(sub)
+    p = _sub_data_dir(sub) / "config.json"
+    return json.loads(p.read_text()) if p.exists() else {}
 
 
 class CredentialState(Enum):
@@ -102,27 +103,6 @@ _on_gdrive_complete: Callable[[], None] | None = None
 # when Google rejects the device code (invalid_grant / expired_token / etc.)
 # or when save_token fails silently (ported from wet-mcp Bug #2 fix).
 _on_gdrive_failed: Callable[[str, str], None] | None = None
-
-
-def set_gdrive_complete_callback(cb: Callable[[], None]) -> None:
-    """Set callback for when GDrive OAuth completes (used by HTTP server)."""
-    global _on_gdrive_complete
-    _on_gdrive_complete = cb
-
-
-def set_gdrive_failed_callback(cb: Callable[[str, str], None]) -> None:
-    """Set callback for when GDrive OAuth fails upstream (used by HTTP server).
-
-    The callback receives ``(key, error_message)`` matching the
-    ``mark_setup_failed(key, error)`` signature exposed by mcp-core's local
-    OAuth app. It is invoked by ``_gdrive_token_poll`` whenever Google
-    returns a terminal error (``invalid_grant``, ``expired_token``,
-    ``access_denied``, etc.) or when the local ``save_token`` call raises
-    after a successful exchange -- so the browser's ``/setup-status`` poll
-    surfaces the error and stops waiting.
-    """
-    global _on_gdrive_failed
-    _on_gdrive_failed = cb
 
 
 def wire_gdrive_callbacks(
@@ -152,9 +132,8 @@ def wire_gdrive_callbacks(
         finally:
             _schedule_spawn_cleanup()
 
-    set_gdrive_complete_callback(_complete_then_cleanup)
-
-    global _on_gdrive_failed
+    global _on_gdrive_complete, _on_gdrive_failed
+    _on_gdrive_complete = _complete_then_cleanup
 
     if mark_failed is None:
         _on_gdrive_failed = None
@@ -242,7 +221,7 @@ def resolve_credential_state() -> CredentialState:
                 _state = CredentialState.CONFIGURED
                 return _state
         except Exception:
-            pass
+            logger.debug("Config loading from PerPluginStore failed")
 
     # 3. Check local mode marker
     try:
@@ -254,7 +233,7 @@ def resolve_credential_state() -> CredentialState:
             _state = CredentialState.LOCAL
             return _state
     except Exception:
-        pass
+        logger.debug("Local mode marker check failed")
 
     # 4. Nothing found
     logger.info("No credentials found -- server starting in awaiting_setup mode")
@@ -296,7 +275,7 @@ def _schedule_spawn_cleanup(grace_s: float = _SPAWN_CLEANUP_S) -> None:
         task = asyncio.create_task(_delayed_close())
         task.add_done_callback(lambda _t: None)
     except RuntimeError:
-        pass
+        logger.debug("Failed to schedule cleanup task (no event loop?)")
 
 
 def _sub_data_dir(sub: str) -> Path:
@@ -319,12 +298,6 @@ def store_for_sub(sub: str, config: dict[str, str]) -> None:
     (_sub_data_dir(sub) / "config.json").write_text(json.dumps(config))
 
 
-def read_for_sub(sub: str) -> dict[str, str]:
-    """Load the config dict for a single JWT subject (empty if missing)."""
-    p = _sub_data_dir(sub) / "config.json"
-    return json.loads(p.read_text()) if p.exists() else {}
-
-
 def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | None:
     """Save credentials from OAuth form to config.enc and apply to environment.
 
@@ -339,68 +312,33 @@ def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | 
     Called by the local OAuth AS when the user submits API keys via the
     browser form. Returns optional dict with next_step info.
     """
-    global _state
-
-    # Multi-user remote mode: per-subject credential storage. Skip the shared
-    # config.enc + module-level state to keep subjects fully isolated. The
-    # GDrive device-code flow is ALSO per-sub: token lands in
-    # ``$MNEMO_DATA_DIR/subs/<sub>/tokens/google_drive.json`` so user A's
-    # refresh-token is invisible to user B sharing the same deployment.
     if os.environ.get("PUBLIC_URL"):
         sub = context.get("sub") if context else None
         if not sub:
             raise RuntimeError("multi-user mode: SubjectContext sub required")
-        store_for_sub(sub, config)
-        logger.info("Credentials saved for sub={} (multi-user remote mode)", sub)
+        _save_remote_credentials(config, sub)
+        return _trigger_gdrive_flow(sub=sub)
 
-        try:
-            from mnemo_mcp.config import settings as s
+    _save_local_credentials(config)
+    next_step = _trigger_gdrive_flow(auto_open=True)
 
-            if s.google_drive_client_id and s.google_drive_client_secret:
-                import httpx
+    if not next_step:
+        # No GDrive: cloud-only setup is done -- schedule local spawn cleanup so
+        # the browser renders "Setup complete!" then the local server closes.
+        _schedule_spawn_cleanup()
 
-                response = httpx.post(
-                    "https://oauth2.googleapis.com/device/code",
-                    data={
-                        "client_id": s.google_drive_client_id,
-                        "scope": "https://www.googleapis.com/auth/drive.file",
-                    },
-                    timeout=15.0,
-                )
-                if response.status_code == 200:
-                    device_data = response.json()
-                    logger.info(
-                        "GDrive device code (sub={}), user_code={}",
-                        sub,
-                        device_data.get("user_code"),
-                    )
-                    import asyncio
-                    import threading
+    return next_step
 
-                    def _poll() -> None:
-                        asyncio.run(
-                            _gdrive_token_poll(
-                                s.google_drive_client_id,
-                                s.google_drive_client_secret,
-                                device_data["device_code"],
-                                device_data.get("interval", 5),
-                                device_data.get("expires_in", 1800),
-                                sub=sub,
-                            )
-                        )
 
-                    threading.Thread(target=_poll, daemon=True).start()
-                    return {
-                        "type": "oauth_device_code",
-                        "verification_url": device_data["verification_url"],
-                        "user_code": device_data["user_code"],
-                    }
-        except Exception:
-            logger.opt(exception=True).debug(
-                "Multi-user GDrive device code request failed (non-fatal)"
-            )
-        return None
+def _save_remote_credentials(config: dict[str, str], sub: str) -> None:
+    """Handle per-subject credential storage for multi-user remote mode."""
+    store_for_sub(sub, config)
+    logger.info("Credentials saved for sub={} (multi-user remote mode)", sub)
 
+
+def _save_local_credentials(config: dict[str, str]) -> None:
+    """Handle global plugin storage and provider re-initialization for local mode."""
+    global _state
     from mcp_core.storage.per_plugin_store import PerPluginStore
 
     from mnemo_mcp.relay_setup import apply_config
@@ -419,7 +357,11 @@ def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | 
             "Provider re-init after save failed (non-fatal)"
         )
 
-    # Trigger GDrive OAuth Device Code flow if configured
+
+def _trigger_gdrive_flow(
+    sub: str | None = None, auto_open: bool = False
+) -> dict | None:
+    """Trigger GDrive OAuth Device Code flow if configured."""
     try:
         from mnemo_mcp.config import settings as s
 
@@ -436,15 +378,22 @@ def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | 
             )
             if response.status_code == 200:
                 device_data = response.json()
-                logger.info(
-                    "GDrive device code requested, user_code={}",
-                    device_data.get("user_code"),
-                )
+                if sub:
+                    logger.info(
+                        "GDrive device code (sub={}), user_code={}",
+                        sub,
+                        device_data.get("user_code"),
+                    )
+                else:
+                    logger.info(
+                        "GDrive device code requested, user_code={}",
+                        device_data.get("user_code"),
+                    )
 
                 import asyncio
                 import threading
 
-                def _poll_gdrive_token():
+                def _poll() -> None:
                     asyncio.run(
                         _gdrive_token_poll(
                             s.google_drive_client_id,
@@ -452,17 +401,16 @@ def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | 
                             device_data["device_code"],
                             device_data.get("interval", 5),
                             device_data.get("expires_in", 1800),
+                            sub=sub,
                         )
                     )
 
-                threading.Thread(target=_poll_gdrive_token, daemon=True).start()
+                threading.Thread(target=_poll, daemon=True).start()
 
-                # Auto-launch the default browser at Google's device-code page.
-                # Best-effort -- headless hosts silently no-op and the user
-                # still sees the URL rendered in the credential form.
-                from mcp_core import try_open_browser
+                if auto_open:
+                    from mcp_core import try_open_browser
 
-                try_open_browser(device_data["verification_url"])
+                    try_open_browser(device_data["verification_url"])
 
                 return {
                     "type": "oauth_device_code",
@@ -473,10 +421,6 @@ def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | 
         logger.opt(exception=True).debug(
             "GDrive device code request failed (non-fatal)"
         )
-
-    # No GDrive: cloud-only setup is done -- schedule local spawn cleanup so
-    # the browser renders "Setup complete!" then the local server closes.
-    _schedule_spawn_cleanup()
     return None
 
 
@@ -512,6 +456,9 @@ async def _gdrive_token_poll(
 
     def _notify_failed(error: str) -> None:
         if _on_gdrive_failed is None:
+            logger.debug(
+                "No GDrive failure callback registered; terminal error: {}", error
+            )
             return
         try:
             _on_gdrive_failed("gdrive", error)
@@ -612,7 +559,7 @@ def reset_state() -> None:
             task = asyncio.create_task(_close_active_handle())
             task.add_done_callback(lambda _t: None)
         except RuntimeError:
-            pass
+            logger.debug("Failed to schedule close handle task (no event loop?)")
 
     try:
         from mcp_core import clear_mode
@@ -621,4 +568,4 @@ def reset_state() -> None:
         clear_mode(SERVER_NAME)
         PerPluginStore("mnemo").clear()
     except Exception:
-        pass
+        logger.opt(exception=True).debug("Failed to clear local mode/config")
