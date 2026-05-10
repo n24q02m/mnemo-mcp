@@ -1096,7 +1096,12 @@ async def _handle_consolidate(
 
 
 @mcp.tool(
-    description="Store NEW information. Use for preferences, decisions, facts.",
+    description=(
+        "Store NEW information. Use for preferences, decisions, facts.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use when saving preferences, decisions, facts for the first time.\n"
+        "- Parameters: 'content' (required), 'category' (optional string), 'tags' (optional list of strings)."
+    ),
     annotations=ToolAnnotations(
         title="Add Memory",
         readOnlyHint=False,
@@ -1113,7 +1118,12 @@ async def add_memory(
 
 
 @mcp.tool(
-    description="Find existing memories by natural language query. Always search before adding.",
+    description=(
+        "Find existing memories by natural language query. Always search before adding.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use BEFORE add to avoid duplicates.\n"
+        "- Parameters: 'query' (required), 'category' (optional string), 'tags' (optional list of strings), 'limit' (optional int, default 5)."
+    ),
     annotations=ToolAnnotations(
         title="Search Memory",
         readOnlyHint=True,
@@ -1131,7 +1141,12 @@ async def search_memory(
 
 
 @mcp.tool(
-    description="Browse all memories, optionally filtered by category.",
+    description=(
+        "Browse all memories, optionally filtered by category.\n\n"
+        "ACTION GUIDE:\n"
+        "- No query needed. Just list latest memories.\n"
+        "- Parameters: 'category' (optional string), 'limit' (optional int, default 5)."
+    ),
     annotations=ToolAnnotations(
         title="List Memories",
         readOnlyHint=True,
@@ -1145,7 +1160,12 @@ async def list_memories(
 
 
 @mcp.tool(
-    description="Modify an EXISTING memory by ID. Get memory_id from search results.",
+    description=(
+        "Modify an EXISTING memory by ID. Get memory_id from search results.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use when a fact changes.\n"
+        "- Parameters: 'memory_id' (required), 'content' (optional string), 'category' (optional string), 'tags' (optional list of strings), 'source' (optional string), 'importance' (optional float)."
+    ),
     annotations=ToolAnnotations(
         title="Update Memory",
         readOnlyHint=False,
@@ -1167,7 +1187,12 @@ async def update_memory(
 
 
 @mcp.tool(
-    description="Remove a memory by ID.",
+    description=(
+        "Remove a memory by ID.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to remove incorrect or obsolete information.\n"
+        "- Parameters: 'memory_id' (required string)."
+    ),
     annotations=ToolAnnotations(
         title="Delete Memory",
         readOnlyHint=False,
@@ -1179,7 +1204,12 @@ async def delete_memory(memory_id: str, ctx: Context | None = None) -> str:
 
 
 @mcp.tool(
-    description="Export all memories as JSONL.",
+    description=(
+        "Export all memories as JSONL.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to backup or export all data.\n"
+        "- No parameters needed."
+    ),
     annotations=ToolAnnotations(
         title="Export Memories",
         readOnlyHint=False,
@@ -1191,7 +1221,12 @@ async def export_memories(ctx: Context | None = None) -> str:
 
 
 @mcp.tool(
-    description="Import memories from JSONL data or a list of objects.",
+    description=(
+        "Import memories from JSONL data or a list of objects.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to restore or bulk load data.\n"
+        "- Parameters: 'data' (required string or list), 'mode' (optional string 'merge' or 'replace', default 'merge')."
+    ),
     annotations=ToolAnnotations(
         title="Import Memories",
         readOnlyHint=False,
@@ -1205,7 +1240,12 @@ async def import_memories(
 
 
 @mcp.tool(
-    description="Show database statistics (total memories, categories, embedding status).",
+    description=(
+        "Show database statistics (total memories, categories, embedding status).\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to see current database overview.\n"
+        "- No parameters needed."
+    ),
     annotations=ToolAnnotations(
         title="Memory Stats",
         readOnlyHint=True,
@@ -1217,7 +1257,12 @@ async def memory_stats(ctx: Context | None = None) -> str:
 
 
 @mcp.tool(
-    description="Restore an archived memory by ID.",
+    description=(
+        "Restore an archived memory by ID.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to recover a previously soft-archived memory.\n"
+        "- Parameters: 'memory_id' (required string)."
+    ),
     annotations=ToolAnnotations(
         title="Restore Memory",
         readOnlyHint=False,
@@ -1229,7 +1274,12 @@ async def restore_memory(memory_id: str, ctx: Context | None = None) -> str:
 
 
 @mcp.tool(
-    description="List archived memories.",
+    description=(
+        "List archived memories.\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to view previously soft-archived items.\n"
+        "- Parameters: 'limit' (optional int, default 5)."
+    ),
     annotations=ToolAnnotations(
         title="Archived Memories",
         readOnlyHint=False,
@@ -1241,7 +1291,12 @@ async def archived_memories(limit: int = 5, ctx: Context | None = None) -> str:
 
 
 @mcp.tool(
-    description="Summarize similar memories in a category (requires LLM API keys).",
+    description=(
+        "Summarize similar memories in a category (requires LLM API keys).\n\n"
+        "ACTION GUIDE:\n"
+        "- Use to combine redundant items into single, clear memories.\n"
+        "- Parameters: 'category' (required string)."
+    ),
     annotations=ToolAnnotations(
         title="Consolidate Memories",
         readOnlyHint=False,
