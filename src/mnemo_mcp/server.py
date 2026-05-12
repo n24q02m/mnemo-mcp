@@ -1096,7 +1096,13 @@ async def _handle_consolidate(
 
 
 @mcp.tool(
-    description="Store NEW information. Use for preferences, decisions, facts.",
+    description=(
+        "Store NEW information. Use for preferences, decisions, facts.\n"
+        "\n"
+        "ACTION GUIDE — when to use:\n"
+        "- Use when saving preferences, decisions, facts for the first time.\n"
+        "  Example: action='add', content='User prefers dark mode', category='preference', tags=['ui']\n"
+    ),
     annotations=ToolAnnotations(
         title="Add Memory",
         readOnlyHint=False,
@@ -1113,7 +1119,13 @@ async def add_memory(
 
 
 @mcp.tool(
-    description="Find existing memories by natural language query. Always search before adding.",
+    description=(
+        "Find existing memories by natural language query. Always search before adding.\n"
+        "\n"
+        "ACTION GUIDE — when to use:\n"
+        "- Use BEFORE add to avoid duplicates.\n"
+        "  Example: action='search', query='dark mode preference'\n"
+    ),
     annotations=ToolAnnotations(
         title="Search Memory",
         readOnlyHint=True,
