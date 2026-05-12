@@ -1086,7 +1086,9 @@ class MemoryDB:
                 "category": category,
                 "category_provided": category is not None,
                 # Bolt Performance Optimization: Avoid json.dumps overhead for empty tags lists
-                "tags": ("[]" if not tags else json.dumps(tags)) if tags is not None else None,
+                "tags": ("[]" if not tags else json.dumps(tags))
+                if tags is not None
+                else None,
                 "tags_provided": tags is not None,
                 "source": source,
                 "source_provided": source is not None,
@@ -1228,7 +1230,11 @@ class MemoryDB:
                 tags = mem.get("tags", [])
                 # Bolt Performance Optimization:
                 # Avoid expensive json.dumps calls for the default empty list.
-                tags_json = ("[]" if not tags else json.dumps(tags)) if isinstance(tags, list) else tags
+                tags_json = (
+                    ("[]" if not tags else json.dumps(tags))
+                    if isinstance(tags, list)
+                    else tags
+                )
                 importance = mem.get("importance", 0.5)
                 to_insert.append(
                     (
