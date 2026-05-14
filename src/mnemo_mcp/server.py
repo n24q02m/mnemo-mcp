@@ -1110,7 +1110,12 @@ async def _handle_consolidate(
 
 
 @mcp.tool(
-    description="Store NEW information. Use for preferences, decisions, facts.",
+    description=(
+        "Store NEW information. Use for preferences, decisions, facts.\n\n"
+        "ACTION GUIDE:\n"
+        "- Requires 'content'. Use when saving preferences, decisions, facts for the first time.\n"
+        "- Optionally provide 'category' (e.g. 'preference') and 'tags' (e.g. ['ui'])."
+    ),
     annotations=ToolAnnotations(
         title="Add Memory",
         readOnlyHint=False,
@@ -1127,7 +1132,12 @@ async def add_memory(
 
 
 @mcp.tool(
-    description="Find existing memories by natural language query. Always search before adding.",
+    description=(
+        "Find existing memories by natural language query. Always search before adding.\n\n"
+        "ACTION GUIDE:\n"
+        "- Requires 'query'. Use BEFORE adding to avoid duplicates.\n"
+        "- Optionally filter by 'category', 'tags', and limit the number of results with 'limit'."
+    ),
     annotations=ToolAnnotations(
         title="Search Memory",
         readOnlyHint=True,
@@ -1145,7 +1155,12 @@ async def search_memory(
 
 
 @mcp.tool(
-    description="Browse all memories, optionally filtered by category.",
+    description=(
+        "Browse all memories, optionally filtered by category.\n\n"
+        "ACTION GUIDE:\n"
+        "- No query needed. Use to list all memories.\n"
+        "- Optionally filter by 'category'."
+    ),
     annotations=ToolAnnotations(
         title="List Memories",
         readOnlyHint=True,
@@ -1159,7 +1174,12 @@ async def list_memories(
 
 
 @mcp.tool(
-    description="Modify an EXISTING memory by ID. Get memory_id from search results.",
+    description=(
+        "Modify an EXISTING memory by ID. Get memory_id from search results.\n\n"
+        "ACTION GUIDE:\n"
+        "- Requires 'memory_id' (from search/list results). Use when a fact changes.\n"
+        "- Provide fields to update: 'content', 'category', 'tags', 'source', or 'importance'."
+    ),
     annotations=ToolAnnotations(
         title="Update Memory",
         readOnlyHint=False,
@@ -1181,7 +1201,11 @@ async def update_memory(
 
 
 @mcp.tool(
-    description="Remove a memory by ID.",
+    description=(
+        "Remove a memory by ID.\n\n"
+        "ACTION GUIDE:\n"
+        "- Requires 'memory_id' (from search/list results)."
+    ),
     annotations=ToolAnnotations(
         title="Delete Memory",
         readOnlyHint=False,
