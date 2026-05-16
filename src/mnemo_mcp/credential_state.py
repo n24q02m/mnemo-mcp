@@ -295,7 +295,29 @@ def _sub_data_dir(sub: str) -> Path:
 
 def store_for_sub(sub: str, config: dict[str, str]) -> None:
     """Persist a config dict for a single JWT subject (multi-user remote mode)."""
-    (_sub_data_dir(sub) / "config.json").write_text(json.dumps(config))
+    import stat
+    path = _sub_data_dir(sub) / "config.json"
+    config_json = json.dumps(config)
+
+    if os.name != "nt":
+        try:
+            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+            mode = stat.S_IRUSR | stat.S_IWUSR
+            fd = os.open(path, flags, mode)
+            try:
+                os.fchmod(fd, mode)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(config_json)
+        except OSError:
+            path.write_text(config_json, encoding="utf-8")
+            try:
+                path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
+    else:
+        path.write_text(config_json, encoding="utf-8")
 
 
 def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | None:
