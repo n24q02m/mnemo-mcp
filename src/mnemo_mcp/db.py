@@ -1081,7 +1081,9 @@ class MemoryDB:
                 "content_provided": content is not None,
                 "category": category,
                 "category_provided": category is not None,
-                "tags": ("[]" if not tags else json.dumps(tags)) if tags is not None else None,
+                "tags": ("[]" if not tags else json.dumps(tags))
+                if tags is not None
+                else None,
                 "tags_provided": tags is not None,
                 "source": source,
                 "source_provided": source is not None,
@@ -1221,7 +1223,11 @@ class MemoryDB:
                     rejected += 1
                     continue
                 tags = mem.get("tags", [])
-                tags_json = ("[]" if not tags else json.dumps(tags)) if isinstance(tags, list) else tags
+                tags_json = (
+                    ("[]" if not tags else json.dumps(tags))
+                    if isinstance(tags, list)
+                    else tags
+                )
                 importance = mem.get("importance", 0.5)
                 to_insert.append(
                     (
