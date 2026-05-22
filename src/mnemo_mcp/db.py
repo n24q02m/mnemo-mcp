@@ -1224,7 +1224,11 @@ class MemoryDB:
                     continue
                 tags = mem.get("tags", [])
                 # Bolt Performance Optimization: Bypass expensive json.dumps calls for empty lists/tags, which are the most common default.
-                tags_json = "[]" if not tags else (json.dumps(tags) if isinstance(tags, list) else tags)
+                tags_json = (
+                    "[]"
+                    if not tags
+                    else (json.dumps(tags) if isinstance(tags, list) else tags)
+                )
                 importance = mem.get("importance", 0.5)
                 to_insert.append(
                     (
