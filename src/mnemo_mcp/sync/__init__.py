@@ -24,7 +24,6 @@ namespace propagates to the actual call site. Tests written against the
 single-file ``sync.py`` continue to pass without modification.
 """
 
-
 from __future__ import annotations
 
 import sys
