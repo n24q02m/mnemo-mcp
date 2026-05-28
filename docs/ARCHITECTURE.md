@@ -265,8 +265,10 @@ memory(action="capture", text=..., context_type="fact")
           |
           v
 db.add_with_context_type(
-    content=<compressed>, text_raw=<original>,
-    compressed=True, compression_provider="gemini", ...
+    MemoryPayload(
+        content=<compressed>, text_raw=<original>,
+        compressed=True, compression_provider="gemini", ...
+    )
 )
 ```
 

@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Final
 
 from loguru import logger
 
+from mnemo_mcp.db import MemoryDB, MemoryPayload
+
 if TYPE_CHECKING:
     from mnemo_mcp.db import MemoryDB
 
@@ -163,16 +165,18 @@ async def capture(
 
     memory_id = await asyncio.to_thread(
         db.add_with_context_type,
-        content=stored_text,
-        context_type=context_type,
-        category=category,
-        tags=tags,
-        source=source,
-        embedding=embedding,
-        importance=importance,
-        text_raw=stored_text_raw,
-        compressed=stored_compressed,
-        compression_provider=stored_provider,
+        MemoryPayload(
+            content=stored_text,
+            context_type=context_type,
+            category=category,
+            tags=tags,
+            source=source,
+            embedding=embedding,
+            importance=importance,
+            text_raw=stored_text_raw,
+            compressed=stored_compressed,
+            compression_provider=stored_provider,
+        ),
     )
 
     return {
