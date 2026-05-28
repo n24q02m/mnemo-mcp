@@ -20,6 +20,7 @@ Spec reference: ``2026-04-19-mnemo-v2-design.md`` section 4.4.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 import boto3
 from botocore.exceptions import ClientError
@@ -31,6 +32,18 @@ from mnemo_mcp.sync.base import SyncBackend
 def _bundle_key(prefix: str, sequence: int) -> str:
     """Return the S3 object key for a passport bundle at ``sequence``."""
     return f"{prefix.rstrip('/')}/seq-{sequence:06d}.bin"
+
+
+@dataclass
+class S3Config:
+    """Configuration for S3-compatible backend."""
+
+    bucket: str
+    region: str = "us-east-1"
+    access_key_id: str | None = None
+    secret_access_key: str | None = None
+    endpoint_url: str | None = None
+    prefix: str = "passport/"
 
 
 def _parse_sequence(key: str, prefix: str) -> int | None:
@@ -60,24 +73,16 @@ class S3Backend(SyncBackend):
 
     name = "s3"
 
-    def __init__(
-        self,
-        bucket: str,
-        region: str = "us-east-1",
-        access_key_id: str | None = None,
-        secret_access_key: str | None = None,
-        endpoint_url: str | None = None,
-        prefix: str = "passport/",
-    ) -> None:
-        self._bucket = bucket
-        self._prefix = prefix.rstrip("/") + "/"
-        self._endpoint_url = endpoint_url
+    def __init__(self, config: S3Config) -> None:
+        self._bucket = config.bucket
+        self._prefix = config.prefix.rstrip("/") + "/"
+        self._endpoint_url = config.endpoint_url
         self._client = boto3.client(
             "s3",
-            region_name=region,
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
+            region_name=config.region,
+            endpoint_url=config.endpoint_url,
+            aws_access_key_id=config.access_key_id,
+            aws_secret_access_key=config.secret_access_key,
         )
 
     async def push(self, bundle: bytes, sequence: int) -> None:

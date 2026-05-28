@@ -34,7 +34,7 @@ from mnemo_mcp.sync.delta import (
     build_full_bundle,
     sync_now,
 )
-from mnemo_mcp.sync.s3 import S3Backend
+from mnemo_mcp.sync.s3 import S3Backend, S3Config
 
 _BUCKET = "mnemo-test-delta"
 _PASS = "delta-test-passphrase"
@@ -60,10 +60,12 @@ def s3_backend() -> Iterator[S3Backend]:
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket=_BUCKET)
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="testing",
-            secret_access_key="testing",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="testing",
+                secret_access_key="testing",
+            )
         )
         sync_pkg.register("s3", backend)
         yield backend

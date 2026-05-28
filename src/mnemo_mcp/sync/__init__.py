@@ -156,7 +156,7 @@ def get(name: str) -> SyncBackend:
         _REGISTRY["gdrive"] = GDriveBackend()
     if name == "s3" and "s3" not in _REGISTRY:
         from mnemo_mcp.config import settings
-        from mnemo_mcp.sync.s3 import S3Backend
+        from mnemo_mcp.sync.s3 import S3Backend, S3Config
 
         if not settings.sync_s3_bucket:
             raise KeyError(
@@ -165,12 +165,14 @@ def get(name: str) -> SyncBackend:
                 "MinIO) before requesting the S3 backend."
             )
         _REGISTRY["s3"] = S3Backend(
-            bucket=settings.sync_s3_bucket,
-            region=settings.sync_s3_region or "us-east-1",
-            access_key_id=settings.sync_s3_access_key_id or None,
-            secret_access_key=settings.sync_s3_secret_access_key or None,
-            endpoint_url=settings.sync_s3_endpoint or None,
-            prefix=settings.sync_s3_prefix or "passport/",
+            S3Config(
+                bucket=settings.sync_s3_bucket,
+                region=settings.sync_s3_region or "us-east-1",
+                access_key_id=settings.sync_s3_access_key_id or None,
+                secret_access_key=settings.sync_s3_secret_access_key or None,
+                endpoint_url=settings.sync_s3_endpoint or None,
+                prefix=settings.sync_s3_prefix or "passport/",
+            )
         )
     if name not in _REGISTRY:
         raise KeyError(

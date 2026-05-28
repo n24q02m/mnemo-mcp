@@ -23,7 +23,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from mnemo_mcp.sync.s3 import S3Backend, _bundle_key, _parse_sequence
+from mnemo_mcp.sync.s3 import S3Backend, S3Config, _bundle_key, _parse_sequence
 
 _BUCKET = "mnemo-test-bucket"
 _PREFIX = "passport/"
@@ -41,11 +41,13 @@ def s3_client() -> Iterator[object]:
 @pytest.fixture
 def backend(s3_client) -> S3Backend:  # noqa: ARG001 - s3_client patches boto3
     return S3Backend(
-        bucket=_BUCKET,
-        region="us-east-1",
-        access_key_id="testing",
-        secret_access_key="testing",
-        prefix=_PREFIX,
+        S3Config(
+            bucket=_BUCKET,
+            region="us-east-1",
+            access_key_id="testing",
+            secret_access_key="testing",
+            prefix=_PREFIX,
+        )
     )
 
 
@@ -149,10 +151,12 @@ async def test_s3_health_check_returns_true_on_existing_bucket(
 
 async def test_s3_health_check_returns_false_on_missing_bucket(s3_client) -> None:
     bad_backend = S3Backend(
-        bucket="nonexistent-bucket-zzz",
-        region="us-east-1",
-        access_key_id="testing",
-        secret_access_key="testing",
+        S3Config(
+            bucket="nonexistent-bucket-zzz",
+            region="us-east-1",
+            access_key_id="testing",
+            secret_access_key="testing",
+        )
     )
     assert await bad_backend.health_check() is False
 
@@ -161,11 +165,13 @@ def test_s3_custom_endpoint_passed_to_boto3() -> None:
     """R2 / B2 / MinIO endpoint forwarded so boto3 hits the right host."""
     with mock_aws():
         backend = S3Backend(
-            bucket="bucket",
-            region="auto",
-            access_key_id="k",
-            secret_access_key="s",
-            endpoint_url="https://accountid.r2.cloudflarestorage.com",
+            S3Config(
+                bucket="bucket",
+                region="auto",
+                access_key_id="k",
+                secret_access_key="s",
+                endpoint_url="https://accountid.r2.cloudflarestorage.com",
+            )
         )
         assert backend._client.meta.endpoint_url == (
             "https://accountid.r2.cloudflarestorage.com"
@@ -185,10 +191,12 @@ async def test_s3_push_propagates_unknown_client_error() -> None:
 
     with mock_aws():
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         backend._client = MagicMock()
         backend._client.put_object.side_effect = ClientError(
@@ -208,10 +216,12 @@ async def test_s3_pull_propagates_unknown_client_error() -> None:
 
     with mock_aws():
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         backend._client = MagicMock()
         backend._client.get_object.side_effect = ClientError(
@@ -229,10 +239,12 @@ async def test_s3_last_remote_sequence_propagates_client_error() -> None:
 
     with mock_aws():
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         backend._client = MagicMock()
         backend._client.list_objects_v2.side_effect = ClientError(
@@ -248,10 +260,12 @@ async def test_s3_last_remote_sequence_pagination(s3_client) -> None:
     from unittest.mock import MagicMock
 
     backend = S3Backend(
-        bucket=_BUCKET,
-        region="us-east-1",
-        access_key_id="t",
-        secret_access_key="t",
+        S3Config(
+            bucket=_BUCKET,
+            region="us-east-1",
+            access_key_id="t",
+            secret_access_key="t",
+        )
     )
     backend._client = MagicMock()
     backend._client.list_objects_v2.side_effect = [
@@ -275,10 +289,12 @@ async def test_s3_health_check_returns_false_on_generic_exception() -> None:
 
     with mock_aws():
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         backend._client = MagicMock()
         backend._client.head_bucket.side_effect = TimeoutError("network down")
