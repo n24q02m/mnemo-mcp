@@ -2,7 +2,7 @@
 
 Implements ``mem_003_temporal`` from the Phase 3 plan
 (``2026-05-09-phase-3-plan.md`` Task 1) and spec
-``2026-04-19-mnemo-v2-design.md`` §6.
+(``2026-04-19-mnemo-v2-design.md`` §6).
 
 Adds:
 
@@ -95,17 +95,12 @@ def _has_index(name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Upgrade
+# Upgrade Helpers
 # ---------------------------------------------------------------------------
 
 
-def upgrade() -> None:
-    """Apply Phase 3 schema additions idempotently."""
-    bind = op.get_bind()
-
-    # ------------------------------------------------------------------
-    # 1. Bitemporal columns on memories
-    # ------------------------------------------------------------------
+def _upgrade_memories_temporal_columns() -> None:
+    """Add bitemporal columns to memories (Task 1.1)."""
     columns = _existing_columns("memories")
 
     if "commit_sha" not in columns:
@@ -140,20 +135,16 @@ def upgrade() -> None:
     # SQLAlchemy connection during migration confuse SQLite's WAL on
     # Windows ("database disk image is malformed").
 
-    # ------------------------------------------------------------------
-    # 2. Rename current join table memory_entities -> memory_entity_links
-    #    (must run BEFORE renaming `entities` -> `memory_entities` to avoid
-    #    name collision).
-    # ------------------------------------------------------------------
+
+def _upgrade_rename_join_table_to_links() -> None:
+    """Rename current join table memory_entities -> memory_entity_links (Task 1.2)."""
     if _table_exists("memory_entities") and not _table_exists("memory_entity_links"):
         # Detect which table currently named `memory_entities` actually IS
         # the join table (memory_id + entity_id columns) vs the entity
-        # table itself. The join table has columns memory_id + entity_id;
-        # the entity table has id + name + entity_type.
+        # table itself.
         cols = _existing_columns("memory_entities")
         if {"memory_id", "entity_id"}.issubset(cols):
             op.execute("ALTER TABLE memory_entities RENAME TO memory_entity_links")
-            # Rename associated index if it exists.
             if _has_index("idx_memory_entities_entity_id"):
                 op.execute("DROP INDEX idx_memory_entities_entity_id")
             op.execute(
@@ -169,12 +160,11 @@ def upgrade() -> None:
             "mem_003: memory_entity_links already present, skipping join rename"
         )
 
-    # ------------------------------------------------------------------
-    # 3. Rename entity table entities -> memory_entities (spec §5.2).
-    # ------------------------------------------------------------------
+
+def _upgrade_rename_entities_to_memory_entities() -> None:
+    """Rename entity table entities -> memory_entities (Task 1.3)."""
     if _table_exists("entities") and not _table_exists("memory_entities"):
         op.execute("ALTER TABLE entities RENAME TO memory_entities")
-        # Recreate unique index under canonical name.
         if _has_index("idx_entities_name_type"):
             op.execute("DROP INDEX idx_entities_name_type")
         op.execute(
@@ -184,18 +174,14 @@ def upgrade() -> None:
     elif _table_exists("memory_entities") and not _table_exists("entities"):
         logger.info("mem_003: memory_entities already present, skipping entity rename")
 
-    # ------------------------------------------------------------------
-    # 4. Rename relations -> memory_edges + ADD bitemporal + memory_id.
-    # ------------------------------------------------------------------
+
+def _upgrade_rename_relations_to_memory_edges() -> None:
+    """Rename relations -> memory_edges + add bitemporal + memory_id (Task 1.4)."""
     if _table_exists("relations") and not _table_exists("memory_edges"):
         op.execute("ALTER TABLE relations RENAME TO memory_edges")
-        # Drop / recreate associated indexes under new names.
-        if _has_index("idx_relations_source"):
-            op.execute("DROP INDEX idx_relations_source")
-        if _has_index("idx_relations_target"):
-            op.execute("DROP INDEX idx_relations_target")
-        if _has_index("idx_relations_unique"):
-            op.execute("DROP INDEX idx_relations_unique")
+        for idx in ["idx_relations_source", "idx_relations_target", "idx_relations_unique"]:
+            if _has_index(idx):
+                op.execute(f"DROP INDEX {idx}")
         op.execute(
             "CREATE INDEX IF NOT EXISTS idx_memory_edges_source ON memory_edges(source_id)"
         )
@@ -209,7 +195,6 @@ def upgrade() -> None:
     elif _table_exists("memory_edges"):
         logger.info("mem_003: memory_edges already present, skipping relations rename")
 
-    # Add bitemporal + memory_id columns (idempotent).
     if _table_exists("memory_edges"):
         edge_cols = _existing_columns("memory_edges")
         if "memory_id" not in edge_cols:
@@ -223,9 +208,9 @@ def upgrade() -> None:
         if "valid_to" not in edge_cols:
             op.execute("ALTER TABLE memory_edges ADD COLUMN valid_to DATETIME")
 
-    # ------------------------------------------------------------------
-    # 5. memory_audit table -- mutation log.
-    # ------------------------------------------------------------------
+
+def _upgrade_create_memory_audit_table() -> None:
+    """Create memory_audit table -- mutation log (Task 1.5)."""
     if not _table_exists("memory_audit"):
         op.create_table(
             "memory_audit",
@@ -250,19 +235,15 @@ def upgrade() -> None:
     else:
         logger.info("mem_003: memory_audit already present, skipping")
 
-    # ------------------------------------------------------------------
-    # 6. memory_entities_vec virtual table (sqlite-vec).
-    # ------------------------------------------------------------------
-    # Best-effort: load extension on raw connection then create. If the
-    # extension is unavailable (e.g. test harness without sqlite-vec) we
-    # silently skip -- entity resolution falls back to name-only match.
+
+def _upgrade_create_memory_entities_vec_table(bind) -> None:
+    """Create memory_entities_vec virtual table (sqlite-vec) (Task 1.6)."""
     if not _table_exists("memory_entities_vec"):
         try:
             raw = bind.connection.connection  # underlying sqlite3.Connection
             try:
                 raw.enable_load_extension(True)
                 import sqlite_vec
-
                 sqlite_vec.load(raw)
                 raw.enable_load_extension(False)
             except Exception as load_err:  # pragma: no cover - env-dependent
@@ -281,31 +262,24 @@ def upgrade() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Downgrade
+# Downgrade Helpers
 # ---------------------------------------------------------------------------
 
 
-def downgrade() -> None:
-    """Reverse renames + drop new tables. Additive columns retained.
-
-    SQLite cannot drop columns without rebuilding the parent table; we
-    deliberately leave commit_sha / valid_from / valid_to / superseded_by
-    on memories (and memory_id / valid_from / valid_to on memory_edges)
-    in place to avoid data-loss risk in production downgrades.
-    """
+def _downgrade_drop_new_tables() -> None:
+    """Drop tables created in Phase 3."""
     if _table_exists("memory_entities_vec"):
         op.execute("DROP TABLE IF EXISTS memory_entities_vec")
-
     if _table_exists("memory_audit"):
         op.drop_table("memory_audit")
 
+
+def _downgrade_restore_relations_table() -> None:
+    """Restore memory_edges -> relations rename."""
     if _table_exists("memory_edges") and not _table_exists("relations"):
-        if _has_index("idx_memory_edges_source"):
-            op.execute("DROP INDEX idx_memory_edges_source")
-        if _has_index("idx_memory_edges_target"):
-            op.execute("DROP INDEX idx_memory_edges_target")
-        if _has_index("idx_memory_edges_unique"):
-            op.execute("DROP INDEX idx_memory_edges_unique")
+        for idx in ["idx_memory_edges_source", "idx_memory_edges_target", "idx_memory_edges_unique"]:
+            if _has_index(idx):
+                op.execute(f"DROP INDEX {idx}")
         op.execute("ALTER TABLE memory_edges RENAME TO relations")
         op.execute(
             "CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id)"
@@ -318,6 +292,9 @@ def downgrade() -> None:
             "ON relations(source_id, target_id, relation_type)"
         )
 
+
+def _downgrade_restore_entities_table() -> None:
+    """Restore memory_entities -> entities rename."""
     if _table_exists("memory_entities") and not _table_exists("entities"):
         # Detect entity-table shape (vs join shape).
         cols = _existing_columns("memory_entities")
@@ -330,6 +307,9 @@ def downgrade() -> None:
                 "ON entities(name, entity_type)"
             )
 
+
+def _downgrade_restore_join_table() -> None:
+    """Restore memory_entity_links -> memory_entities rename."""
     if _table_exists("memory_entity_links") and not _table_exists("memory_entities"):
         if _has_index("idx_memory_entity_links_entity_id"):
             op.execute("DROP INDEX idx_memory_entity_links_entity_id")
@@ -338,6 +318,41 @@ def downgrade() -> None:
             "CREATE INDEX IF NOT EXISTS idx_memory_entities_entity_id "
             "ON memory_entities(entity_id)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Upgrade
+# ---------------------------------------------------------------------------
+
+
+def upgrade() -> None:
+    """Apply Phase 3 schema additions idempotently."""
+    bind = op.get_bind()
+    _upgrade_memories_temporal_columns()
+    _upgrade_rename_join_table_to_links()
+    _upgrade_rename_entities_to_memory_entities()
+    _upgrade_rename_relations_to_memory_edges()
+    _upgrade_create_memory_audit_table()
+    _upgrade_create_memory_entities_vec_table(bind)
+
+
+# ---------------------------------------------------------------------------
+# Downgrade
+# ---------------------------------------------------------------------------
+
+
+def downgrade() -> None:
+    """Reverse renames + drop new tables. Additive columns retained.
+
+    SQLite cannot drop columns without rebuilding the parent table; we
+    deliberately leave commit_sha / valid_from / valid_to / superseded_by
+    on memories (and memory_id / valid_from / valid_to on memory_edges)
+    in place to avoid data-loss risk in production downgrades.
+    """
+    _downgrade_drop_new_tables()
+    _downgrade_restore_relations_table()
+    _downgrade_restore_entities_table()
+    _downgrade_restore_join_table()
 
     logger.warning(
         "mem_003 downgrade is partial: SQLite drop-column requires manual "
