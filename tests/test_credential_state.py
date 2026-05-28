@@ -436,6 +436,126 @@ class TestGDriveTokenPoll:
         cs._on_gdrive_complete = None
         cs._on_gdrive_failed = None
 
+    async def test_poll_request_exception_continues(self):
+        """Verify that an exception during httpx post logs and continues polling."""
+        import httpx
+
+        import mnemo_mcp.credential_state as cs
+        from mnemo_mcp.credential_state import _gdrive_token_poll
+
+        # Reset callbacks
+        cs._on_gdrive_failed = None
+
+        response = MagicMock()
+        response.json.return_value = {"access_token": "tok"}
+
+        # Raise exception once, then succeed
+        side_effect = [httpx.RequestError("network error"), response]
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = side_effect
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # expires_in=10, interval=1 -> should have time for both calls
+            await _gdrive_token_poll("cid", "csec", "devcode", 1, 10)
+
+            assert mock_client.post.call_count == 2
+            assert mock_sleep.call_count == 2
+
+    async def test_poll_authorization_pending(self):
+        """Verify that authorization_pending error causes a continue."""
+        from mnemo_mcp.credential_state import _gdrive_token_poll
+
+        response_pending = MagicMock()
+        response_pending.json.return_value = {"error": "authorization_pending"}
+
+        response_success = MagicMock()
+        response_success.json.return_value = {"access_token": "tok"}
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [response_pending, response_success]
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await _gdrive_token_poll("cid", "csec", "devcode", 0, 5)
+
+            assert mock_client.post.call_count == 2
+
+    async def test_poll_slow_down(self):
+        """Verify that slow_down error increases interval and continues."""
+        from mnemo_mcp.credential_state import _gdrive_token_poll
+
+        response_slow = MagicMock()
+        response_slow.json.return_value = {"error": "slow_down"}
+
+        response_success = MagicMock()
+        response_success.json.return_value = {"access_token": "tok"}
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("mnemo_mcp.token_store.async_save_token", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = [response_slow, response_success]
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # Initial interval 5
+            await _gdrive_token_poll("cid", "csec", "devcode", 5, 20)
+
+            assert mock_client.post.call_count == 2
+            # First sleep is 5, second should be 10 (5 + 5)
+            mock_sleep.assert_any_call(5)
+            mock_sleep.assert_any_call(10)
+
+    async def test_notify_failed_no_callback(self):
+        """Verify _notify_failed path when no callback is registered."""
+        import mnemo_mcp.credential_state as cs
+        from mnemo_mcp.credential_state import _gdrive_token_poll
+
+        cs._on_gdrive_failed = None
+
+        # expires_in=0 to trigger deadline branch which calls _notify_failed('expired')
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await _gdrive_token_poll("cid", "csec", "devcode", 0, 0)
+        # Just verifying it doesn't crash and hits the lines
+
+    async def test_poll_with_sub(self):
+        """Verify that if sub is provided, async_save_token_for_sub is used."""
+        from mnemo_mcp.credential_state import _gdrive_token_poll
+
+        response = MagicMock()
+        response.json.return_value = {"access_token": "tok"}
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch(
+                "mnemo_mcp.token_store.async_save_token_for_sub", new_callable=AsyncMock
+            ) as mock_save_sub,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await _gdrive_token_poll("cid", "csec", "devcode", 0, 5, sub="user123")
+
+            mock_save_sub.assert_called_once_with(
+                "user123", "google_drive", {"access_token": "tok"}
+            )
+
 
 class TestResetState:
     def test_resets_state_and_url(self):
