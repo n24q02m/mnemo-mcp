@@ -7,6 +7,7 @@ from mnemo_mcp import compression
 # Use the mock already established in conftest.py
 mock_encoding = tiktoken.get_encoding("cl100k_base")
 
+
 def test_resolve_provider_priority(monkeypatch):
     # 1. Explicit wins
     monkeypatch.setenv("COMPRESSION_PROVIDER", "env-provider")
@@ -18,9 +19,12 @@ def test_resolve_provider_priority(monkeypatch):
 
     # 3. Auto-detect is fallback
     monkeypatch.delenv("COMPRESSION_PROVIDER")
-    with patch("mnemo_mcp.compression.detect_provider", return_value="auto-provider") as mock_detect:
+    with patch(
+        "mnemo_mcp.compression.detect_provider", return_value="auto-provider"
+    ) as mock_detect:
         assert compression._resolve_provider(None) == "auto-provider"
         mock_detect.assert_called_once()
+
 
 def test_resolve_model_priority(monkeypatch):
     # 1. Explicit wins
@@ -33,9 +37,12 @@ def test_resolve_model_priority(monkeypatch):
 
     # 3. Default is fallback
     monkeypatch.delenv("COMPRESSION_MODEL")
-    with patch("mnemo_mcp.compression.get_default_model", return_value="default-model") as mock_get_default:
+    with patch(
+        "mnemo_mcp.compression.get_default_model", return_value="default-model"
+    ) as mock_get_default:
         assert compression._resolve_model("p", None) == "default-model"
         mock_get_default.assert_called_once_with("p")
+
 
 def test_env_compression_enabled(monkeypatch):
     # Default is True
@@ -60,6 +67,7 @@ def test_env_compression_enabled(monkeypatch):
     assert compression._env_compression_enabled() is True
     monkeypatch.setenv("COMPRESSION_ENABLED", "on")
     assert compression._env_compression_enabled() is True
+
 
 def test_count_tokens_uses_mocked_encoding():
     # count_tokens calls _ENCODING.encode(text)
