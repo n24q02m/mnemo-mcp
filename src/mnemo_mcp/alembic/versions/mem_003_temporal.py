@@ -179,7 +179,11 @@ def _upgrade_rename_relations_to_memory_edges() -> None:
     """Rename relations -> memory_edges + add bitemporal + memory_id (Task 1.4)."""
     if _table_exists("relations") and not _table_exists("memory_edges"):
         op.execute("ALTER TABLE relations RENAME TO memory_edges")
-        for idx in ["idx_relations_source", "idx_relations_target", "idx_relations_unique"]:
+        for idx in [
+            "idx_relations_source",
+            "idx_relations_target",
+            "idx_relations_unique",
+        ]:
             if _has_index(idx):
                 op.execute(f"DROP INDEX {idx}")
         op.execute(
@@ -244,6 +248,7 @@ def _upgrade_create_memory_entities_vec_table(bind) -> None:
             try:
                 raw.enable_load_extension(True)
                 import sqlite_vec
+
                 sqlite_vec.load(raw)
                 raw.enable_load_extension(False)
             except Exception as load_err:  # pragma: no cover - env-dependent
@@ -277,7 +282,11 @@ def _downgrade_drop_new_tables() -> None:
 def _downgrade_restore_relations_table() -> None:
     """Restore memory_edges -> relations rename."""
     if _table_exists("memory_edges") and not _table_exists("relations"):
-        for idx in ["idx_memory_edges_source", "idx_memory_edges_target", "idx_memory_edges_unique"]:
+        for idx in [
+            "idx_memory_edges_source",
+            "idx_memory_edges_target",
+            "idx_memory_edges_unique",
+        ]:
             if _has_index(idx):
                 op.execute(f"DROP INDEX {idx}")
         op.execute("ALTER TABLE memory_edges RENAME TO relations")
