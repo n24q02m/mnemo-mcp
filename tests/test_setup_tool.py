@@ -32,6 +32,20 @@ class TestClearModelCache:
 
         assert result is None
 
+    def test_returns_none_on_rmtree_error(self, tmp_path):
+        from mnemo_mcp.setup_tool import clear_model_cache
+
+        model_dir = tmp_path / "models--org--model"
+        model_dir.mkdir(parents=True)
+
+        with patch.dict("os.environ", {"QWEN3_EMBED_CACHE_PATH": str(tmp_path)}):
+            with patch("shutil.rmtree") as mock_rmtree:
+                mock_rmtree.side_effect = OSError("Permission denied")
+                result = clear_model_cache("org/model")
+
+        assert result is None
+        assert model_dir.exists()
+
 
 class TestValidateCloudModels:
     """_validate_cloud_models checks cloud embedding availability."""
