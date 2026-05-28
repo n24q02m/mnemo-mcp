@@ -101,7 +101,9 @@ class TestValidateCloudModels:
 
         assert result["cloud_ready"] is False
 
-    @patch("mnemo_mcp.setup_tool._EMBEDDING_CANDIDATES", ["fail-model", "success-model"])
+    @patch(
+        "mnemo_mcp.setup_tool._EMBEDDING_CANDIDATES", ["fail-model", "success-model"]
+    )
     @patch("mnemo_mcp.embedder.init_backend")
     def test_cloud_first_candidate_fails_continues_to_next(self, mock_init):
         from mnemo_mcp.setup_tool import _validate_cloud_models
