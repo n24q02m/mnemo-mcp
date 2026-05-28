@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import logging
 
-import sqlalchemy as sa
 from alembic import op
 
 # Revision identifiers used by Alembic.
@@ -79,12 +78,13 @@ def upgrade() -> None:
         logger.info("mem_002: compression_provider already present, skipping")
 
     if not _table_exists("sync_state"):
-        op.create_table(
-            "sync_state",
-            sa.Column("backend", sa.Text(), primary_key=True),
-            sa.Column("last_sync_at", sa.Float(), nullable=True),
-            sa.Column("last_commit_sha", sa.Text(), nullable=True),
-            sa.Column("upload_cursor", sa.Integer(), nullable=True),
+        op.execute(
+            "CREATE TABLE sync_state ("
+            "  backend TEXT PRIMARY KEY, "
+            "  last_sync_at FLOAT, "
+            "  last_commit_sha TEXT, "
+            "  upload_cursor INTEGER"
+            ")"
         )
     else:
         logger.info("mem_002: sync_state already present, skipping")
