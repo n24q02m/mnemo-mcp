@@ -57,7 +57,9 @@ def entity_search(
     if not entities:
         # Fallback: fuzzy substring match.
         # Escape LIKE wildcards to prevent injection/broad matching.
-        escaped_name = name.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        escaped_name = (
+            name.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         like_sql = (
             "SELECT id, name, entity_type FROM memory_entities "
             "WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT 5"
