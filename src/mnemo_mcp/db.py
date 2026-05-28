@@ -1674,8 +1674,7 @@ class MemoryDB:
             if cursor is None:
                 return
             cols = {
-                row[1]
-                for row in self._conn.execute("PRAGMA table_info(memories)").fetchall()
+                row["name"] for row in self._conn.execute("PRAGMA table_info(memories)")
             }
             if "commit_sha" not in cols or "valid_from" not in cols:
                 # Phase 3 columns missing -- migration did not run.
