@@ -31,7 +31,7 @@ from mnemo_mcp.server import (
     _handle_config_sync_now,
     _handle_memory_compress,
 )
-from mnemo_mcp.sync.s3 import S3Backend
+from mnemo_mcp.sync.s3 import S3Backend, S3Config
 
 _BUCKET = "mnemo-test-passport-actions"
 
@@ -106,10 +106,12 @@ async def test_sync_now_delta_push_end_to_end(
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket=_BUCKET)
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         sync_pkg.register("s3", backend)
 
@@ -201,10 +203,12 @@ async def test_import_passport_no_bundle_returns_status(
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket=_BUCKET)
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         sync_pkg.register("s3", backend)
 
@@ -240,10 +244,12 @@ async def test_import_passport_round_trip(
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket=_BUCKET)
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         await backend.push(bundle, sequence=1)
         sync_pkg.register("s3", backend)
@@ -388,10 +394,12 @@ async def test_import_passport_decryption_failure(
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket=_BUCKET)
         backend = S3Backend(
-            bucket=_BUCKET,
-            region="us-east-1",
-            access_key_id="t",
-            secret_access_key="t",
+            S3Config(
+                bucket=_BUCKET,
+                region="us-east-1",
+                access_key_id="t",
+                secret_access_key="t",
+            )
         )
         await backend.push(bundle, sequence=1)
         sync_pkg.register("s3", backend)
