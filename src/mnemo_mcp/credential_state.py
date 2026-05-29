@@ -162,6 +162,12 @@ def get_setup_url() -> str | None:
     return _setup_url
 
 
+def set_setup_url(url: str | None) -> None:
+    """Set current relay setup URL (for testing/init)."""
+    global _setup_url
+    _setup_url = url
+
+
 def _is_http_mode() -> bool:
     """Detect HTTP mode from CLI args + env vars.
 

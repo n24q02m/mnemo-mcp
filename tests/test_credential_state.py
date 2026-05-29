@@ -10,6 +10,7 @@ from mnemo_mcp.credential_state import (
     get_state,
     reset_state,
     resolve_credential_state,
+    set_setup_url,
     set_state,
 )
 
@@ -35,20 +36,16 @@ class TestGetState:
 
 class TestGetSetupUrl:
     def test_returns_none_by_default(self):
-        import mnemo_mcp.credential_state as cs
-
-        old = cs._setup_url
-        cs._setup_url = None
+        old = get_setup_url()
+        set_setup_url(None)
         assert get_setup_url() is None
-        cs._setup_url = old
+        set_setup_url(old)
 
     def test_returns_url_when_set(self):
-        import mnemo_mcp.credential_state as cs
-
-        old = cs._setup_url
-        cs._setup_url = "https://example.com/setup"
+        old = get_setup_url()
+        set_setup_url("https://example.com/setup")
         assert get_setup_url() == "https://example.com/setup"
-        cs._setup_url = old
+        set_setup_url(old)
 
 
 # ---------------------------------------------------------------------------
@@ -440,10 +437,8 @@ class TestGDriveTokenPoll:
 class TestResetState:
     def test_resets_state_and_url(self):
         """Resets state to AWAITING_SETUP and clears URL."""
-        import mnemo_mcp.credential_state as cs
-
         set_state(CredentialState.CONFIGURED)
-        cs._setup_url = "https://some.url"
+        set_setup_url("https://some.url")
 
         with (
             patch("mcp_core.clear_mode"),
@@ -452,7 +447,7 @@ class TestResetState:
             reset_state()
 
         assert get_state() == CredentialState.AWAITING_SETUP
-        assert cs._setup_url is None
+        assert get_setup_url() is None
 
     def test_reset_exception_nonfatal(self):
         """Exception during reset doesn't raise."""
