@@ -696,8 +696,9 @@ class MemoryDB:
                     vec_params.append(category)
 
                 if tags:
-                    vec_sql += " AND m.tags != '[]' AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN (SELECT value FROM json_each(?)))"
-                    vec_params.append(json.dumps(tags))
+                    q = ",".join(["?"] * len(tags))
+                    vec_sql += f" AND m.tags != '[]' AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({q}))"
+                    vec_params.extend(tags)
 
                 extra_sql, extra_params = self._build_filter_sql(**filter_kwargs)
                 if extra_sql:
@@ -824,8 +825,9 @@ class MemoryDB:
             filter_sql += " AND m.category = ?"
             filter_params.append(category)
         if tags:
-            filter_sql += " AND m.tags != '[]' AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN (SELECT value FROM json_each(?)))"
-            filter_params.append(json.dumps(tags))
+            q = ",".join(["?"] * len(tags))
+            filter_sql += f" AND m.tags != '[]' AND json_valid(m.tags) AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN ({q}))"
+            filter_params.extend(tags)
 
         extra_sql, extra_params = self._build_filter_sql(
             context_type=context_type,
@@ -844,21 +846,21 @@ class MemoryDB:
         # applying limits. Breaking early prevents expensive broad query execution (like OR).
         for fts_query in fts_queries:
             query_params = [fts_query] + filter_params + [limit * 3]
-            fts_sql = (
-                "WITH best_tier AS ("
-                "    SELECT m.id,"
-                "           bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score "
-                "    FROM memories_fts f "
-                "    JOIN memories m ON f.id = m.id "
-                "    WHERE memories_fts MATCH ? " + filter_sql + " "
-                "    ORDER BY bm25_score "
-                "    LIMIT ? "
-                ") "
-                "SELECT m.*, b.bm25_score "
-                "FROM best_tier b "
-                "JOIN memories m ON b.id = m.id "
-                "ORDER BY b.bm25_score"
-            )
+            fts_sql = f"""
+                WITH best_tier AS (
+                    SELECT m.id,
+                           bm25(memories_fts, 0.0, 1.0, 0.0, 5.0) AS bm25_score
+                    FROM memories_fts f
+                    JOIN memories m ON f.id = m.id
+                    WHERE memories_fts MATCH ? {filter_sql}
+                    ORDER BY bm25_score
+                    LIMIT ?
+                )
+                SELECT m.*, b.bm25_score
+                FROM best_tier b
+                JOIN memories m ON b.id = m.id
+                ORDER BY b.bm25_score
+            """
 
             try:
                 rows = self._conn.execute(fts_sql, query_params).fetchall()
@@ -1016,24 +1018,26 @@ class MemoryDB:
         if isinstance(limit, int):
             limit = max(1, min(limit, 100))
 
-        sql = "SELECT * FROM memories"
-        params = []
-        where_clauses = []
+        archive_clause = "" if include_archived else " AND archived_at IS NULL"
 
         if category:
-            where_clauses.append("category = ?")
-            params.append(category)
-
-        if not include_archived:
-            where_clauses.append("archived_at IS NULL")
-
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
-
-        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-
-        rows = self._conn.execute(sql, tuple(params)).fetchall()
+            rows = self._conn.execute(
+                f"""SELECT * FROM memories
+                   WHERE category = ?{archive_clause}
+                   ORDER BY updated_at DESC
+                   LIMIT ? OFFSET ?""",
+                (category, limit, offset),
+            ).fetchall()
+        else:
+            # No leading WHERE -> drop the leading ' AND '.
+            where_sql = "" if include_archived else " WHERE archived_at IS NULL"
+            rows = self._conn.execute(
+                f"""SELECT * FROM memories
+                   {where_sql}
+                   ORDER BY updated_at DESC
+                   LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
 
         return [dict(r) for r in rows]
 
