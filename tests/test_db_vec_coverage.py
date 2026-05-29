@@ -205,6 +205,12 @@ class TestSearchVecBranch:
 
             def execute(self, sql, *args, **kwargs):
                 if "FROM memories_vec v" in sql and "MATCH" in sql:
+                    # For the new JOIN query, mock the dict behavior
+                    if "JOIN memories m" in sql:
+                        class _CursorJoin:
+                            def fetchall(self_):
+                                return [{"id": mid, "distance": 0.1, "content": "alpha beta gamma", "category": "notes" if "notes" in sql else "general", "tags": "[]", "importance": 0.5, "updated_at": "2024-01-01T00:00:00Z"}]
+                        return _CursorJoin()
                     # Fabricate a result row that looks like a vec hit.
                     class _Cursor:
                         def fetchall(self_):
@@ -250,6 +256,12 @@ class TestSearchVecBranch:
 
             def execute(self, sql, *args, **kwargs):
                 if "FROM memories_vec v" in sql and "MATCH" in sql:
+                    # For the new JOIN query, mock the dict behavior
+                    if "JOIN memories m" in sql:
+                        class _CursorJoin:
+                            def fetchall(self_):
+                                return [{"id": mid, "distance": 0.1, "content": "alpha beta gamma", "category": "notes" if "notes" in sql else "general", "tags": "[]", "importance": 0.5, "updated_at": "2024-01-01T00:00:00Z"}]
+                        return _CursorJoin()
 
                     class _Cursor:
                         def fetchall(self_):
@@ -325,7 +337,7 @@ class TestSearchVecBranch:
         real_conn = db._conn
         # mid1 will be found by FTS
         mid1 = db.add("alpha beta")
-        # mid2 will be found by VEC but its fetch from 'memories' will fail
+        # mid2 will be added but vec search will fail
         mid2 = db.add("gamma delta")
 
         class _ConnProxy:
@@ -333,21 +345,9 @@ class TestSearchVecBranch:
                 self._inner = inner
 
             def execute(self, sql, *args, **kwargs):
-                # First vector query: return mid2 as a hit
-                if "FROM memories_vec v" in sql and "MATCH" in sql:
-
-                    class _Cursor:
-                        def fetchall(self_):
-                            return [{"id": mid2, "distance": 0.1}]
-
-                        def fetchone(self_):
-                            return {"id": mid2, "distance": 0.1}
-
-                    return _Cursor()
-
-                # Second query (fetching missing mems): throw exception
-                if "FROM memories WHERE id IN" in sql:
-                    raise RuntimeError("missing mems fetch failed")
+                # Vector query: raise an exception to trigger the broad except block
+                if "FROM memories_vec v JOIN memories m" in sql and "MATCH" in sql:
+                    raise RuntimeError("vec join fetch failed")
 
                 return self._inner.execute(sql, *args, **kwargs)
 
@@ -362,7 +362,7 @@ class TestSearchVecBranch:
 
         db._conn = _ConnProxy(real_conn)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         try:
-            # Should still return mid1 from FTS despite mid2's fetch failure
+            # Should still return mid1 from FTS despite vec fetch failure
             results = db.search(query="alpha", embedding=[0.1, 0.2, 0.3], limit=5)
             assert isinstance(results, list)
             assert any(r["id"] == mid1 for r in results)

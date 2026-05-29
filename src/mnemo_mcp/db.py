@@ -684,7 +684,7 @@ class MemoryDB:
         if embedding and self._vec_enabled:
             try:
                 vec_sql = """
-                    SELECT v.id, v.distance
+                    SELECT m.*, v.distance
                     FROM memories_vec v
                     JOIN memories m ON v.id = m.id
                     WHERE v.embedding MATCH ?
@@ -710,28 +710,16 @@ class MemoryDB:
 
                 vec_rows = self._conn.execute(vec_sql, vec_params).fetchall()
 
-                missing_ids = []
-                vec_scores = {}
                 for row in vec_rows:
                     mid = row["id"]
                     vec_score = max(0.0, 1.0 - row["distance"])
-                    vec_scores[mid] = vec_score
                     if mid in results:
                         results[mid]["vec_score"] = vec_score
                     else:
-                        missing_ids.append(mid)
-
-                if missing_ids:
-                    missing_mems = self._conn.execute(
-                        "SELECT * FROM memories WHERE id IN (SELECT value FROM json_each(?))",
-                        (json.dumps(missing_ids),),
-                    ).fetchall()
-                    for mem in missing_mems:
-                        mid = mem["id"]
                         results[mid] = {
-                            **dict(mem),
+                            **dict(row),
                             "fts_score": 0.0,
-                            "vec_score": vec_scores[mid],
+                            "vec_score": vec_score,
                         }
             except Exception as e:
                 logger.debug(f"Vector search error: {e}")
@@ -755,6 +743,7 @@ class MemoryDB:
             m.pop("fts_score", None)
             m.pop("vec_score", None)
             m.pop("bm25_score", None)
+            m.pop("distance", None)
 
         return top
 
