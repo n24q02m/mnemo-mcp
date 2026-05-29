@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from mnemo_mcp.db import MemoryDB
+from mnemo_mcp.db import MemoryDB, MemoryPayload
 
 
 @pytest.fixture
@@ -270,11 +270,13 @@ def test_mem_002_add_with_context_type_compression_columns(
     db = MemoryDB(isolated_db_path, embedding_dims=0)
     try:
         mid = db.add_with_context_type(
-            content="compressed text",
-            context_type="fact",
-            text_raw="original much longer raw text",
-            compressed=True,
-            compression_provider="gemini",
+            MemoryPayload(
+                content="compressed text",
+                context_type="fact",
+                text_raw="original much longer raw text",
+                compressed=True,
+                compression_provider="gemini",
+            )
         )
     finally:
         db.close()

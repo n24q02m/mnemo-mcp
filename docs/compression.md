@@ -119,10 +119,10 @@ capture(text)
                        max_tokens=tokens_in // 2)
        -> tiktoken.encode(result) -> tokens_out
        -> {text, text_raw, compressed=True, provider, tokens_in, tokens_out}
-  -> db.add_with_context_type(content=result.text,
-                              text_raw=result.text_raw,
-                              compressed=True,
-                              compression_provider=...)
+  -> db.add_with_context_type(MemoryPayload(content=result.text,
+                                           text_raw=result.text_raw,
+                                           compressed=True,
+                                           compression_provider=...))
 ```
 
 `tiktoken cl100k_base` is the tokenizer (matches OpenAI + Anthropic

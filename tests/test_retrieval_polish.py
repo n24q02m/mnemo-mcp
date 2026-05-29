@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mnemo_mcp.db import MemoryDB
+from mnemo_mcp.db import MemoryDB, MemoryPayload
 from mnemo_mcp.reranker import (
     CloudReranker,
     FallbackChainReranker,
@@ -249,10 +249,10 @@ def test_importance_boost_high_importance_higher(tmp_db: MemoryDB):
 
 def test_filter_context_type(tmp_db: MemoryDB):
     fact_id = tmp_db.add_with_context_type(
-        "users prefer light theme", context_type="fact"
+        MemoryPayload("users prefer light theme", context_type="fact")
     )
     pref_id = tmp_db.add_with_context_type(
-        "users prefer light theme", context_type="preference"
+        MemoryPayload("users prefer light theme", context_type="preference")
     )
 
     fact_only = tmp_db.search("users light theme", context_type="fact", limit=10)

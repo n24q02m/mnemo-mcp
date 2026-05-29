@@ -17,6 +17,7 @@ import sqlite3
 import struct
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -62,6 +63,24 @@ def _now_iso() -> str:
 # Maximum content length to prevent memory poisoning attacks (OWASP LLM09).
 # Limits damage from indirect prompt injection writing oversized payloads.
 MAX_CONTENT_LENGTH = 5000
+
+
+@dataclass
+class MemoryPayload:
+    """Payload for adding a new memory with rich context."""
+
+    content: str
+    context_type: str = "conversation"
+    category: str = "general"
+    tags: list[str] | None = None
+    source: str | None = None
+    embedding: list[float] | None = None
+    importance: float | None = None
+    text_raw: str | None = None
+    compressed: bool = False
+    compression_provider: str | None = None
+
+
 # Maximum tags allowed in a search filter to prevent complexity attacks.
 MAX_TAGS_FILTER = 50
 
@@ -416,17 +435,7 @@ class MemoryDB:
 
     def add_with_context_type(
         self,
-        content: str,
-        context_type: str = "conversation",
-        category: str = "general",
-        tags: list[str] | None = None,
-        source: str | None = None,
-        embedding: list[float] | None = None,
-        importance: float | None = None,
-        *,
-        text_raw: str | None = None,
-        compressed: bool = False,
-        compression_provider: str | None = None,
+        payload: MemoryPayload,
     ) -> str:
         """Add a new memory with an explicit ``context_type``.
 
@@ -462,6 +471,17 @@ class MemoryDB:
         Raises:
             ValueError: If content exceeds :data:`MAX_CONTENT_LENGTH`.
         """
+        content = payload.content
+        context_type = payload.context_type
+        category = payload.category
+        tags = payload.tags
+        source = payload.source
+        embedding = payload.embedding
+        importance = payload.importance
+        text_raw = payload.text_raw
+        compressed = payload.compressed
+        compression_provider = payload.compression_provider
+
         if len(content) > MAX_CONTENT_LENGTH:
             raise ValueError(
                 f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
