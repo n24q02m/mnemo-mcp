@@ -1,0 +1,11 @@
+_active_handle: Any | None = None  # LocalServerHandle
+_on_gdrive_complete: Callable[[], None] | None = None
+# Failure callback signature matches mcp-core's mark_setup_failed: optional
+# key + error message. Wired by the HTTP server so the browser's
+# /setup-status poll receives ``error:<message>`` instead of spinning forever
+# when Google rejects the device code (invalid_grant / expired_token / etc.)
+# or when save_token fails (handled via catch + notify; ported from wet-mcp Bug #2 fix).
+_on_gdrive_failed: Callable[[str, str], None] | None = None
+
+
+def wire_gdrive_callbacks(
