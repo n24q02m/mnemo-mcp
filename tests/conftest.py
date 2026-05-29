@@ -4,10 +4,23 @@
 # module-level ``patch("importlib.metadata.version")``. Once fastmcp is
 # cached in sys.modules, later imports skip its ``__init__`` (which would
 # otherwise try to resolve its own version via the leaked mock).
+import sys
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
+# --- Global Mocks ---
+# Mock tiktoken BEFORE it is imported by any mnemo_mcp modules to prevent
+# network calls during test collection.
+mock_tiktoken = MagicMock()
+mock_encoding = MagicMock()
+# Return a list of ints to satisfy len() checks in compression.py
+# Use a side_effect to return different lengths if needed.
+mock_encoding.encode.side_effect = lambda text: [0] * len(text)
+mock_tiktoken.get_encoding.return_value = mock_encoding
+sys.modules["tiktoken"] = mock_tiktoken
+
+# ruff: noqa: E402
 import fastmcp  # noqa: F401
 import pytest
 
