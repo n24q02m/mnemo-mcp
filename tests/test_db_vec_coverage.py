@@ -207,10 +207,25 @@ class TestSearchVecBranch:
                 if "FROM memories_vec v" in sql and "MATCH" in sql:
                     # For the new JOIN query, mock the dict behavior
                     if "JOIN memories m" in sql:
+
                         class _CursorJoin:
                             def fetchall(self_):
-                                return [{"id": mid, "distance": 0.1, "content": "alpha beta gamma", "category": "notes" if "notes" in sql else "general", "tags": "[]", "importance": 0.5, "updated_at": "2024-01-01T00:00:00Z"}]
+                                return [
+                                    {
+                                        "id": mid,
+                                        "distance": 0.1,
+                                        "content": "alpha beta gamma",
+                                        "category": "notes"
+                                        if "notes" in sql
+                                        else "general",
+                                        "tags": "[]",
+                                        "importance": 0.5,
+                                        "updated_at": "2024-01-01T00:00:00Z",
+                                    }
+                                ]
+
                         return _CursorJoin()
+
                     # Fabricate a result row that looks like a vec hit.
                     class _Cursor:
                         def fetchall(self_):
@@ -258,9 +273,23 @@ class TestSearchVecBranch:
                 if "FROM memories_vec v" in sql and "MATCH" in sql:
                     # For the new JOIN query, mock the dict behavior
                     if "JOIN memories m" in sql:
+
                         class _CursorJoin:
                             def fetchall(self_):
-                                return [{"id": mid, "distance": 0.1, "content": "alpha beta gamma", "category": "notes" if "notes" in sql else "general", "tags": "[]", "importance": 0.5, "updated_at": "2024-01-01T00:00:00Z"}]
+                                return [
+                                    {
+                                        "id": mid,
+                                        "distance": 0.1,
+                                        "content": "alpha beta gamma",
+                                        "category": "notes"
+                                        if "notes" in sql
+                                        else "general",
+                                        "tags": "[]",
+                                        "importance": 0.5,
+                                        "updated_at": "2024-01-01T00:00:00Z",
+                                    }
+                                ]
+
                         return _CursorJoin()
 
                     class _Cursor:
