@@ -52,7 +52,6 @@ from __future__ import annotations
 
 import logging
 
-import sqlalchemy as sa
 from alembic import op
 
 # Revision identifiers used by Alembic.
@@ -227,25 +226,22 @@ def upgrade() -> None:
     # 5. memory_audit table -- mutation log.
     # ------------------------------------------------------------------
     if not _table_exists("memory_audit"):
-        op.create_table(
-            "memory_audit",
-            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-            sa.Column("memory_id", sa.Text(), nullable=False),
-            sa.Column("prev_state_hash", sa.Text(), nullable=True),
-            sa.Column("new_state_hash", sa.Text(), nullable=False),
-            sa.Column("operation", sa.Text(), nullable=False),
-            sa.Column("commit_sha", sa.Text(), nullable=False),
-            sa.Column(
-                "occurred_at",
-                sa.DateTime(),
-                nullable=False,
-                server_default=sa.func.current_timestamp(),
-            ),
+        op.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memory_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id TEXT NOT NULL,
+                prev_state_hash TEXT,
+                new_state_hash TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                commit_sha TEXT NOT NULL,
+                occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
-        op.create_index(
-            "idx_memory_audit_memory_time",
-            "memory_audit",
-            ["memory_id", "occurred_at"],
+        op.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memory_audit_memory_time "
+            "ON memory_audit(memory_id, occurred_at)"
         )
     else:
         logger.info("mem_003: memory_audit already present, skipping")
