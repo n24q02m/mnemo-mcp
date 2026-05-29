@@ -354,14 +354,11 @@ class MemoryDB:
             raise ValueError(f"embedding_dims must be between 1 and 8192, got {dims}")
 
         # Create table if not exists
-        # Map validated integer dimensions to a safe string to prevent static
-        # analysis flags for SQL injection in DDL statements.
-        safe_dims = str(int(dims))
         self._conn.execute(f"""
             CREATE VIRTUAL TABLE memories_vec
             USING vec0(
                 id TEXT PRIMARY KEY,
-                embedding float[{safe_dims}]
+                embedding float[{dims}]
             )
         """)
         logger.debug(f"Created memories_vec table with {dims} dims")
