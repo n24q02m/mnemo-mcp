@@ -317,4 +317,3 @@ class TestSearchVecBranch:
         finally:
             db._conn = real_conn
             db.close()
-
