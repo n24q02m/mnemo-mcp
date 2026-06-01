@@ -333,21 +333,9 @@ class TestSearchVecBranch:
                 self._inner = inner
 
             def execute(self, sql, *args, **kwargs):
-                # First vector query: return mid2 as a hit
+                # We simulate a failure in the vector search query itself
                 if "FROM memories_vec v" in sql and "MATCH" in sql:
-
-                    class _Cursor:
-                        def fetchall(self_):
-                            return [{"id": mid2, "distance": 0.1}]
-
-                        def fetchone(self_):
-                            return {"id": mid2, "distance": 0.1}
-
-                    return _Cursor()
-
-                # Second query (fetching missing mems): throw exception
-                if "FROM memories WHERE id IN" in sql:
-                    raise RuntimeError("missing mems fetch failed")
+                    raise RuntimeError("vector search failed")
 
                 return self._inner.execute(sql, *args, **kwargs)
 
