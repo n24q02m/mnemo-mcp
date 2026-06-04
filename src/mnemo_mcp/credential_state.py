@@ -103,7 +103,7 @@ _on_gdrive_complete: Callable[[], None] | None = None
 # key + error message. Wired by the HTTP server so the browser's
 # /setup-status poll receives ``error:<message>`` instead of spinning forever
 # when Google rejects the device code (invalid_grant / expired_token / etc.)
-# or when save_token fails silently (ported from wet-mcp Bug #2 fix).
+# or when save_token fails (caught and reported to prevent silent failures).
 _on_gdrive_failed: Callable[[str, str], None] | None = None
 
 
