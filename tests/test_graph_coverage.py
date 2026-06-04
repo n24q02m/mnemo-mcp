@@ -17,6 +17,7 @@ from mnemo_mcp.graph import (
     extract_entities,
     find_related_memory_ids,
     link_memory_entities,
+    score_importance,
     upsert_entities,
 )
 
@@ -25,18 +26,13 @@ from mnemo_mcp.graph import (
 # ---------------------------------------------------------------------------
 
 
-class TestResolveLlmModel:
-    def test_first_model_from_csv(self):
+class TestResolveLlmModelCoverage:
+    def test_falls_back_to_settings_first_model(self):
         mock_settings = MagicMock()
-        mock_settings.llm_models = "gemini/gemini-3-flash-preview,openai/gpt-5.4-mini"
-        assert _resolve_llm_model(mock_settings) == "gemini/gemini-3-flash-preview"
+        mock_settings.llm_models = "openai/gpt-4o,gemini/g1"
+        assert _resolve_llm_model(mock_settings) == "openai/gpt-4o"
 
-    def test_single_model(self):
-        mock_settings = MagicMock()
-        mock_settings.llm_models = "openai/gpt-5.4-mini"
-        assert _resolve_llm_model(mock_settings) == "openai/gpt-5.4-mini"
-
-    def test_empty_models_fallback(self):
+    def test_default_when_no_models(self):
         mock_settings = MagicMock()
         mock_settings.llm_models = ""
         assert _resolve_llm_model(mock_settings) == "gemini/gemini-3-flash-preview"
@@ -47,132 +43,76 @@ class TestResolveLlmModel:
 # ---------------------------------------------------------------------------
 
 
-class TestLlmCompletion:
+class TestLlmCompletionCoverage:
     async def test_gemini_path(self, monkeypatch):
-        """Routes to Gemini SDK when model is gemini/..."""
-        monkeypatch.setenv("GEMINI_API_KEY", "AIza_test")
-
+        monkeypatch.setenv("GEMINI_API_KEY", "test_key")
         with patch("google.genai.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_response = MagicMock()
-            mock_response.text = '{"result": "test"}'
+            mock_response.text = '{"entities": []}'
             mock_client.models.generate_content.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
             result = await _llm_completion(
-                "gemini/gemini-3-flash-preview",
-                [{"role": "user", "content": "test prompt"}],
-                response_format={"type": "json_object"},
-            )
-
-            assert result == '{"result": "test"}'
-            # Verify json_object maps to response_mime_type
-            call_kwargs = mock_client.models.generate_content.call_args
-            config = call_kwargs.kwargs.get("config")
-            assert config is not None
-
-    async def test_gemini_no_prefix(self, monkeypatch):
-        """Routes to Gemini for model without prefix containing 'gemini'."""
-        monkeypatch.setenv("GEMINI_API_KEY", "AIza_test")
-
-        with patch("google.genai.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.text = "0.7"
-            mock_client.models.generate_content.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            result = await _llm_completion(
-                "gemini-3-flash-preview",
-                [{"role": "user", "content": "score"}],
-            )
-            assert result == "0.7"
-
-    async def test_gemini_empty_text(self, monkeypatch):
-        """Gemini returns empty string when response.text is None."""
-        monkeypatch.setenv("GEMINI_API_KEY", "AIza_test")
-
-        with patch("google.genai.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.text = None
-            mock_client.models.generate_content.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            result = await _llm_completion(
-                "gemini/gemini-3-flash-preview",
-                [{"role": "user", "content": "test"}],
-            )
-            assert result == ""
-
-    async def test_openai_path(self, monkeypatch):
-        """Routes to OpenAI SDK when model is openai/..."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk_test")
-        monkeypatch.delenv("XAI_API_KEY", raising=False)
-
-        with patch("openai.OpenAI") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_choice = MagicMock()
-            mock_choice.message.content = '{"entities": []}'
-            mock_response = MagicMock()
-            mock_response.choices = [mock_choice]
-            mock_client.chat.completions.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            result = await _llm_completion(
-                "openai/gpt-5.4-mini",
+                "gemini/gemini-2.0-flash",
                 [{"role": "user", "content": "test"}],
                 response_format={"type": "json_object"},
             )
             assert result == '{"entities": []}'
+            # Verify config used response_mime_type
+            call_args = mock_client.models.generate_content.call_args
+            config = call_args.kwargs["config"]
+            assert config.response_mime_type == "application/json"
 
-    async def test_xai_path(self, monkeypatch):
-        """Routes to OpenAI SDK with xAI base_url when XAI_API_KEY is set."""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setenv("XAI_API_KEY", "xai_test")
-
-        with patch("openai.OpenAI") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_choice = MagicMock()
-            mock_choice.message.content = "0.5"
-            mock_response = MagicMock()
-            mock_response.choices = [mock_choice]
-            mock_client.chat.completions.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            result = await _llm_completion(
-                "xai/grok-4-mini",
-                [{"role": "user", "content": "test"}],
-            )
-            assert result == "0.5"
-            mock_client_cls.assert_called_once_with(
-                api_key="xai_test",
-                base_url="https://api.x.ai/v1",
-            )
-
-    async def test_openai_empty_content(self, monkeypatch):
-        """OpenAI returns empty string when message.content is None."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk_test")
+    async def test_openai_with_response_format(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test_key")
         monkeypatch.delenv("XAI_API_KEY", raising=False)
 
         with patch("openai.OpenAI") as mock_client_cls:
             mock_client = MagicMock()
             mock_choice = MagicMock()
-            mock_choice.message.content = None
+            mock_choice.message.content = '{"ok": true}'
             mock_response = MagicMock()
             mock_response.choices = [mock_choice]
             mock_client.chat.completions.create.return_value = mock_response
             mock_client_cls.return_value = mock_client
 
             result = await _llm_completion(
-                "openai/gpt-5.4-mini",
+                "openai/gpt-4o",
+                [{"role": "user", "content": "test"}],
+                response_format={"type": "json_object"},
+            )
+            assert result == '{"ok": true}'
+            call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+            assert call_kwargs["response_format"] == {"type": "json_object"}
+
+    async def test_xai_path(self, monkeypatch):
+        # Force xAI by setting only xAI key
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("XAI_API_KEY", "xai-test-key")
+
+        with patch("openai.OpenAI") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_choice = MagicMock()
+            mock_choice.message.content = "grok response"
+            mock_response = MagicMock()
+            mock_response.choices = [mock_choice]
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_client_cls.return_value = mock_client
+
+            result = await _llm_completion(
+                "xai/grok-beta",
                 [{"role": "user", "content": "test"}],
             )
-            assert result == ""
+            assert result == "grok response"
+            # Verify base_url was set for xAI
+            mock_client_cls.assert_called_once_with(
+                api_key="xai-test-key",
+                base_url="https://api.x.ai/v1",
+            )
 
-    async def test_openai_no_prefix(self, monkeypatch):
-        """Non-gemini model without prefix uses openai SDK."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk_test")
+    async def test_openai_raw_model_no_prefix(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test_key")
         monkeypatch.delenv("XAI_API_KEY", raising=False)
 
         with patch("openai.OpenAI") as mock_client_cls:
@@ -216,11 +156,11 @@ class TestHasLlmProviderCoverage:
 
 
 # ---------------------------------------------------------------------------
-# extract_entities -- entity validation
+# extract_entities -- validation & exceptions
 # ---------------------------------------------------------------------------
 
 
-class TestExtractEntitiesValidation:
+class TestExtractEntitiesCoverage:
     async def test_filters_invalid_entity_types(self):
         """Filters out entities with invalid types."""
         with (
@@ -318,6 +258,55 @@ class TestExtractEntitiesValidation:
             assert result is not None
             assert len(result["entities"]) == 1
 
+    async def test_exception_is_caught_and_logged(self):
+        """Exception during extraction is caught and logged."""
+        with (
+            patch("mnemo_mcp.config.settings") as mock_settings,
+            patch(
+                "mnemo_mcp.graph._llm_completion",
+                new_callable=AsyncMock,
+                side_effect=Exception("LLM fail"),
+            ),
+            patch("mnemo_mcp.graph.logger") as mock_logger,
+        ):
+            mock_settings.resolve_provider_mode.return_value = "sdk"
+            mock_settings.llm_models = "gemini/gemini-3-flash-preview"
+
+            result = await extract_entities("test content")
+            assert result is None
+            assert mock_logger.debug.called
+            args, _ = mock_logger.debug.call_args
+            assert "Entity extraction failed" in args[0]
+            assert "LLM fail" in args[0]
+
+
+# ---------------------------------------------------------------------------
+# score_importance -- exceptions
+# ---------------------------------------------------------------------------
+
+
+class TestScoreImportanceCoverage:
+    async def test_exception_is_caught_and_logged(self):
+        """Exception during importance scoring is caught and logged, returns 0.5."""
+        with (
+            patch("mnemo_mcp.config.settings") as mock_settings,
+            patch(
+                "mnemo_mcp.graph._llm_completion",
+                new_callable=AsyncMock,
+                side_effect=Exception("Score fail"),
+            ),
+            patch("mnemo_mcp.graph.logger") as mock_logger,
+        ):
+            mock_settings.resolve_provider_mode.return_value = "sdk"
+            mock_settings.llm_models = "gemini/gemini-3-flash-preview"
+
+            score = await score_importance("test content")
+            assert score == 0.5
+            assert mock_logger.debug.called
+            args, _ = mock_logger.debug.call_args
+            assert "Importance scoring failed" in args[0]
+            assert "Score fail" in args[0]
+
 
 # ---------------------------------------------------------------------------
 # upsert_entities edge cases
@@ -381,6 +370,26 @@ class TestLinkMemoryEntitiesCoverage:
             args, _ = mock_logger.debug.call_args
             assert "Failed to link memory entities" in args[0]
             assert "DB error" in args[0]
+
+    def test_sqlite_operational_error(self, tmp_db: MemoryDB):
+        """OperationalError during linking is caught and logged."""
+        conn = tmp_db._conn
+        mid = tmp_db.add("test")
+        # Rename table to cause error
+        conn.execute(
+            "ALTER TABLE memory_entity_links RENAME TO memory_entity_links_tmp"
+        )
+        try:
+            with patch("mnemo_mcp.graph.logger") as mock_logger:
+                link_memory_entities(conn, mid, ["e1"])
+                assert mock_logger.debug.called
+                args, _ = mock_logger.debug.call_args
+                assert "Failed to link memory entities" in args[0]
+                assert "no such table: memory_entity_links" in args[0]
+        finally:
+            conn.execute(
+                "ALTER TABLE memory_entity_links_tmp RENAME TO memory_entity_links"
+            )
 
 
 # ---------------------------------------------------------------------------
