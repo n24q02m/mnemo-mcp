@@ -283,3 +283,22 @@ async def test_s3_health_check_returns_false_on_generic_exception() -> None:
         backend._client = MagicMock()
         backend._client.head_bucket.side_effect = TimeoutError("network down")
         assert await backend.health_check() is False
+
+async def test_s3_last_remote_sequence_pagination_missing_token() -> None:
+    """IsTruncated=True but no NextContinuationToken -> breaks loop."""
+    from unittest.mock import MagicMock
+
+    backend = S3Backend(
+        bucket=_BUCKET,
+        region="us-east-1",
+        access_key_id="t",
+        secret_access_key="t",
+    )
+    backend._client = MagicMock()
+    backend._client.list_objects_v2.return_value = {
+        "Contents": [{"Key": "passport/seq-000001.bin"}],
+        "IsTruncated": True,
+        # missing NextContinuationToken
+    }
+
+    assert await backend.last_remote_sequence() == 1
