@@ -291,3 +291,97 @@ def test_decode_truncated_framing_raises() -> None:
 
     with pytest.raises(ValueError, match="truncated section name"):
         decode_bundle(bundle, _PASS)
+
+
+def test_decode_rejects_header_overrun() -> None:
+    """Header length field claims more bytes than available in bundle."""
+    bundle = struct.pack("!I", 100) + b"too short"
+    with pytest.raises(ValueError, match="header overrun"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_truncated_framing_name_len_raises() -> None:
+    """Framed payload ends before section name length (4 bytes) is read."""
+    import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # Payload is only 2 bytes, but we need 4 for name_len
+    framed = b"\x00\x00"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+    with pytest.raises(ValueError, match="truncated section name length"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_truncated_framing_data_len_raises() -> None:
+    """Framed payload ends before section data length (8 bytes) is read."""
+    import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # 4 bytes name_len (1) + 1 byte name ("x") + 2 bytes data_len (needs 8)
+    framed = struct.pack("!I", 1) + b"x" + b"\x00\x00"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+    with pytest.raises(ValueError, match="truncated section data length"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_truncated_framing_data_raises() -> None:
+    """Framed payload ends before section data is fully read."""
+    import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # 4 bytes name_len (1) + 1 byte name ("x") + 8 bytes data_len (10) + 2 bytes data (needs 10)
+    framed = struct.pack("!I", 1) + b"x" + struct.pack("!Q", 10) + b"\x00\x00"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+    with pytest.raises(ValueError, match="truncated section data"):
+        decode_bundle(bundle, _PASS)
