@@ -357,7 +357,7 @@ class TestUpsertEntitiesCoverage:
         """Gracefully skips non-dict entries in entities list."""
         conn = tmp_db._conn
         entities = [None, "not a dict", {"name": "Valid", "type": "concept"}]
-        ids = upsert_entities(conn, entities)
+        ids = upsert_entities(conn, entities)  # type: ignore
         assert len(ids) == 1
 
     def test_non_dict_relations(self, tmp_db: MemoryDB):
@@ -371,7 +371,7 @@ class TestUpsertEntitiesCoverage:
 
         relations = [None, 123, {"source": "A", "target": "B", "type": "related_to"}]
         # Should not raise
-        create_relations(conn, relations, name_to_id)
+        create_relations(conn, relations, name_to_id)  # type: ignore
 
         count = conn.execute("SELECT COUNT(*) FROM memory_edges").fetchone()[0]
         assert count == 1
