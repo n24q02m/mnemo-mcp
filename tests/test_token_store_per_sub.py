@@ -250,3 +250,40 @@ def test_chmod_mode_is_owner_only_when_posix(data_dir):
     # 0600 -- owner read/write only, no group or other access.
     mode = path.stat().st_mode & 0o777
     assert mode == stat.S_IRUSR | stat.S_IWUSR
+
+
+class TestLoadTokenForSubCoverage:
+    def test_load_oserror_on_exists(self, data_dir):
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import load_token_for_sub
+
+        with patch.object(Path, "exists", side_effect=OSError("Disk error")):
+            assert load_token_for_sub("user1", "drive") is None
+
+    def test_load_json_decode_error(self, data_dir):
+        from mnemo_mcp.token_store import get_token_path_for_sub, load_token_for_sub
+
+        path = get_token_path_for_sub("user1", "drive")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("not json", encoding="utf-8")
+        assert load_token_for_sub("user1", "drive") is None
+
+
+class TestSaveTokenForSubCoverage:
+    def test_save_fallback_chmod_oserror_swallowed(self, data_dir):
+        if os.name == "nt":
+            pytest.skip("POSIX-only path")
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
+
+        # Force fallback branch by making os.open fail
+        with patch("mnemo_mcp.token_store.os.open", side_effect=OSError("open fail")):
+            # Swallows OSError in path.chmod
+            with patch.object(Path, "chmod", side_effect=OSError("chmod fail")):
+                save_token_for_sub("user1", "drive", {"access_token": "ok"})
+
+        path = get_token_path_for_sub("user1", "drive")
+        assert path.exists()
+        assert json.loads(path.read_text()) == {"access_token": "ok"}

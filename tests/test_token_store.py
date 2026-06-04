@@ -68,6 +68,19 @@ class TestLoadToken:
             result = load_token("drive")
         assert result is None
 
+    def test_load_oserror_on_exists(self, token_dir):
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import load_token
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch.object(Path, "exists", side_effect=OSError("Disk error")),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            result = load_token("drive")
+        assert result is None
+
     def test_load_oserror(self, token_dir):
         from pathlib import Path
 
