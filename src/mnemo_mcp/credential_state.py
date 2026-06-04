@@ -162,7 +162,7 @@ def get_setup_url() -> str | None:
     return _setup_url
 
 
-def _is_http_mode() -> bool:
+def is_http_mode() -> bool:
     """Detect HTTP mode from CLI args + env vars.
 
     Mirrors `init-server.ts` / `__main__.py` HTTP detection. In stdio mode
@@ -209,7 +209,7 @@ def resolve_credential_state() -> CredentialState:
         return _state
 
     # 2. Check config file (HTTP mode only -- stdio = env vars ONLY per spec §4.1)
-    if _is_http_mode():
+    if is_http_mode():
         try:
             from mcp_core.storage.per_plugin_store import PerPluginStore
 

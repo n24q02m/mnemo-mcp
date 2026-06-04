@@ -33,6 +33,7 @@ class TestSetupStatusLiveDerivedState:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """setup_status returns configured when PerPluginStore has cloud keys."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -51,6 +52,7 @@ class TestSetupStatusLiveDerivedState:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """setup_status returns awaiting_setup when store empty and no env vars."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -76,6 +78,7 @@ class TestSetupStatusLiveDerivedState:
 
     def test_env_vars_take_precedence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """setup_status includes env-var keys in providers_configured."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -95,6 +98,7 @@ class TestSetupStatusLiveDerivedState:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """setup_status always includes providers_configured key in response."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -111,6 +115,7 @@ class TestSetupStatusLiveDerivedState:
 
     def test_no_duplicate_providers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If same key appears in both env and store, it should appear only once."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         monkeypatch.setenv("GEMINI_API_KEY", "key-from-env")
 
         with patch(
@@ -130,6 +135,7 @@ class TestSetupStatusLiveDerivedState:
         config wrongly reported awaiting_setup with an empty providers list.
         The fix uses ALL_CONFIG_KEYS (incl GDrive) so the status is accurate.
         """
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         for k in (
             "JINA_AI_API_KEY",
             "GEMINI_API_KEY",
@@ -158,6 +164,7 @@ class TestSetupStatusLiveDerivedState:
     ) -> None:
         """GOOGLE_DRIVE_CLIENT_ID in env counts as a provider but is not a
         cloud key in the ``cloud_keys_in_env`` summary."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: True)
         for k in (
             "JINA_AI_API_KEY",
             "GEMINI_API_KEY",
@@ -177,3 +184,21 @@ class TestSetupStatusLiveDerivedState:
 
         assert "GOOGLE_DRIVE_CLIENT_ID" in result["providers_configured"]
         assert "GOOGLE_DRIVE_CLIENT_ID" not in result["cloud_keys_in_env"]
+
+    def test_stdio_mode_ignores_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """In stdio mode (is_http_mode False), PerPluginStore keys are ignored."""
+        monkeypatch.setattr("mnemo_mcp.credential_state.is_http_mode", lambda: False)
+        monkeypatch.delenv("JINA_AI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("COHERE_API_KEY", raising=False)
+
+        with patch(
+            "mcp_core.storage.per_plugin_store.PerPluginStore.load",
+            return_value={"GEMINI_API_KEY": "test-key-123"},
+        ):
+            result = _call_config_setup_status_sync()
+
+        # Should be awaiting_setup even if store has keys, because we're in stdio
+        assert result["state"] == "awaiting_setup"
+        assert result["providers_configured"] == []

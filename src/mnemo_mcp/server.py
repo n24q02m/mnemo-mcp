@@ -1727,6 +1727,7 @@ async def _handle_config_setup_status() -> str:
         get_current_sub,
         get_setup_url,
         get_state,
+        is_http_mode,
     )
 
     # In HTTP multi-user remote mode the per-request JWT sub is set; resolve
@@ -1740,9 +1741,13 @@ async def _handle_config_setup_status() -> str:
     else:
         # Derive providers_configured from live PerPluginStore load + env
         # so status is accurate even if module-level _state is stale.
-        _saved = PerPluginStore("mnemo").load() or {}
+        # PERSISTED STORE is ignored in stdio mode per spec §4.1.
         _env_keys = [k for k in ALL_CONFIG_KEYS if os.environ.get(k)]
-        _store_keys = [k for k in ALL_CONFIG_KEYS if _saved.get(k)]
+        if is_http_mode():
+            _saved = PerPluginStore("mnemo").load() or {}
+            _store_keys = [k for k in ALL_CONFIG_KEYS if _saved.get(k)]
+        else:
+            _store_keys = []
     _providers = list(dict.fromkeys(_env_keys + _store_keys))
     _state = get_state()
 
