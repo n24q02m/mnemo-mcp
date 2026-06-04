@@ -54,6 +54,7 @@ async def test_refresh_token_success():
         mock_settings.google_drive_client_id = "cid"
         mock_settings.google_drive_client_secret = "sec"
         new_token = await _refresh_token(token)
+        assert new_token is not None
         assert new_token["access_token"] == "new_acc"
         assert "expiry" in new_token
 
@@ -113,6 +114,7 @@ async def test_get_valid_token_expired():
         from mnemo_mcp.sync.gdrive import _get_valid_token
 
         valid = await _get_valid_token()
+        assert valid is not None
         assert valid["access_token"] == "new"
 
 
@@ -124,6 +126,7 @@ async def test_get_valid_token_not_expired():
         from mnemo_mcp.sync.gdrive import _get_valid_token
 
         valid = await _get_valid_token()
+        assert valid is not None
         assert valid["access_token"] == "live"
 
 
@@ -388,6 +391,7 @@ async def test_find_file_in_folder_found():
         return_value=mock_resp,
     ):
         res = await _find_file_in_folder({}, "fid", "fname")
+        assert res is not None
         assert res["id"] == "fileid"
 
 
