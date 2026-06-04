@@ -29,7 +29,11 @@ def clear_model_cache(model_name: str) -> str | None:
     safe_name = model_name.replace("/", "--")
     model_cache = cache_dir / f"models--{safe_name}"
     if model_cache.exists():
-        shutil.rmtree(model_cache)
+        try:
+            shutil.rmtree(model_cache)
+        except OSError as exc:
+            logger.warning(f"Failed to clear model cache {model_cache}: {exc}")
+            return None
         return str(model_cache)
     return None
 

@@ -1,0 +1,42 @@
+diff --git a/src/mnemo_mcp/setup_tool.py b/src/mnemo_mcp/setup_tool.py
+index e87f38e..8b208e6 100644
+--- a/src/mnemo_mcp/setup_tool.py
++++ b/src/mnemo_mcp/setup_tool.py
+@@ -29,7 +29,11 @@ def clear_model_cache(model_name: str) -> str | None:
+     safe_name = model_name.replace("/", "--")
+     model_cache = cache_dir / f"models--{safe_name}"
+     if model_cache.exists():
+-        shutil.rmtree(model_cache)
++        try:
++            shutil.rmtree(model_cache)
++        except OSError as exc:
++            logger.warning(f"Failed to clear model cache {model_cache}: {exc}")
++            return None
+         return str(model_cache)
+     return None
+
+diff --git a/tests/test_setup_tool.py b/tests/test_setup_tool.py
+index a5f5c6f..5b5a872 100644
+--- a/tests/test_setup_tool.py
++++ b/tests/test_setup_tool.py
+@@ -32,6 +32,20 @@ def test_returns_none_when_cache_missing(self, tmp_path):
+
+         assert result is None
+
++    def test_handles_rmtree_error(self, tmp_path):
++        from mnemo_mcp.setup_tool import clear_model_cache
++
++        model_dir = tmp_path / "models--org--model"
++        model_dir.mkdir(parents=True)
++
++        with patch.dict("os.environ", {"QWEN3_EMBED_CACHE_PATH": str(tmp_path)}):
++            with patch("shutil.rmtree") as mock_rmtree:
++                mock_rmtree.side_effect = OSError("Permission denied")
++                result = clear_model_cache("org/model")
++
++        assert result is None
++        assert model_dir.exists()
++
+
+ class TestValidateCloudModels:
+     """_validate_cloud_models checks cloud embedding availability."""
