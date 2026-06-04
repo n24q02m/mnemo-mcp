@@ -81,23 +81,29 @@ def store_kg_with_memory_id(
     # to an earlier capture is left alone.
     edge_count = 0
     if relations:
+        # Bolt Performance Optimization:
+        # Use executemany to backfill bitemporal metadata in a single SQLite pass.
+        # This eliminates N+1 loop overhead when persisting large KG fragments.
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        params = []
         for rel in relations:
             src_name = rel.get("source", "").strip()
             tgt_name = rel.get("target", "").strip()
             rtype = rel.get("type", "").strip().lower()
             src_id = name_to_id.get(src_name)
             tgt_id = name_to_id.get(tgt_name)
-            if not (src_id and tgt_id and rtype):
-                continue
-            cursor = conn.execute(
+            if src_id and tgt_id and rtype:
+                params.append((memory_id, now_iso, src_id, tgt_id, rtype))
+
+        if params:
+            cursor = conn.executemany(
                 "UPDATE memory_edges SET "
                 "  memory_id = COALESCE(memory_id, ?), "
                 "  valid_from = COALESCE(valid_from, ?) "
                 "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
+                params,
             )
-            edge_count += cursor.rowcount or 0
+            edge_count = cursor.rowcount or 0
         conn.commit()
 
     logger.debug(
