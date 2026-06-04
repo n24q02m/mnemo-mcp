@@ -708,3 +708,9 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+    def test_recall_context_empty(self):
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            recall_context("")
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            recall_context("   ")

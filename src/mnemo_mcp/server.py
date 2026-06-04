@@ -2152,6 +2152,9 @@ def recall_context(topic: str) -> str:
     - Use when starting a new task or answering a question to retrieve prior context.
     - Parameters: 'topic' (the specific subject or keywords to search for).
     """
+    if not topic.strip():
+        raise ValueError("Topic cannot be empty")
+
     return (
         f"Search your memories for relevant context about: {topic}\n\n"
         "Use the memory tool with action='search' and this query. "
