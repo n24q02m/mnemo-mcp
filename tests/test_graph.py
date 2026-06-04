@@ -423,6 +423,16 @@ class TestLinkMemoryEntities:
         ).fetchone()[0]
         assert count == 0
 
+
+    def test_empty_memory_id(self, tmp_db: MemoryDB):
+        """No-op for empty memory_id."""
+        conn = tmp_db._conn
+        entities = [{"name": "Python", "type": "tool"}]
+        eids = upsert_entities(conn, entities)
+        link_memory_entities(conn, "", eids)
+        count = conn.execute("SELECT COUNT(*) FROM memory_entity_links").fetchone()[0]
+        assert count == 0
+
     def test_exception_is_caught_and_logged(self):
         """Exception during linking is caught and logged with details."""
         conn = MagicMock()
