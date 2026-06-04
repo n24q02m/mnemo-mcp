@@ -14,6 +14,7 @@ from mnemo_mcp.graph import (
     _has_llm_provider,
     _llm_completion,
     _resolve_llm_model,
+    create_relations,
     extract_entities,
     find_related_memory_ids,
     link_memory_entities,
@@ -351,6 +352,29 @@ class TestUpsertEntitiesCoverage:
         # First two should be the same
         assert ids[0] == ids[1]
         assert ids[0] != ids[2]
+
+    def test_non_dict_entities(self, tmp_db: MemoryDB):
+        """Gracefully skips non-dict entries in entities list."""
+        conn = tmp_db._conn
+        entities = [None, "not a dict", {"name": "Valid", "type": "concept"}]
+        ids = upsert_entities(conn, entities)
+        assert len(ids) == 1
+
+    def test_non_dict_relations(self, tmp_db: MemoryDB):
+        """Gracefully skips non-dict entries in relations list."""
+        conn = tmp_db._conn
+        tmp_db.add("test content")
+        eids = upsert_entities(
+            conn, [{"name": "A", "type": "concept"}, {"name": "B", "type": "concept"}]
+        )
+        name_to_id = {"A": eids[0], "B": eids[1]}
+
+        relations = [None, 123, {"source": "A", "target": "B", "type": "related_to"}]
+        # Should not raise
+        create_relations(conn, relations, name_to_id)
+
+        count = conn.execute("SELECT COUNT(*) FROM memory_edges").fetchone()[0]
+        assert count == 1
 
 
 # ---------------------------------------------------------------------------

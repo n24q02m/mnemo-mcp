@@ -217,6 +217,8 @@ def upsert_entities(conn, entities: list[dict]) -> list[str]:
     ordered_ents = []
 
     for ent in entities:
+        if not isinstance(ent, dict):
+            continue
         name = ent.get("name", "").strip()
         if not name:
             continue
@@ -267,6 +269,8 @@ def create_relations(
     to_insert = []
 
     for rel in relations:
+        if not isinstance(rel, dict):
+            continue
         src_name = rel.get("source", "").strip()
         tgt_name = rel.get("target", "").strip()
         rtype = rel.get("type", "related_to").strip().lower()
