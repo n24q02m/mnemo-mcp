@@ -78,6 +78,74 @@ def _resolve_dedup_threshold() -> float:
 # ---------------------------------------------------------------------------
 
 
+async def _probe_dedup(
+    db: MemoryDB, text: str, threshold: float, context_type: str, auto: bool
+) -> dict | None:
+    """Run a dedup probe via FTS similarity. Returns early response if found."""
+    dedup: dict | None = None
+    try:
+        dedup = await asyncio.to_thread(db.check_duplicate, text, threshold)
+    except Exception as e:
+        logger.warning(f"capture: dedup probe failed (non-blocking): {e}")
+        return None
+
+    if dedup and dedup.get("duplicate") and dedup.get("similarity", 0.0) >= threshold:
+        existing_id = dedup.get("existing_id", "")
+        return {
+            "memory_id": existing_id,
+            "deduplicated": True,
+            "similarity": dedup.get("similarity"),
+            "existing_content": dedup.get("existing_content"),
+            "context_type": context_type,
+            "auto": auto,
+        }
+    return None
+
+
+async def _compress_and_store(
+    db: MemoryDB,
+    text: str,
+    context_type: str,
+    category: str,
+    tags: list[str] | None,
+    source: str | None,
+    embedding: list[float] | None,
+    importance: float | None,
+    auto: bool,
+) -> dict:
+    """Run LLM compression and persist the memory to SQLite."""
+    from mnemo_mcp.compression import compress
+    from mnemo_mcp.db import MemoryPayload
+
+    compression_result = await compress(text)
+
+    payload = MemoryPayload(
+        content=compression_result["text"],
+        context_type=context_type,
+        category=category,
+        tags=tags,
+        source=source,
+        embedding=embedding,
+        importance=importance,
+        text_raw=compression_result["text_raw"],
+        compressed=compression_result["compressed"],
+        compression_provider=compression_result["compression_provider"],
+    )
+
+    memory_id = await asyncio.to_thread(db.add_with_context_type, payload)
+
+    return {
+        "memory_id": memory_id,
+        "deduplicated": False,
+        "context_type": context_type,
+        "auto": auto,
+        "compressed": compression_result["compressed"],
+        "compression_provider": compression_result["compression_provider"],
+        "tokens_in": compression_result["tokens_in"],
+        "tokens_out": compression_result["tokens_out"],
+    }
+
+
 async def capture(
     db: MemoryDB,
     text: str,
@@ -128,60 +196,20 @@ async def capture(
 
     threshold = _resolve_dedup_threshold()
 
-    # Dedup probe — runs FTS-backed similarity, never blocks on embedding.
-    # Use to_thread because check_duplicate itself runs sync SQLite + search.
-    dedup: dict | None = None
-    try:
-        dedup = await asyncio.to_thread(db.check_duplicate, text, threshold)
-    except Exception as e:
-        logger.warning(f"capture: dedup probe failed (non-blocking): {e}")
-        dedup = None
+    # Phase 1: Dedup probe
+    dedup_response = await _probe_dedup(db, text, threshold, context_type, auto)
+    if dedup_response:
+        return dedup_response
 
-    if dedup and dedup.get("duplicate") and dedup.get("similarity", 0.0) >= threshold:
-        existing_id = dedup.get("existing_id", "")
-        return {
-            "memory_id": existing_id,
-            "deduplicated": True,
-            "similarity": dedup.get("similarity"),
-            "existing_content": dedup.get("existing_content"),
-            "context_type": context_type,
-            "auto": auto,
-        }
-
-    # Phase 2: optional LLM compression (graceful skip when no provider).
-    # The pipeline reads its own env vars (COMPRESSION_ENABLED / PROVIDER /
-    # MODEL) so capture() does not need to thread them through. When the
-    # pipeline declines to rewrite (skip / failure / disabled), the original
-    # text is stored with compressed=False and no audit row.
-    from mnemo_mcp.compression import compress
-
-    compression_result = await compress(text)
-    stored_text = compression_result["text"]
-    stored_text_raw = compression_result["text_raw"]
-    stored_compressed = compression_result["compressed"]
-    stored_provider = compression_result["compression_provider"]
-
-    memory_id = await asyncio.to_thread(
-        db.add_with_context_type,
-        content=stored_text,
+    # Phase 2: Compress and store
+    return await _compress_and_store(
+        db=db,
+        text=text,
         context_type=context_type,
         category=category,
         tags=tags,
         source=source,
         embedding=embedding,
         importance=importance,
-        text_raw=stored_text_raw,
-        compressed=stored_compressed,
-        compression_provider=stored_provider,
+        auto=auto,
     )
-
-    return {
-        "memory_id": memory_id,
-        "deduplicated": False,
-        "context_type": context_type,
-        "auto": auto,
-        "compressed": stored_compressed,
-        "compression_provider": stored_provider,
-        "tokens_in": compression_result["tokens_in"],
-        "tokens_out": compression_result["tokens_out"],
-    }

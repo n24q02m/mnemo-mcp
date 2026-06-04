@@ -17,11 +17,29 @@ import sqlite3
 import struct
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 import sqlite_vec
 from loguru import logger
+
+
+@dataclass(frozen=True)
+class MemoryPayload:
+    """Consolidated payload for memory creation operations."""
+
+    content: str
+    context_type: str = "conversation"
+    category: str = "general"
+    tags: list[str] | None = None
+    source: str | None = None
+    embedding: list[float] | None = None
+    importance: float | None = None
+    text_raw: str | None = None
+    compressed: bool = False
+    compression_provider: str | None = None
+
 
 # Alembic migration constants
 _ALEMBIC_INI_PATH = Path(__file__).resolve().parent / "alembic.ini"
@@ -416,17 +434,7 @@ class MemoryDB:
 
     def add_with_context_type(
         self,
-        content: str,
-        context_type: str = "conversation",
-        category: str = "general",
-        tags: list[str] | None = None,
-        source: str | None = None,
-        embedding: list[float] | None = None,
-        importance: float | None = None,
-        *,
-        text_raw: str | None = None,
-        compressed: bool = False,
-        compression_provider: str | None = None,
+        payload: MemoryPayload,
     ) -> str:
         """Add a new memory with an explicit ``context_type``.
 
@@ -441,20 +449,7 @@ class MemoryDB:
         Default behaviour preserves Phase 1 (no compression bookkeeping).
 
         Args:
-            content: Memory text content (post-compression when applicable).
-            context_type: One of conversation/fact/preference/skill/task/decision.
-            category: Free-form category bucket. Defaults to "general".
-            tags: Optional list of tag strings.
-            source: Optional provenance marker.
-            embedding: Optional dense vector for semantic search.
-            importance: Optional importance score in [0.0, 1.0].
-            text_raw: Original uncompressed text retained for audit / recovery.
-                Only set when ``compressed=True``.
-            compressed: Flag indicating the LLM compression pipeline rewrote
-                ``content``. Defaults to False so unchanged callers keep the
-                Phase 1 behaviour.
-            compression_provider: LLM provider that performed the compression
-                (gemini/openai/anthropic/xai). NULL when ``compressed=False``.
+            payload: Consolidated :class:`MemoryPayload`.
 
         Returns:
             Memory ID (32-char hex).
@@ -462,6 +457,7 @@ class MemoryDB:
         Raises:
             ValueError: If content exceeds :data:`MAX_CONTENT_LENGTH`.
         """
+        content = payload.content
         if len(content) > MAX_CONTENT_LENGTH:
             raise ValueError(
                 f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
@@ -472,9 +468,10 @@ class MemoryDB:
 
         # Bolt Performance Optimization:
         # Prevent expensive json.dumps calls for the default empty list.
-        tags_json = "[]" if not tags else json.dumps(tags)
+        tags_json = "[]" if not payload.tags else json.dumps(payload.tags)
 
-        compressed_int = 1 if compressed else 0
+        compressed_int = 1 if payload.compressed else 0
+        importance = payload.importance
 
         if importance is not None:
             importance = max(0.0, min(1.0, importance))
@@ -487,17 +484,17 @@ class MemoryDB:
                 (
                     memory_id,
                     content,
-                    category,
+                    payload.category,
                     tags_json,
-                    source,
+                    payload.source,
                     now,
                     now,
                     now,
-                    context_type,
+                    payload.context_type,
                     importance,
-                    text_raw,
+                    payload.text_raw,
                     compressed_int,
-                    compression_provider,
+                    payload.compression_provider,
                 ),
             )
         else:
@@ -510,30 +507,30 @@ class MemoryDB:
                 (
                     memory_id,
                     content,
-                    category,
+                    payload.category,
                     tags_json,
-                    source,
+                    payload.source,
                     now,
                     now,
                     now,
-                    context_type,
-                    text_raw,
+                    payload.context_type,
+                    payload.text_raw,
                     compressed_int,
-                    compression_provider,
+                    payload.compression_provider,
                 ),
             )
 
-        if embedding and self._vec_enabled:
+        if payload.embedding and self._vec_enabled:
             self._conn.execute(
                 "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
+                (memory_id, _serialize_f32(payload.embedding, self._embedding_dims)),
             )
 
         self._conn.commit()
         logger.info(
-            f"[AUDIT] capture id={memory_id} cat={category} "
-            f"ctx_type={context_type} len={len(content)} "
-            f"compressed={compressed} provider={compression_provider}"
+            f"[AUDIT] capture id={memory_id} cat={payload.category} "
+            f"ctx_type={payload.context_type} len={len(content)} "
+            f"compressed={payload.compressed} provider={payload.compression_provider}"
         )
         return memory_id
 
