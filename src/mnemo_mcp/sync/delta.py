@@ -271,11 +271,11 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     # 1. Entities
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
     ents_to_insert = []
-    for line in ents_raw.splitlines():
-        if not (line := line.strip()):
+    for rline in ents_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            ent = json.loads(line)
+            ent = json.loads(rline)
             ents_to_insert.append(
                 (
                     ent.get("id"),
@@ -288,22 +288,34 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
         except Exception:
             continue
     if ents_to_insert:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_entities "
-            "(id, name, entity_type, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ents_to_insert,
-        )
-        counts["entities_applied"] = cursor.rowcount or 0
-
-    # 2. Edges
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entities "
+                "(id, name, entity_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ents_to_insert,
+            )
+            counts["entities_applied"] = cursor.rowcount or 0
+        except Exception:
+            # Fallback for integrity errors (e.g. FK violations in bad bundles)
+            for row in ents_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entities "
+                        "(id, name, entity_type, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["entities_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
     edges_to_insert = []
-    for line in edges_raw.splitlines():
-        if not (line := line.strip()):
+    for rline in edges_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            edge = json.loads(line)
+            edge = json.loads(rline)
             edges_to_insert.append(
                 (
                     edge.get("id"),
@@ -319,34 +331,57 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
         except Exception:
             continue
     if edges_to_insert:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_edges "
-            "(id, source_id, target_id, relation_type, created_at, "
-            " memory_id, valid_from, valid_to) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            edges_to_insert,
-        )
-        counts["edges_applied"] = cursor.rowcount or 0
-
-    # 3. Links
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_edges "
+                "(id, source_id, target_id, relation_type, created_at, "
+                " memory_id, valid_from, valid_to) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                edges_to_insert,
+            )
+            counts["edges_applied"] = cursor.rowcount or 0
+        except Exception:
+            for row in edges_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_edges "
+                        "(id, source_id, target_id, relation_type, created_at, "
+                        " memory_id, valid_from, valid_to) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["edges_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
     links_to_insert = []
-    for line in links_raw.splitlines():
-        if not (line := line.strip()):
+    for rline in links_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            link = json.loads(line)
+            link = json.loads(rline)
             links_to_insert.append((link.get("memory_id"), link.get("entity_id")))
         except Exception:
             continue
     if links_to_insert:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_entity_links "
-            "(memory_id, entity_id) VALUES (?, ?)",
-            links_to_insert,
-        )
-        counts["links_applied"] = cursor.rowcount or 0
-
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entity_links "
+                "(memory_id, entity_id) VALUES (?, ?)",
+                links_to_insert,
+            )
+            counts["links_applied"] = cursor.rowcount or 0
+        except Exception:
+            for row in links_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entity_links "
+                        "(memory_id, entity_id) VALUES (?, ?)",
+                        row,
+                    )
+                    counts["links_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     db._conn.commit()
     return counts
 
