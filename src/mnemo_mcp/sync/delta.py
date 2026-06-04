@@ -1,34 +1,11 @@
-"""Delta-sync orchestrator with last-write-wins conflict resolution.
-
-Phase 2 Task 8 + spec ``2026-04-19-mnemo-v2-design.md`` section 4.4.
-
-Each sync cycle is one of:
-
-* **Delta push** (common case): collect rows whose ``updated_at >
-  last_sync_at`` -> encrypted bundle -> push at ``cursor + 1``.
-* **Full pull + merge + full push** (sequence-gap fallback): when the
-  remote sequence advanced beyond ``local_cursor + 1`` (another machine
-  pushed in the meantime), pull the latest full passport, merge with LWW
-  per row, then upload a new full bundle.
-
-Last-write-wins (LWW) conflict resolution: row-level. For each incoming
-row we compare ``remote.updated_at`` against ``local.updated_at``:
-
-* ``local >= remote`` -> keep local; record an audit row in
-  ``sync_overrides`` so the user can inspect divergence.
-* ``local < remote`` -> upsert the remote row (compressed text + raw +
-  context_type + importance + archived_at all preserved).
-* ``local missing`` -> insert the remote row.
-
-The orchestrator never blocks on conflict; LWW is automatic per row so
-two machines syncing concurrently both converge after the next round.
-"""
+"""Delta sync orchestrator: build bundles, apply them via LWW, manage sync state."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -37,122 +14,106 @@ from mnemo_mcp.sync.bundle import decode_bundle, encode_bundle
 
 if TYPE_CHECKING:
     from mnemo_mcp.db import MemoryDB
-    from mnemo_mcp.sync.base import SyncBackend
+    from mnemo_mcp.sync import SyncBackend
 
 
 # ---------------------------------------------------------------------------
-# Bundle build / apply
+# Query
 # ---------------------------------------------------------------------------
 
 
 def _query_rows_since(db: MemoryDB, since: float | None) -> list[dict]:
-    """Return memory rows whose ``updated_at`` is more recent than ``since``.
-
-    ``updated_at`` is stored as ISO 8601 UTC text; we filter via ISO
-    string comparison which is monotonic for ISO timestamps. ``since``
-    is passed as a Unix timestamp; we convert to ISO once at the call
-    site.
-    """
-    cursor = db._conn.cursor()
-    if since is None or since <= 0:
-        rows = cursor.execute("SELECT * FROM memories ORDER BY updated_at").fetchall()
+    """Query memories updated since ``since`` (UNIX timestamp)."""
+    if since is None:
+        # Full pull.
+        rows = db._conn.execute("SELECT * FROM memories").fetchall()
     else:
-        from datetime import UTC, datetime
-
+        # Delta push.
         since_iso = datetime.fromtimestamp(since, tz=UTC).isoformat()
-        rows = cursor.execute(
-            "SELECT * FROM memories WHERE updated_at > ? ORDER BY updated_at",
-            (since_iso,),
+        rows = db._conn.execute(
+            "SELECT * FROM memories WHERE updated_at > ?", (since_iso,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _query_kg_since(db: MemoryDB, since: float | None) -> dict[str, list[dict]]:
+    """Query KG sections (entities, edges, links) since ``since``."""
+    if since is None:
+        # Full pull.
+        ents = db._conn.execute("SELECT * FROM memory_entities").fetchall()
+        edges = db._conn.execute("SELECT * FROM memory_edges").fetchall()
+        links = db._conn.execute("SELECT * FROM memory_entity_links").fetchall()
+    else:
+        since_iso = datetime.fromtimestamp(since, tz=UTC).isoformat()
+        ents = db._conn.execute(
+            "SELECT * FROM memory_entities WHERE updated_at > ?", (since_iso,)
+        ).fetchall()
+        # Edges don't have updated_at, use created_at.
+        edges = db._conn.execute(
+            "SELECT * FROM memory_edges WHERE created_at > ?", (since_iso,)
+        ).fetchall()
+        # Links don't have timestamps. For delta, we might skip them or send all.
+        # Phase 3 sends all links for simplicity as they are small JOIN rows.
+        links = db._conn.execute("SELECT * FROM memory_entity_links").fetchall()
+
+    return {
+        "entities": [dict(e) for e in ents],
+        "edges": [dict(e) for e in edges],
+        "links": [dict(link) for link in links],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
 
 
 def _build_payload(
     rows: list[dict],
     since: float | None,
-    *,
     entities: list[dict] | None = None,
     edges: list[dict] | None = None,
     links: list[dict] | None = None,
 ) -> dict[str, bytes]:
-    """Assemble the bundle payload sections from ``rows``.
-
-    Phase 3 populates the previously-empty ``memories_entities.jsonl`` /
-    ``memories_edges.jsonl`` reservations with the temporal KG fragment
-    captured since the last sync. ``schema_version`` bumps to
-    ``mem_003_temporal`` so older receivers know to refuse the bundle
-    (see ``apply_bundle`` schema-version check).
-    """
+    """Construct the bundle payload (manifest + memories.jsonl + KG)."""
     manifest = {
         "row_count": len(rows),
         "since": since,
-        "created_at": time.time(),
         "schema_version": "mem_003_temporal",
-        "entity_count": len(entities) if entities is not None else 0,
-        "edge_count": len(edges) if edges is not None else 0,
-        "link_count": len(links) if links is not None else 0,
+        "entity_count": len(entities or []),
+        "edge_count": len(edges or []),
+        "link_count": len(links or []),
     }
-    memories_jsonl = "\n".join(json.dumps(r, default=str) for r in rows).encode("utf-8")
-    entities_jsonl = (
-        "\n".join(json.dumps(e, default=str) for e in (entities or [])).encode("utf-8")
+
+    payload = {
+        "manifest.json": json.dumps(manifest).encode("utf-8"),
+        "memories.jsonl": "\n".join(json.dumps(r) for r in rows).encode("utf-8"),
+    }
+
+    # Phase 3 KG sections.
+    payload["memories_entities.jsonl"] = (
+        "\n".join(json.dumps(e) for e in (entities or [])).encode("utf-8")
         if entities
         else b""
     )
-    edges_jsonl = (
-        "\n".join(json.dumps(e, default=str) for e in (edges or [])).encode("utf-8")
+    payload["memories_edges.jsonl"] = (
+        "\n".join(json.dumps(e) for e in (edges or [])).encode("utf-8")
         if edges
         else b""
     )
-    links_jsonl = (
-        "\n".join(json.dumps(le, default=str) for le in (links or [])).encode("utf-8")
+    payload["memories_entity_links.jsonl"] = (
+        "\n".join(json.dumps(link) for link in (links or [])).encode("utf-8")
         if links
         else b""
     )
-    return {
-        "manifest.json": json.dumps(manifest).encode("utf-8"),
-        "memories.jsonl": memories_jsonl,
-        # Phase 3: now populated with the renamed graph tables.
-        "memories_entities.jsonl": entities_jsonl,
-        "memories_edges.jsonl": edges_jsonl,
-        "memories_entity_links.jsonl": links_jsonl,
-    }
 
-
-def _query_kg_since(db: MemoryDB, since: float | None) -> dict:
-    """Snapshot ``memory_entities`` / ``memory_edges`` / ``memory_entity_links``.
-
-    Phase 3 always sends the FULL KG snapshot (not delta) since the KG
-    tables are small relative to memories.jsonl and per-row updated_at
-    tracking on entities is not yet implemented. Receivers re-apply via
-    INSERT OR IGNORE so duplicates are harmless.
-    """
-    cursor = db._conn.cursor()
-    try:
-        ents = cursor.execute(
-            "SELECT id, name, entity_type, created_at, updated_at "
-            "FROM memory_entities ORDER BY created_at"
-        ).fetchall()
-        edges = cursor.execute(
-            "SELECT id, source_id, target_id, relation_type, created_at, "
-            "  memory_id, valid_from, valid_to FROM memory_edges ORDER BY created_at"
-        ).fetchall()
-        links = cursor.execute(
-            "SELECT memory_id, entity_id FROM memory_entity_links"
-        ).fetchall()
-    except Exception:
-        # Fallback for legacy schemas or transient errors.
-        return {"entities": [], "edges": [], "links": []}
-    return {
-        "entities": [dict(r) for r in ents],
-        "edges": [dict(r) for r in edges],
-        "links": [dict(r) for r in links],
-    }
+    return payload
 
 
 async def build_delta_bundle(
     db: MemoryDB, since: float | None, passphrase: str
 ) -> bytes:
-    """Encrypt all memories newer than ``since`` into a passport bundle."""
+    """Query local changes since ``since`` and return an encrypted bundle."""
     rows = await asyncio.to_thread(_query_rows_since, db, since)
     kg = await asyncio.to_thread(_query_kg_since, db, since)
     payload = _build_payload(
@@ -166,7 +127,7 @@ async def build_delta_bundle(
 
 
 async def build_full_bundle(db: MemoryDB, passphrase: str) -> bytes:
-    """Encrypt the full memory store (used after sequence-gap merge)."""
+    """Query ALL memories and KG rows and return an encrypted bundle."""
     return await build_delta_bundle(db, since=None, passphrase=passphrase)
 
 
@@ -267,6 +228,7 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     """
     counts = {"entities_applied": 0, "edges_applied": 0, "links_applied": 0}
     cursor = db._conn.cursor()
+
     # 1. Entities
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
     ent_rows = []
@@ -289,13 +251,29 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
             logger.debug(f"apply_bundle: entity skipped ({e})")
 
     if ent_rows:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_entities "
-            "(id, name, entity_type, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ent_rows,
-        )
-        counts["entities_applied"] = cursor.rowcount or 0
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entities "
+                "(id, name, entity_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ent_rows,
+            )
+            counts["entities_applied"] = cursor.rowcount or 0
+        except Exception as e:
+            logger.debug(
+                f"apply_bundle: entities bulk insert failed ({e}), falling back"
+            )
+            for row in ent_rows:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entities "
+                        "(id, name, entity_type, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["entities_applied"] += cursor.rowcount or 0
+                except Exception as inner_e:
+                    logger.debug(f"apply_bundle: entity skipped ({inner_e})")
 
     # 2. Edges
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
@@ -322,14 +300,29 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
             logger.debug(f"apply_bundle: edge skipped ({e})")
 
     if edge_rows:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_edges "
-            "(id, source_id, target_id, relation_type, created_at, "
-            " memory_id, valid_from, valid_to) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            edge_rows,
-        )
-        counts["edges_applied"] = cursor.rowcount or 0
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_edges "
+                "(id, source_id, target_id, relation_type, created_at, "
+                " memory_id, valid_from, valid_to) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                edge_rows,
+            )
+            counts["edges_applied"] = cursor.rowcount or 0
+        except Exception as e:
+            logger.debug(f"apply_bundle: edges bulk insert failed ({e}), falling back")
+            for row in edge_rows:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_edges "
+                        "(id, source_id, target_id, relation_type, created_at, "
+                        " memory_id, valid_from, valid_to) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["edges_applied"] += cursor.rowcount or 0
+                except Exception as inner_e:
+                    logger.debug(f"apply_bundle: edge skipped ({inner_e})")
 
     # 3. Links
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
@@ -345,12 +338,25 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
             logger.debug(f"apply_bundle: link skipped ({e})")
 
     if link_rows:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO memory_entity_links "
-            "(memory_id, entity_id) VALUES (?, ?)",
-            link_rows,
-        )
-        counts["links_applied"] = cursor.rowcount or 0
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entity_links "
+                "(memory_id, entity_id) VALUES (?, ?)",
+                link_rows,
+            )
+            counts["links_applied"] = cursor.rowcount or 0
+        except Exception as e:
+            logger.debug(f"apply_bundle: links bulk insert failed ({e}), falling back")
+            for row in link_rows:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entity_links "
+                        "(memory_id, entity_id) VALUES (?, ?)",
+                        row,
+                    )
+                    counts["links_applied"] += cursor.rowcount or 0
+                except Exception as inner_e:
+                    logger.debug(f"apply_bundle: link skipped ({inner_e})")
 
     db._conn.commit()
     return counts
