@@ -825,7 +825,6 @@ def _archive_trigger_interval() -> int:
     return max(1, value)
 
 
-
 def _maybe_trigger_background_archive(db: MemoryDB) -> None:
     """Archive policy auto-trigger: every Nth capture (default 100), run a
     background archive_by_score sweep so old low-importance rows soft-archive
@@ -845,9 +844,7 @@ def _maybe_trigger_background_archive(db: MemoryDB) -> None:
         )
 
 
-async def _trigger_capture_side_effects(
-    db: MemoryDB, result: dict, text: str
-) -> None:
+async def _trigger_capture_side_effects(db: MemoryDB, result: dict, text: str) -> None:
     """Trigger background enrichment and archive checks after a capture."""
     # Background enrichment only when we actually inserted a new row.
     if not result.get("deduplicated"):
