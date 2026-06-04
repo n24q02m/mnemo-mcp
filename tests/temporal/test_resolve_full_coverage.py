@@ -1,56 +1,14 @@
-"""Full coverage tests for mnemo_mcp.temporal.resolve."""
+"""Full coverage tests for mnemo_mcp.temporal.resolve using mocks to ensure cross-platform coverage."""
 
 from __future__ import annotations
 
-import sqlite3
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
-import sqlite_vec
-
-from mnemo_mcp.db import MemoryDB
 from mnemo_mcp.temporal.resolve import (
     _serialize,
     find_similar_entity,
     insert_entity_with_embedding,
 )
-
-# Skip all tests in this module when SQLite was compiled without
-# loadable-extensions support (macOS default).
-_test_conn = sqlite3.connect(":memory:")
-_HAS_LOAD_EXT = hasattr(_test_conn, "enable_load_extension")
-_test_conn.close()
-if _HAS_LOAD_EXT:
-    try:
-        _test_conn = sqlite3.connect(":memory:")
-        _test_conn.enable_load_extension(True)
-        _test_conn.close()
-    except (AttributeError, sqlite3.NotSupportedError):
-        _HAS_LOAD_EXT = False
-
-pytestmark = pytest.mark.skipif(
-    not _HAS_LOAD_EXT,
-    reason="SQLite loadable extensions not enabled (macOS default).",
-)
-
-
-def _setup_vec(db: MemoryDB) -> None:
-    db._conn.enable_load_extension(True)
-    sqlite_vec.load(db._conn)
-    db._conn.enable_load_extension(False)
-    db._conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS memory_entities_vec "
-        "USING vec0(embedding float[768])"
-    )
-    db._conn.commit()
-
-
-@pytest.fixture
-def db_with_vec(tmp_path):
-    db = MemoryDB(tmp_path / "test.db", embedding_dims=768)
-    _setup_vec(db)
-    yield db
-    db.close()
 
 
 def test_serialize_padding():
@@ -65,54 +23,121 @@ def test_serialize_padding():
     assert len(serialized_long) == 768 * 4
 
 
-def test_insert_entity_with_embedding_missing_rowid(db_with_vec: MemoryDB):
-    # Test line 167->185: ent_rowid is None
-    # We can simulate this by mocking the connection to return None for the rowid query
-    mock_conn = MagicMock(wraps=db_with_vec._conn)
+@patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True)
+def test_find_similar_entity_knn_flow(mock_exists):
+    mock_conn = MagicMock()
+    # Stage 1 miss
+    mock_conn.execute.return_value.fetchone.return_value = None
 
-    def mock_execute(sql, *args):
-        if "SELECT rowid FROM memory_entities WHERE id = ?" in sql:
-            return MagicMock(fetchone=lambda: None)
-        return db_with_vec._conn.execute(sql, *args)
+    # Stage 2 KNN hit
+    mock_conn.execute.return_value.fetchall.return_value = [(1, 0.1)]  # rowid, distance
 
-    mock_conn.execute.side_effect = mock_execute
+    # Stage 2 Entity lookup
+    mock_conn.execute.return_value.fetchone.side_effect = [
+        None,  # Stage 1 miss
+        ("eid-123",),  # Stage 2 hit
+    ]
+
+    v = [0.1] * 768
+    eid = find_similar_entity(mock_conn, "Similar", "concept", v, threshold=0.5)
+    assert eid == "eid-123"
+
+
+@patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True)
+def test_find_similar_entity_low_similarity(mock_exists):
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchone.return_value = None
+    # distance 2.0 -> similarity 0.0
+    mock_conn.execute.return_value.fetchall.return_value = [(1, 2.0)]
+
+    v = [0.1] * 768
+    eid = find_similar_entity(mock_conn, "Different", "concept", v, threshold=0.5)
+    assert eid is None
+
+
+@patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True)
+def test_insert_entity_with_embedding_missing_rowid(mock_exists):
+    mock_conn = MagicMock()
+    # actual_id fetch
+    mock_conn.execute.return_value.fetchone.side_effect = [
+        ("eid-123",),  # actual_id
+        None,  # ent_rowid miss
+    ]
 
     eid = insert_entity_with_embedding(mock_conn, "Ghost", "concept", [0.1] * 768)
-    assert eid
-    # No embedding should have been inserted
-    count = db_with_vec._conn.execute(
-        "SELECT COUNT(*) FROM memory_entities_vec"
-    ).fetchone()[0]
-    assert count == 0
+    assert eid == "eid-123"
 
 
-def test_insert_entity_with_embedding_exception(db_with_vec: MemoryDB):
-    # Test line 181-183: exception during embedding insert
-    mock_conn = MagicMock(wraps=db_with_vec._conn)
+@patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True)
+def test_insert_entity_with_embedding_exception(mock_exists):
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchone.return_value = ("eid-123",)
 
     def mock_execute(sql, *args):
         if "INSERT INTO memory_entities_vec" in sql:
             raise Exception("SIMULATED INSERT FAILURE")
-        return db_with_vec._conn.execute(sql, *args)
+        m = MagicMock()
+        m.fetchone.return_value = ("eid-123",)
+        return m
 
     mock_conn.execute.side_effect = mock_execute
 
     eid = insert_entity_with_embedding(mock_conn, "Failure", "concept", [0.1] * 768)
-    assert eid
-    # Should still commit the entity
-    count = db_with_vec._conn.execute(
-        "SELECT COUNT(*) FROM memory_entities WHERE name = 'Failure'"
-    ).fetchone()[0]
-    assert count == 1
+    assert eid == "eid-123"
 
 
-def test_find_similar_entity_default_threshold(db_with_vec: MemoryDB):
-    # Test line 88: threshold is None
-    v = [0.1] * 768
-    insert_entity_with_embedding(db_with_vec._conn, "Base", "concept", v)
+def test_find_similar_entity_default_threshold():
+    with patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True):
+        mock_conn = MagicMock()
+        # Stage 1 miss
+        mock_conn.execute.return_value.fetchone.return_value = None
+        # Stage 2 KNN hit
+        mock_conn.execute.return_value.fetchall.return_value = [(1, 0.0)]
+        # Stage 2 Entity lookup
+        mock_conn.execute.return_value.fetchone.side_effect = [None, ("eid-123",)]
 
-    # This should use default threshold 0.85
-    eid = find_similar_entity(
-        db_with_vec._conn, "Similar", "concept", v, threshold=None
-    )
-    assert eid is not None
+        v = [0.1] * 768
+        eid = find_similar_entity(mock_conn, "Similar", "concept", v, threshold=None)
+        assert eid == "eid-123"
+
+
+def test_find_similar_entity_no_results():
+    with patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True):
+        mock_conn = MagicMock()
+        # Stage 1 miss
+        mock_conn.execute.return_value.fetchone.return_value = None
+        # Stage 2 KNN miss
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        v = [0.1] * 768
+        eid = find_similar_entity(mock_conn, "Similar", "concept", v)
+        assert eid is None
+
+
+def test_find_similar_entity_dict_rows():
+    # Test lines 116, 119, 131 where rows have .keys() (e.g. Row objects)
+    with patch("mnemo_mcp.temporal.resolve._vec_table_exists", return_value=True):
+        mock_conn = MagicMock()
+
+        # Stage 1 miss
+        mock_conn.execute.return_value.fetchone.return_value = None
+
+        # Stage 2 KNN hit with dict-like row
+        knn_row = MagicMock()
+        knn_row.keys.return_value = ["rowid", "distance"]
+        knn_row.__getitem__.side_effect = lambda k: 1 if k == "rowid" else 0.1
+        mock_conn.execute.return_value.fetchall.return_value = [knn_row]
+
+        # Stage 2 Entity lookup with dict-like row
+        ent_row = MagicMock()
+        ent_row.keys.return_value = ["id"]
+        ent_row.__getitem__.return_value = "eid-456"
+
+        mock_conn.execute.return_value.fetchone.side_effect = [
+            None,  # Stage 1 miss
+            ent_row,  # Stage 2 hit
+        ]
+
+        v = [0.1] * 768
+        eid = find_similar_entity(mock_conn, "Similar", "concept", v)
+        assert eid == "eid-456"
