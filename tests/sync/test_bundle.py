@@ -20,6 +20,7 @@ import struct
 
 import pytest
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from mnemo_mcp.sync.bundle import (
     decode_bundle,
@@ -290,4 +291,133 @@ def test_decode_truncated_framing_raises() -> None:
     bundle = struct.pack("!I", len(header)) + header + ciphertext
 
     with pytest.raises(ValueError, match="truncated section name"):
+        decode_bundle(bundle, _PASS)
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage (byte-level format and truncation errors)
+# ---------------------------------------------------------------------------
+
+
+def test_encode_bundle_format_specification() -> None:
+    """Verifies the exact byte-level format of encode_bundle output."""
+    payload = {"test.txt": b"hello"}
+    bundle = encode_bundle(payload, _PASS)
+
+    # 1. First 4 bytes: header length (uint32 BE)
+    assert len(bundle) > 4
+    hdr_len = struct.unpack("!I", bundle[:4])[0]
+
+    # 2. Header JSON
+    header_bytes = bundle[4 : 4 + hdr_len]
+    header = json.loads(header_bytes.decode("utf-8"))
+    assert header["version"] == 2
+    assert header["kdf"] == "argon2id"
+    assert "salt" in header
+    assert header["aead"] == "aes-256-gcm"
+    assert "nonce" in header
+
+    # 3. Rest is ciphertext
+    ciphertext = bundle[4 + hdr_len :]
+    assert len(ciphertext) > 0
+
+    # Verify we can decrypt manually using these components
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    key = _derive_key(_PASS, bytes.fromhex(header["salt"]))
+    nonce = bytes.fromhex(header["nonce"])
+    framed = AESGCM(key).decrypt(nonce, ciphertext, associated_data=header_bytes)
+    assert b"test.txt" in framed
+    assert b"hello" in framed
+
+
+def test_decode_bundle_header_overrun() -> None:
+    """Line 162: hdr_len claims more bytes than available in bundle."""
+    # Claim 100 bytes header but only provide 10.
+    bad_bundle = struct.pack("!I", 100) + b"x" * 10
+    with pytest.raises(ValueError, match="header overrun"):
+        decode_bundle(bad_bundle, _PASS)
+
+
+def test_decode_truncated_section_name_length() -> None:
+    """Line 224: payload truncated before name_len (4 bytes)."""
+    import os
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # Framed payload is only 2 bytes (needs 4 for name_len)
+    framed = b"\x00\x00"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+
+    with pytest.raises(ValueError, match="truncated section name length"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_truncated_section_data_length() -> None:
+    """Line 232: payload truncated before data_len (8 bytes)."""
+    import os
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # Framed: name_len(4), name("a"), then truncated data_len (only 4 bytes, needs 8)
+    framed = struct.pack("!I", 1) + b"a" + b"\x00\x00\x00\x00"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+
+    with pytest.raises(ValueError, match="truncated section data length"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_truncated_section_data() -> None:
+    """Line 236: payload truncated before data finishes."""
+    import os
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # Framed: name_len(4), name("a"), data_len(8=claim 10 bytes), data(only 2 bytes)
+    framed = struct.pack("!I", 1) + b"a" + struct.pack("!Q", 10) + b"xy"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+
+    with pytest.raises(ValueError, match="truncated section data"):
         decode_bundle(bundle, _PASS)
