@@ -1001,6 +1001,7 @@ async def _handle_entity_graph(
             {
                 "error": "entity_id or name required for entity_graph",
                 "example": "action='entity_graph', name='Python', depth=2",
+                "suggestion": "Pass 'entity_id' (from search results) or 'name' (entity name) to specify the anchor for the graph.",
             }
         )
     from mnemo_mcp.temporal.queries import entity_graph
