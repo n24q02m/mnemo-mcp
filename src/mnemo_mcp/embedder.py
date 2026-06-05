@@ -359,13 +359,31 @@ class CloudEmbeddingBackend:
             f"(max {self.MAX_BATCH_SIZE}/batch)"
         )
 
+        # Bolt Performance Optimization:
+        # Process embedding batches concurrently instead of sequentially.
+        # This significantly reduces overall latency when processing large text payloads
+        # (e.g. initial knowledge base ingestion or large documents).
+        # We use a semaphore to avoid hitting provider rate limits when processing many batches.
+        semaphore = asyncio.Semaphore(5)
+
+        async def _embed_with_semaphore(batch, dimensions, batch_num):
+            async with semaphore:
+                logger.debug(
+                    f"Processing embedding batch {batch_num}/{total_batches}: {len(batch)} texts"
+                )
+                return await self._embed_batch_inner(batch, dimensions)
+
+        tasks = []
         for i in range(0, len(texts), self.MAX_BATCH_SIZE):
             batch = texts[i : i + self.MAX_BATCH_SIZE]
             batch_num = i // self.MAX_BATCH_SIZE + 1
             logger.debug(
-                f"Embedding batch {batch_num}/{total_batches}: {len(batch)} texts"
+                f"Preparing embedding batch {batch_num}/{total_batches}: {len(batch)} texts"
             )
-            batch_result = await self._embed_batch_inner(batch, dimensions)
+            tasks.append(_embed_with_semaphore(batch, dimensions, batch_num))
+
+        results = await asyncio.gather(*tasks)
+        for batch_result in results:
             all_embeddings.extend(batch_result)
 
         return all_embeddings
