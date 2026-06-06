@@ -269,46 +269,55 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     cursor = db._conn.cursor()
 
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
+    ents_params = []
     for line in ents_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             ent = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_entities "
-                "(id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+            if not isinstance(ent, dict):
+                continue
+            ents_params.append(
                 (
                     ent.get("id"),
                     ent.get("name"),
                     ent.get("entity_type"),
                     ent.get("created_at"),
                     ent.get("updated_at"),
-                ),
+                )
             )
-            counts["entities_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: entity skipped ({e})")
+        except Exception:
+            continue
+
+    if ents_params:
+        # Batch insert. Using INSERT OR IGNORE safely drops duplicates.
+        # We process in batches of 400 to limit the impact of any single
+        # malformed row failing the entire executemany statement.
+        for i in range(0, len(ents_params), 400):
+            batch = ents_params[i : i + 400]
+            try:
+                cursor.executemany(
+                    "INSERT OR IGNORE INTO memory_entities "
+                    "(id, name, entity_type, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    batch,
+                )
+                counts["entities_applied"] += cursor.rowcount or 0
+            except Exception as e:
+                logger.debug(f"apply_bundle: entities batch skipped ({e})")
 
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
+    edges_params = []
     for line in edges_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             edge = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_edges "
-                "(id, source_id, target_id, relation_type, created_at, "
-                " memory_id, valid_from, valid_to) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            if not isinstance(edge, dict):
+                continue
+            edges_params.append(
                 (
                     edge.get("id"),
                     edge.get("source_id"),
@@ -318,30 +327,52 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                     edge.get("memory_id"),
                     edge.get("valid_from"),
                     edge.get("valid_to"),
-                ),
+                )
             )
-            counts["edges_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: edge skipped ({e})")
+        except Exception:
+            continue
+
+    if edges_params:
+        for i in range(0, len(edges_params), 400):
+            batch = edges_params[i : i + 400]
+            try:
+                cursor.executemany(
+                    "INSERT OR IGNORE INTO memory_edges "
+                    "(id, source_id, target_id, relation_type, created_at, "
+                    " memory_id, valid_from, valid_to) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    batch,
+                )
+                counts["edges_applied"] += cursor.rowcount or 0
+            except Exception as e:
+                logger.debug(f"apply_bundle: edges batch skipped ({e})")
 
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
+    links_params = []
     for line in links_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             link = json.loads(line)
-        except json.JSONDecodeError:
+            if not isinstance(link, dict):
+                continue
+            links_params.append((link.get("memory_id"), link.get("entity_id")))
+        except Exception:
             continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_entity_links "
-                "(memory_id, entity_id) VALUES (?, ?)",
-                (link.get("memory_id"), link.get("entity_id")),
-            )
-            counts["links_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: link skipped ({e})")
+
+    if links_params:
+        for i in range(0, len(links_params), 400):
+            batch = links_params[i : i + 400]
+            try:
+                cursor.executemany(
+                    "INSERT OR IGNORE INTO memory_entity_links "
+                    "(memory_id, entity_id) VALUES (?, ?)",
+                    batch,
+                )
+                counts["links_applied"] += cursor.rowcount or 0
+            except Exception as e:
+                logger.debug(f"apply_bundle: links batch skipped ({e})")
 
     db._conn.commit()
     return counts
