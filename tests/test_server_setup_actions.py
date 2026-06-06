@@ -43,9 +43,10 @@ def ctx_with_db(tmp_path: Path) -> Generator[tuple[MagicMock, MemoryDB]]:
 
 
 class TestSetupStatus:
-    async def test_returns_state_and_url(self, ctx_with_db):
+    async def test_returns_state_and_url(self, ctx_with_db, monkeypatch):
         """setup_status returns credential state and setup URL."""
         ctx, _ = ctx_with_db
+        monkeypatch.setenv("GEMINI_API_KEY", "dummy")
         set_state(CredentialState.CONFIGURED)
 
         with patch(
