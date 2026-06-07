@@ -140,6 +140,16 @@ class TestSaveTokenForSubFallback:
         path = get_token_path_for_sub("user-fb", "google_drive")
         assert path.exists()
 
+    def test_save_token_for_sub_fallback_chmod_oserror(self, data_dir):
+        if os.name == "nt":
+            pytest.skip("POSIX-only branch")
+        from mnemo_mcp.token_store import save_token_for_sub
+
+        with patch("mnemo_mcp.token_store.os.open", side_effect=OSError("open fail")):
+            with patch.object(Path, "chmod", side_effect=OSError("chmod fail")):
+                # Should not raise
+                save_token_for_sub("user", "drive", {"access_token": "ok"})
+
 
 class TestLoadTokenForSub:
     def test_returns_none_when_missing(self, data_dir):
@@ -200,6 +210,12 @@ class TestLoadTokenForSub:
 
         with patch.object(Path, "read_text", mock_read_text):
             assert load_token_for_sub("user-oserr", "google_drive") is None
+
+    def test_load_token_for_sub_exists_oserror(self, data_dir):
+        from mnemo_mcp.token_store import load_token_for_sub
+
+        with patch.object(Path, "exists", side_effect=OSError("exists error")):
+            assert load_token_for_sub("user", "drive") is None
 
 
 class TestAsyncTokenForSub:

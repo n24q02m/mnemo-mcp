@@ -1,8 +1,9 @@
-"""Tests for token_store module."""
+"""Tests for mnemo_mcp.token_store."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,6 @@ import pytest
 
 @pytest.fixture
 def token_dir(tmp_path):
-    """Provide a temporary token directory."""
     d = tmp_path / "tokens"
     d.mkdir()
     with patch("mnemo_mcp.token_store.settings") as mock_settings:
@@ -69,7 +69,6 @@ class TestLoadToken:
         assert result is None
 
     def test_load_oserror(self, token_dir):
-        from pathlib import Path
 
         from mnemo_mcp.token_store import load_token
 
@@ -89,6 +88,15 @@ class TestLoadToken:
             m.get_data_dir.return_value = token_dir.parent
             result = load_token("drive")
         assert result is None
+
+    def test_load_token_exists_oserror(self, token_dir):
+
+        from mnemo_mcp.token_store import load_token
+
+        with patch.object(Path, "exists", side_effect=OSError("exists error")):
+            with patch("mnemo_mcp.token_store.settings") as m:
+                m.get_data_dir.return_value = token_dir.parent
+                assert load_token("drive") is None
 
 
 class TestSaveToken:
@@ -125,7 +133,6 @@ class TestSaveToken:
         assert saved["access_token"] == "new"
 
     def test_save_chmod_dir_oserror(self, token_dir):
-        from pathlib import Path
 
         from mnemo_mcp.token_store import save_token
 
@@ -186,7 +193,6 @@ class TestSaveToken:
         assert saved["access_token"] == "fallback_token"
 
     def test_save_fallback_chmod_oserror(self, token_dir):
-        from pathlib import Path
 
         from mnemo_mcp.token_store import save_token
 
@@ -212,7 +218,6 @@ class TestSaveToken:
         assert saved["access_token"] == "fallback_chmod_fail"
 
     def test_save_nt_os(self, token_dir):
-        from pathlib import Path
 
         from mnemo_mcp.token_store import save_token
 
