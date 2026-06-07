@@ -32,6 +32,36 @@ class TestClearModelCache:
 
         assert result is None
 
+    def test_handles_model_without_slashes(self, tmp_path):
+        from mnemo_mcp.setup_tool import clear_model_cache
+
+        model_dir = tmp_path / "models--simple-model"
+        model_dir.mkdir(parents=True)
+
+        with patch.dict("os.environ", {"QWEN3_EMBED_CACHE_PATH": str(tmp_path)}):
+            result = clear_model_cache("simple-model")
+
+        assert result == str(model_dir)
+        assert not model_dir.exists()
+
+    @patch("tempfile.gettempdir")
+    def test_falls_back_to_temp_dir(self, mock_gettemp, tmp_path):
+        from mnemo_mcp.setup_tool import clear_model_cache
+        import os
+
+        mock_gettemp.return_value = str(tmp_path)
+
+        model_dir = tmp_path / "qwen3_embed_cache" / "models--org--model"
+        model_dir.mkdir(parents=True)
+
+        with patch.dict("os.environ"):
+            if "QWEN3_EMBED_CACHE_PATH" in os.environ:
+                del os.environ["QWEN3_EMBED_CACHE_PATH"]
+            result = clear_model_cache("org/model")
+
+        assert result == str(model_dir)
+        assert not model_dir.exists()
+
 
 class TestValidateCloudModels:
     """_validate_cloud_models checks cloud embedding availability."""
