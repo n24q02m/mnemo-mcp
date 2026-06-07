@@ -81,23 +81,35 @@ def store_kg_with_memory_id(
     # to an earlier capture is left alone.
     edge_count = 0
     if relations:
+        # Bolt Performance Optimization:
+        # Use batched UPDATE with VALUES clause to backfill bitemporal metadata.
+        # This reduces N+1 loop overhead while maintaining reliable rowcount
+        # reporting across all SQLite versions.
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        update_keys = []
         for rel in relations:
             src_name = rel.get("source", "").strip()
             tgt_name = rel.get("target", "").strip()
             rtype = rel.get("type", "").strip().lower()
             src_id = name_to_id.get(src_name)
             tgt_id = name_to_id.get(tgt_name)
-            if not (src_id and tgt_id and rtype):
-                continue
-            cursor = conn.execute(
-                "UPDATE memory_edges SET "
-                "  memory_id = COALESCE(memory_id, ?), "
-                "  valid_from = COALESCE(valid_from, ?) "
-                "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
-            )
-            edge_count += cursor.rowcount or 0
+            if src_id and tgt_id and rtype:
+                update_keys.append((src_id, tgt_id, rtype))
+
+        if update_keys:
+            BATCH_SIZE = 300  # Stay under SQLITE_MAX_VARIABLE_NUMBER (default 999)
+            for i in range(0, len(update_keys), BATCH_SIZE):
+                batch = update_keys[i : i + BATCH_SIZE]
+                placeholders = ", ".join(["(?, ?, ?)"] * len(batch))
+                params = [memory_id, now_iso] + [val for key in batch for val in key]
+                cursor = conn.execute(
+                    f"UPDATE memory_edges SET "
+                    f"  memory_id = COALESCE(memory_id, ?), "
+                    f"  valid_from = COALESCE(valid_from, ?) "
+                    f"WHERE (source_id, target_id, relation_type) IN (VALUES {placeholders})",
+                    params,
+                )
+                edge_count += cursor.rowcount or 0
         conn.commit()
 
     logger.debug(
