@@ -1709,6 +1709,7 @@ class MemoryDB:
             except Exception:
                 pass
 
+            updates = []
             for row in rows:
                 row_id = row["id"] if isinstance(row, sqlite3.Row) else row[0]
                 content = row["content"] if isinstance(row, sqlite3.Row) else row[1]
@@ -1716,12 +1717,15 @@ class MemoryDB:
                     row["created_at"] if isinstance(row, sqlite3.Row) else row[2]
                 )
                 digest = hashlib.sha256((content or "").encode("utf-8")).hexdigest()
-                self._conn.execute(
+                updates.append((digest, created_at, row_id))
+
+            if updates:
+                self._conn.executemany(
                     "UPDATE memories SET "
                     "  commit_sha = COALESCE(commit_sha, ?), "
                     "  valid_from = COALESCE(valid_from, ?) "
                     "WHERE id = ?",
-                    (digest, created_at, row_id),
+                    updates,
                 )
             self._conn.commit()
             logger.info(
