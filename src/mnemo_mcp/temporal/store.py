@@ -82,6 +82,7 @@ def store_kg_with_memory_id(
     edge_count = 0
     if relations:
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        updates = []
         for rel in relations:
             src_name = rel.get("source", "").strip()
             tgt_name = rel.get("target", "").strip()
@@ -90,15 +91,22 @@ def store_kg_with_memory_id(
             tgt_id = name_to_id.get(tgt_name)
             if not (src_id and tgt_id and rtype):
                 continue
-            cursor = conn.execute(
+            updates.append((memory_id, now_iso, src_id, tgt_id, rtype))
+
+        if updates:
+            # Bolt Performance Optimization:
+            # Replaced N+1 `execute` calls inside a loop with a single `executemany`
+            # for updating `memory_edges` with `memory_id` and `valid_from`.
+            # This reduces SQLite virtual machine round-trips, improving bulk edge storage performance.
+            cursor = conn.executemany(
                 "UPDATE memory_edges SET "
                 "  memory_id = COALESCE(memory_id, ?), "
                 "  valid_from = COALESCE(valid_from, ?) "
                 "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
+                updates,
             )
-            edge_count += cursor.rowcount or 0
-        conn.commit()
+            edge_count = cursor.rowcount or 0
+            conn.commit()
 
     logger.debug(
         f"temporal.store: memory_id={memory_id} "
