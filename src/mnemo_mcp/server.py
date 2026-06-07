@@ -825,6 +825,58 @@ def _archive_trigger_interval() -> int:
     return max(1, value)
 
 
+def _maybe_trigger_background_archive(db: MemoryDB) -> None:
+    """Archive policy auto-trigger: every Nth capture (default 100), run a
+    background archive_by_score sweep so old low-importance rows soft-archive
+    without requiring a manual ``archive_now`` call.
+    """
+    if not settings.archive_enabled:
+        return
+
+    _CAPTURE_COUNTER["calls"] += 1
+    interval = _archive_trigger_interval()
+    if _CAPTURE_COUNTER["calls"] % interval == 0:
+        asyncio.create_task(
+            asyncio.to_thread(
+                db.archive_by_score,
+                archive_after_days=int(settings.archive_after_days),
+            )
+        )
+
+
+async def _trigger_capture_side_effects(db: MemoryDB, result: dict, text: str) -> None:
+    """Trigger background enrichment and archive checks after a capture."""
+    # Background enrichment only when we actually inserted a new row.
+    if not result.get("deduplicated"):
+        asyncio.create_task(_enrich_memory(db, result["memory_id"], text))
+
+    _maybe_trigger_background_archive(db)
+
+
+def _format_capture_result(
+    result: dict, embedding: list[float] | None, context_type: str
+) -> str:
+    """Format the capture pipeline result into a JSON response string."""
+    return _json(
+        {
+            "status": "deduplicated" if result.get("deduplicated") else "captured",
+            "id": result["memory_id"],
+            "context_type": result.get("context_type", context_type),
+            "deduplicated": bool(result.get("deduplicated")),
+            "auto": bool(result.get("auto")),
+            "semantic": embedding is not None,
+            **(
+                {
+                    "similarity": result["similarity"],
+                    "existing_content": result.get("existing_content"),
+                }
+                if result.get("deduplicated")
+                else {}
+            ),
+        }
+    )
+
+
 async def _handle_capture(
     ctx: Context | None,
     text: str | None,
@@ -891,42 +943,8 @@ async def _handle_capture(
         logger.exception("Unexpected error in _handle_capture")
         return _json({"error": "Internal error while capturing memory"})
 
-    # Background enrichment only when we actually inserted a new row.
-    if not result.get("deduplicated"):
-        asyncio.create_task(_enrich_memory(db, result["memory_id"], text))
-
-    # Archive policy auto-trigger: every Nth capture (default 100), run a
-    # background archive_by_score sweep so old low-importance rows soft-archive
-    # without requiring a manual ``archive_now`` call.
-    if settings.archive_enabled:
-        _CAPTURE_COUNTER["calls"] += 1
-        interval = _archive_trigger_interval()
-        if _CAPTURE_COUNTER["calls"] % interval == 0:
-            asyncio.create_task(
-                asyncio.to_thread(
-                    db.archive_by_score,
-                    archive_after_days=int(settings.archive_after_days),
-                )
-            )
-
-    return _json(
-        {
-            "status": "deduplicated" if result.get("deduplicated") else "captured",
-            "id": result["memory_id"],
-            "context_type": result.get("context_type", context_type),
-            "deduplicated": bool(result.get("deduplicated")),
-            "auto": bool(result.get("auto")),
-            "semantic": embedding is not None,
-            **(
-                {
-                    "similarity": result["similarity"],
-                    "existing_content": result.get("existing_content"),
-                }
-                if result.get("deduplicated")
-                else {}
-            ),
-        }
-    )
+    await _trigger_capture_side_effects(db, result, text)
+    return _format_capture_result(result, embedding, context_type)
 
 
 async def _handle_archive_now(
