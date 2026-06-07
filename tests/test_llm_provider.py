@@ -107,6 +107,25 @@ def test_get_default_model_unknown_provider_returns_empty() -> None:
     assert llm.get_default_model("unknown-provider") == ""
 
 
+def test_get_default_model_edge_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1. Empty segments (covers line 82)
+    monkeypatch.setenv("LLM_MODELS", " , gemini=custom-gemini , , ")
+    assert llm.get_default_model("gemini") == "custom-gemini"
+
+    # 2. No separator (covers 83->79)
+    monkeypatch.setenv("LLM_MODELS", "bogus_entry,gemini=custom-gemini")
+    assert llm.get_default_model("gemini") == "custom-gemini"
+
+    # 3. Match but empty model (covers 88->90)
+    monkeypatch.setenv("LLM_MODELS", "gemini=,openai=custom-openai")
+    assert llm.get_default_model("gemini") == llm._DEFAULT_MODELS["gemini"]
+    assert llm.get_default_model("openai") == "custom-openai"
+
+    # 4. Loop finishes without match (covers 79->92)
+    monkeypatch.setenv("LLM_MODELS", "openai=gpt-test")
+    assert llm.get_default_model("gemini") == llm._DEFAULT_MODELS["gemini"]
+
+
 # ---------------------------------------------------------------------------
 # call_llm — graceful skip
 # ---------------------------------------------------------------------------
