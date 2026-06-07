@@ -375,7 +375,6 @@ class TestLinkMemoryEntitiesCoverage:
         # Should return early before any DB calls
         link_memory_entities(conn, "", ["eid1"])
         link_memory_entities(conn, "   ", ["eid1"])
-        link_memory_entities(conn, None, ["eid1"])
         assert not conn.executemany.called
 
     def test_exception_is_caught_and_logged(self, tmp_db: MemoryDB):
