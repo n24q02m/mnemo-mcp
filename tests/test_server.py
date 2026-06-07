@@ -708,3 +708,11 @@ class TestPrompts:
         result = recall_context("machine learning")
         assert "machine learning" in result
         assert "search" in result.lower()
+
+    def test_recall_context_empty(self):
+        result = recall_context("")
+        assert "error" in result
+        assert "Topic cannot be empty" in result
+        result = recall_context("   ")
+        assert "error" in result
+        assert "Topic cannot be empty" in result
