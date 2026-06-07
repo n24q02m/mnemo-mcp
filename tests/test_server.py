@@ -342,6 +342,15 @@ class TestMemoryUnknownAction:
         assert "add" in result["valid_actions"]
         assert "suggestion" not in result
 
+    async def test_unknown_action_with_suggestion(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        # 'seacrh' should trigger a suggestion for 'search'
+        result = json.loads(await memory(action="seacrh", ctx=ctx))
+        assert "error" in result
+        assert "valid_actions" in result
+        assert "suggestion" in result
+        assert "search" in result["suggestion"]
+
 
 class TestConfigTool:
     async def test_status(self, ctx_with_db):
@@ -402,6 +411,15 @@ class TestConfigTool:
         assert "error" in result
         assert "valid_actions" in result
         assert "suggestion" not in result
+
+    async def test_unknown_action_with_suggestion(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        # 'statu' should trigger a suggestion for 'status'
+        result = json.loads(await config(action="statu", ctx=ctx))
+        assert "error" in result
+        assert "valid_actions" in result
+        assert "suggestion" in result
+        assert "status" in result["suggestion"]
 
 
 class TestHelpTool:

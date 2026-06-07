@@ -1501,14 +1501,14 @@ async def memory(
                 "update",
             ]
             closest = difflib.get_close_matches(action, valid_actions, n=1)
-            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-            return _json(
-                {
-                    "error": f"Unknown action '{action}'.{suggestion}",
-                    "valid_actions": valid_actions,
-                    "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
-                }
-            )
+            response = {
+                "error": f"Unknown action '{action}'.",
+                "valid_actions": valid_actions,
+                "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
+            }
+            if closest:
+                response["suggestion"] = f"Did you mean '{closest[0]}'?"
+            return _json(response)
 
 
 @mcp.tool(
@@ -1596,14 +1596,14 @@ async def config(
                 "warmup",
             ]
             closest = difflib.get_close_matches(action, valid_actions, n=1)
-            suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-            return _json(
-                {
-                    "error": f"Unknown action '{action}'.{suggestion}",
-                    "valid_actions": valid_actions,
-                    "hint": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
-                }
-            )
+            response = {
+                "error": f"Unknown action '{action}'.",
+                "valid_actions": valid_actions,
+                "hint": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
+            }
+            if closest:
+                response["suggestion"] = f"Did you mean '{closest[0]}'?"
+            return _json(response)
 
 
 async def _handle_config_status(ctx: Context | None) -> str:
@@ -2094,13 +2094,13 @@ async def help(topic: str = "memory") -> str:
         import difflib
 
         closest = difflib.get_close_matches(topic, list(valid_topics.keys()), n=1)
-        suggestion = f" Did you mean '{closest[0]}'?" if closest else ""
-        return _json(
-            {
-                "error": f"Unknown topic '{topic}'.{suggestion}",
-                "valid_topics": list(valid_topics.keys()),
-            }
-        )
+        response = {
+            "error": f"Unknown topic '{topic}'.",
+            "valid_topics": list(valid_topics.keys()),
+        }
+        if closest:
+            response["suggestion"] = f"Did you mean '{closest[0]}'?"
+        return _json(response)
 
     doc_file = docs_package / filename
     content = await asyncio.to_thread(doc_file.read_text, encoding="utf-8")
