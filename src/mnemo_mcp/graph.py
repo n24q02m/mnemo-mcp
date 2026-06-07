@@ -305,6 +305,9 @@ def create_relations(
 
 def link_memory_entities(conn, memory_id: str, entity_ids: list[str]) -> None:
     """Link a memory to entities."""
+    if not memory_id or not memory_id.strip():
+        return
+
     if not entity_ids:
         return
 

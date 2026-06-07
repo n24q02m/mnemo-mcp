@@ -369,6 +369,15 @@ class TestLinkMemoryEntitiesCoverage:
         ).fetchone()[0]
         assert count == 0
 
+    def test_empty_memory_id(self, tmp_db: MemoryDB):
+        """No-op for empty or whitespace memory_id."""
+        conn = MagicMock()
+        # Should return early before any DB calls
+        link_memory_entities(conn, "", ["eid1"])
+        link_memory_entities(conn, "   ", ["eid1"])
+        link_memory_entities(conn, None, ["eid1"])
+        assert not conn.executemany.called
+
     def test_exception_is_caught_and_logged(self, tmp_db: MemoryDB):
         """Exception during linking is caught and logged with details."""
         conn = MagicMock()
