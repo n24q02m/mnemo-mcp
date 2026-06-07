@@ -268,47 +268,55 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     counts = {"entities_applied": 0, "edges_applied": 0, "links_applied": 0}
     cursor = db._conn.cursor()
 
+    # 1. Entities
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
-    for line in ents_raw.splitlines():
-        line = line.strip()
-        if not line:
+    ents_to_insert = []
+    for rline in ents_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            ent = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_entities "
-                "(id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+            ent = json.loads(rline)
+            ents_to_insert.append(
                 (
                     ent.get("id"),
                     ent.get("name"),
                     ent.get("entity_type"),
                     ent.get("created_at"),
                     ent.get("updated_at"),
-                ),
+                )
             )
-            counts["entities_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: entity skipped ({e})")
-
+        except Exception:
+            continue
+    if ents_to_insert:
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entities "
+                "(id, name, entity_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ents_to_insert,
+            )
+            counts["entities_applied"] = cursor.rowcount or 0
+        except Exception:
+            # Fallback for integrity errors (e.g. FK violations in bad bundles)
+            for row in ents_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entities "
+                        "(id, name, entity_type, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["entities_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
-    for line in edges_raw.splitlines():
-        line = line.strip()
-        if not line:
+    edges_to_insert = []
+    for rline in edges_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            edge = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_edges "
-                "(id, source_id, target_id, relation_type, created_at, "
-                " memory_id, valid_from, valid_to) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            edge = json.loads(rline)
+            edges_to_insert.append(
                 (
                     edge.get("id"),
                     edge.get("source_id"),
@@ -318,31 +326,62 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                     edge.get("memory_id"),
                     edge.get("valid_from"),
                     edge.get("valid_to"),
-                ),
+                )
             )
-            counts["edges_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: edge skipped ({e})")
-
+        except Exception:
+            continue
+    if edges_to_insert:
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_edges "
+                "(id, source_id, target_id, relation_type, created_at, "
+                " memory_id, valid_from, valid_to) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                edges_to_insert,
+            )
+            counts["edges_applied"] = cursor.rowcount or 0
+        except Exception:
+            for row in edges_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_edges "
+                        "(id, source_id, target_id, relation_type, created_at, "
+                        " memory_id, valid_from, valid_to) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        row,
+                    )
+                    counts["edges_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
-    for line in links_raw.splitlines():
-        line = line.strip()
-        if not line:
+    links_to_insert = []
+    for rline in links_raw.splitlines():
+        if not (rline := rline.strip()):
             continue
         try:
-            link = json.loads(line)
-        except json.JSONDecodeError:
+            link = json.loads(rline)
+            links_to_insert.append((link.get("memory_id"), link.get("entity_id")))
+        except Exception:
             continue
+    if links_to_insert:
         try:
-            cursor.execute(
+            cursor.executemany(
                 "INSERT OR IGNORE INTO memory_entity_links "
                 "(memory_id, entity_id) VALUES (?, ?)",
-                (link.get("memory_id"), link.get("entity_id")),
+                links_to_insert,
             )
-            counts["links_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: link skipped ({e})")
-
+            counts["links_applied"] = cursor.rowcount or 0
+        except Exception:
+            for row in links_to_insert:
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO memory_entity_links "
+                        "(memory_id, entity_id) VALUES (?, ?)",
+                        row,
+                    )
+                    counts["links_applied"] += cursor.rowcount or 0
+                except Exception:
+                    continue
     db._conn.commit()
     return counts
 
