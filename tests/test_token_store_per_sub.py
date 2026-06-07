@@ -140,6 +140,50 @@ class TestSaveTokenForSubFallback:
         path = get_token_path_for_sub("user-fb", "google_drive")
         assert path.exists()
 
+    def test_falls_back_to_path_write_text_on_fdopen_oserror(self, data_dir):
+        if os.name == "nt":
+            pytest.skip("POSIX-only fdopen fallback path")
+        from mnemo_mcp.token_store import (
+            get_token_path_for_sub,
+            save_token_for_sub,
+        )
+
+        with patch(
+            "mnemo_mcp.token_store.os.fdopen", side_effect=OSError("fdopen failed")
+        ):
+            save_token_for_sub(
+                "user-fdopen-fail", "google_drive", {"access_token": "ok_from_fallback"}
+            )
+
+        path = get_token_path_for_sub("user-fdopen-fail", "google_drive")
+        assert path.exists()
+        assert json.loads(path.read_text())["access_token"] == "ok_from_fallback"
+
+    def test_fallback_chmod_oserror_swallowed(self, data_dir):
+        if os.name == "nt":
+            pytest.skip("POSIX-only fallback chmod path")
+        from mnemo_mcp.token_store import (
+            get_token_path_for_sub,
+            save_token_for_sub,
+        )
+
+        original_chmod = Path.chmod
+
+        def mock_chmod(self, mode):
+            if self.name == "google_drive.json":
+                raise OSError("simulated chmod failure")
+            return original_chmod(self, mode)
+
+        with (
+            patch.object(os, "open", side_effect=OSError("simulated open failure")),
+            patch.object(Path, "chmod", mock_chmod),
+        ):
+            # Must not raise
+            save_token_for_sub("user-fb-chmod", "google_drive", {"access_token": "ok"})
+
+        path = get_token_path_for_sub("user-fb-chmod", "google_drive")
+        assert path.exists()
+
 
 class TestLoadTokenForSub:
     def test_returns_none_when_missing(self, data_dir):

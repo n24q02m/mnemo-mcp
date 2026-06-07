@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import patch
 
 import pytest
@@ -168,6 +169,27 @@ class TestSaveToken:
 
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "fchmod_fail"
+
+    def test_save_fdopen_oserror_fallback(self, token_dir):
+        if os.name == "nt":
+            pytest.skip("POSIX-only fdopen fallback path")
+        from mnemo_mcp.token_store import save_token
+
+        token = {"access_token": "global_fdopen_fail"}
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch(
+                "mnemo_mcp.token_store.os.fdopen",
+                side_effect=OSError("fdopen failed"),
+            ),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token("drive", token)
+
+        saved = json.loads((token_dir / "drive.json").read_text())
+        assert saved["access_token"] == "global_fdopen_fail"
 
     def test_save_os_open_oserror_fallback(self, token_dir):
         from mnemo_mcp.token_store import save_token
