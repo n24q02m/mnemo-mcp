@@ -352,9 +352,20 @@ class TestUpsertEntitiesCoverage:
         assert ids[0] == ids[1]
         assert ids[0] != ids[2]
 
+    def test_upsert_entities_batching(self, tmp_db: MemoryDB):
+        """Tests batching logic in upsert_entities (400 limit)."""
+        conn = tmp_db._conn
+        # Create 401 unique entities to trigger multi-batch SELECT
+        entities = [{"name": f"Entity {i}", "type": "concept"} for i in range(401)]
+        ids = upsert_entities(conn, entities)
+        assert len(ids) == 401
+        assert len(set(ids)) == 401
 
-# ---------------------------------------------------------------------------
-# link_memory_entities edge cases
+        # Verify they are all in the DB
+        count = conn.execute("SELECT COUNT(*) FROM memory_entities").fetchone()[0]
+        assert count == 401
+
+
 # ---------------------------------------------------------------------------
 
 
