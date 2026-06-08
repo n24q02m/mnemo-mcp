@@ -102,3 +102,25 @@ class TestStoreKgWithMemoryId:
         ).fetchone()[0]
         assert ent_count == 2
         assert edge_count == 1
+
+    def test_batch_update_multiple_relations(self, tmp_db: MemoryDB):
+        mid = tmp_db.add("Alice works on Project X and Project Y")
+        extracted = {
+            "entities": [
+                {"name": "Alice", "type": "person"},
+                {"name": "Project X", "type": "project"},
+                {"name": "Project Y", "type": "project"},
+            ],
+            "relations": [
+                {"source": "Alice", "target": "Project X", "type": "works_on"},
+                {"source": "Alice", "target": "Project Y", "type": "works_on"},
+            ],
+        }
+        result = store_kg_with_memory_id(tmp_db._conn, mid, extracted)
+        assert result["edges"] == 2
+
+        # Verify both edges have correct memory_id
+        edges = tmp_db._conn.execute(
+            "SELECT COUNT(*) FROM memory_edges WHERE memory_id = ?", (mid,)
+        ).fetchone()[0]
+        assert edges == 2

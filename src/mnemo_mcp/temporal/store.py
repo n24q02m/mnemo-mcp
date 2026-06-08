@@ -82,20 +82,33 @@ def store_kg_with_memory_id(
     edge_count = 0
     if relations:
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        valid_rels = []
         for rel in relations:
             src_name = rel.get("source", "").strip()
             tgt_name = rel.get("target", "").strip()
             rtype = rel.get("type", "").strip().lower()
             src_id = name_to_id.get(src_name)
             tgt_id = name_to_id.get(tgt_name)
-            if not (src_id and tgt_id and rtype):
-                continue
+            if src_id and tgt_id and rtype:
+                valid_rels.append((src_id, tgt_id, rtype))
+
+        # Bolt Performance Optimization:
+        # Replaced N+1 single-row UPDATEs with batched UPDATE + IN (VALUES ...)
+        # to eliminate SQLite VM overhead while preserving reliable row counting.
+        BATCH_SIZE = 100
+        for i in range(0, len(valid_rels), BATCH_SIZE):
+            batch = valid_rels[i : i + BATCH_SIZE]
+            placeholders = ", ".join(["(?, ?, ?)"] * len(batch))
+            params = [memory_id, now_iso]
+            for r_src, r_tgt, r_type in batch:
+                params.extend([r_src, r_tgt, r_type])
+
             cursor = conn.execute(
                 "UPDATE memory_edges SET "
                 "  memory_id = COALESCE(memory_id, ?), "
                 "  valid_from = COALESCE(valid_from, ?) "
-                "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
+                f"WHERE (source_id, target_id, relation_type) IN (VALUES {placeholders})",
+                params,
             )
             edge_count += cursor.rowcount or 0
         conn.commit()
