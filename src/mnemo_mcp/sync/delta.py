@@ -268,47 +268,57 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     counts = {"entities_applied": 0, "edges_applied": 0, "links_applied": 0}
     cursor = db._conn.cursor()
 
+    # 1. Entities: Bulk insert using executemany to avoid N+1 query overhead.
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
+    ent_batch = []
     for line in ents_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             ent = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_entities "
-                "(id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+            # Pre-validate required fields to prevent batch failure.
+            if not all(ent.get(k) for k in ("id", "name", "entity_type")):
+                continue
+            ent_batch.append(
                 (
                     ent.get("id"),
                     ent.get("name"),
                     ent.get("entity_type"),
                     ent.get("created_at"),
                     ent.get("updated_at"),
-                ),
+                )
+            )
+        except (json.JSONDecodeError, Exception):
+            continue
+
+    if ent_batch:
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_entities "
+                "(id, name, entity_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ent_batch,
             )
             counts["entities_applied"] += cursor.rowcount or 0
         except Exception as e:
-            logger.debug(f"apply_bundle: entity skipped ({e})")
+            logger.debug(f"apply_bundle: entities batch skipped ({e})")
 
+    # 2. Edges: Bulk insert using executemany to avoid N+1 query overhead.
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
+    edge_batch = []
     for line in edges_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             edge = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_edges "
-                "(id, source_id, target_id, relation_type, created_at, "
-                " memory_id, valid_from, valid_to) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            # Pre-validate required fields to prevent batch failure.
+            if not all(
+                edge.get(k) for k in ("id", "source_id", "target_id", "relation_type")
+            ):
+                continue
+            edge_batch.append(
                 (
                     edge.get("id"),
                     edge.get("source_id"),
@@ -318,30 +328,50 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                     edge.get("memory_id"),
                     edge.get("valid_from"),
                     edge.get("valid_to"),
-                ),
+                )
+            )
+        except (json.JSONDecodeError, Exception):
+            continue
+
+    if edge_batch:
+        try:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO memory_edges "
+                "(id, source_id, target_id, relation_type, created_at, "
+                " memory_id, valid_from, valid_to) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                edge_batch,
             )
             counts["edges_applied"] += cursor.rowcount or 0
         except Exception as e:
-            logger.debug(f"apply_bundle: edge skipped ({e})")
+            logger.debug(f"apply_bundle: edges batch skipped ({e})")
 
+    # 3. Links: Bulk insert using executemany to avoid N+1 query overhead.
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
+    link_batch = []
     for line in links_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             link = json.loads(line)
-        except json.JSONDecodeError:
+            # Pre-validate required fields to prevent batch failure.
+            if not all(link.get(k) for k in ("memory_id", "entity_id")):
+                continue
+            link_batch.append((link.get("memory_id"), link.get("entity_id")))
+        except (json.JSONDecodeError, Exception):
             continue
+
+    if link_batch:
         try:
-            cursor.execute(
+            cursor.executemany(
                 "INSERT OR IGNORE INTO memory_entity_links "
                 "(memory_id, entity_id) VALUES (?, ?)",
-                (link.get("memory_id"), link.get("entity_id")),
+                link_batch,
             )
             counts["links_applied"] += cursor.rowcount or 0
         except Exception as e:
-            logger.debug(f"apply_bundle: link skipped ({e})")
+            logger.debug(f"apply_bundle: links batch skipped ({e})")
 
     db._conn.commit()
     return counts
