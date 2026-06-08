@@ -99,37 +99,31 @@ def find_similar_entity(
     if embedding is None or not _vec_table_exists(conn):
         return None
 
-    try:  # pragma: no cover - requires sqlite-vec; macOS sqlite3 lacks loadable ext
+    try:
         rows = conn.execute(
             "SELECT v.rowid, v.distance FROM memory_entities_vec v "
             "WHERE v.embedding MATCH ? AND k = 1 "
             "ORDER BY v.distance",
             (_serialize(embedding),),
         ).fetchall()
-    except Exception as e:  # pragma: no cover
+    except Exception as e:
         logger.debug(f"temporal.resolve: vec KNN failed (non-blocking): {e}")
         return None
 
-    if not rows:  # pragma: no cover
+    if not rows:
         return None
-    rowid = (
-        rows[0][0] if not hasattr(rows[0], "keys") else rows[0]["rowid"]
-    )  # pragma: no cover
-    distance = (
-        rows[0][1] if not hasattr(rows[0], "keys") else rows[0]["distance"]
-    )  # pragma: no cover
-    similarity = max(0.0, 1.0 - float(distance) / 2.0)  # pragma: no cover
-    if similarity < threshold:  # pragma: no cover
+    rowid = rows[0][0] if not hasattr(rows[0], "keys") else rows[0]["rowid"]
+    distance = rows[0][1] if not hasattr(rows[0], "keys") else rows[0]["distance"]
+    similarity = max(0.0, 1.0 - float(distance) / 2.0)
+    if similarity < threshold:
         return None
 
-    ent_row = conn.execute(  # pragma: no cover
+    ent_row = conn.execute(
         "SELECT id FROM memory_entities WHERE rowid = ?", (rowid,)
     ).fetchone()
-    if ent_row is None:  # pragma: no cover
+    if ent_row is None:
         return None
-    return (
-        ent_row[0] if not hasattr(ent_row, "keys") else ent_row["id"]
-    )  # pragma: no cover
+    return ent_row[0] if not hasattr(ent_row, "keys") else ent_row["id"]
 
 
 def insert_entity_with_embedding(
@@ -158,7 +152,7 @@ def insert_entity_with_embedding(
     actual_id = actual[0] if actual and not hasattr(actual, "keys") else actual["id"]
 
     # Parallel embedding row when vec table is present.
-    if embedding is not None and _vec_table_exists(conn):  # pragma: no cover - vec ext
+    if embedding is not None and _vec_table_exists(conn):
         try:
             ent_rowid = conn.execute(
                 "SELECT rowid FROM memory_entities WHERE id = ?",
