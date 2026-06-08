@@ -307,3 +307,217 @@ class TestAsyncTokenStore:
 
         saved = json.loads((token_dir / "async_drive_save.json").read_text())
         assert saved["access_token"] == "async_save"
+
+
+class TestSubTokenStore:
+    @pytest.fixture
+    def sub(self):
+        return "user123"
+
+    @pytest.fixture
+    def hashed_sub(self, sub):
+        import hashlib
+
+        return hashlib.sha256(sub.encode("utf-8")).hexdigest()
+
+    def test_get_token_path_for_sub(self, sub, hashed_sub, token_dir):
+        from mnemo_mcp.token_store import get_token_path_for_sub
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            from mnemo_mcp.token_store import get_token_path_for_sub
+
+            path = get_token_path_for_sub(sub, "drive")
+
+        expected = token_dir.parent / "subs" / hashed_sub / "tokens" / "drive.json"
+        assert path == expected
+
+    def test_save_token_for_sub_success(self, sub, token_dir):
+        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
+
+        token = {"access_token": "sub_token", "token_type": "Bearer"}
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        path = get_token_path_for_sub(sub, "drive")
+        assert path.exists()
+        saved = json.loads(path.read_text())
+        assert saved["access_token"] == "sub_token"
+
+    def test_save_token_for_sub_oserror_fallback(self, sub, token_dir):
+        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
+
+        token = {"access_token": "sub_fallback"}
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.token_store.os.open", side_effect=OSError("Cannot open")),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        path = get_token_path_for_sub(sub, "drive")
+        saved = json.loads(path.read_text())
+        assert saved["access_token"] == "sub_fallback"
+
+    def test_save_token_for_sub_chmod_error(self, sub, token_dir):
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
+
+        token = {"access_token": "sub_chmod_fail"}
+
+        original_chmod = Path.chmod
+
+        def mock_chmod(self, mode):
+            if "tokens" in self.parts:
+                raise OSError("Chmod failed")
+            return original_chmod(self, mode)
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        path = get_token_path_for_sub(sub, "drive")
+        assert path.exists()
+
+    def test_load_token_for_sub_success(self, sub, token_dir):
+        from mnemo_mcp.token_store import load_token_for_sub, save_token_for_sub
+
+        token = {"access_token": "sub_load", "token_type": "Bearer"}
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+            result = load_token_for_sub(sub, "drive")
+
+        assert result == token
+
+    def test_load_token_for_sub_missing(self, sub, token_dir):
+        from mnemo_mcp.token_store import load_token_for_sub
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            result = load_token_for_sub(sub, "nonexistent")
+        assert result is None
+
+    def test_load_token_for_sub_invalid_format(self, sub, token_dir):
+        from mnemo_mcp.token_store import get_token_path_for_sub, load_token_for_sub
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            from mnemo_mcp.token_store import get_token_path_for_sub
+
+            path = get_token_path_for_sub(sub, "drive")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"wrong": "format"}))
+            result = load_token_for_sub(sub, "drive")
+        assert result is None
+
+    def test_load_token_for_sub_oserror(self, sub, token_dir):
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import get_token_path_for_sub, load_token_for_sub
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            from mnemo_mcp.token_store import get_token_path_for_sub
+
+            path = get_token_path_for_sub(sub, "drive")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"access_token": "test"}))
+
+            with patch.object(Path, "read_text", side_effect=OSError("Read failed")):
+                result = load_token_for_sub(sub, "drive")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_async_sub_ops(self, sub, token_dir):
+        from mnemo_mcp.token_store import (
+            async_load_token_for_sub,
+            async_save_token_for_sub,
+        )
+
+        token = {"access_token": "async_sub", "token_type": "Bearer"}
+
+        with patch("mnemo_mcp.token_store.settings") as m:
+            m.get_data_dir.return_value = token_dir.parent
+            await async_save_token_for_sub(sub, "drive", token)
+            result = await async_load_token_for_sub(sub, "drive")
+
+        assert result == token
+
+    def test_save_token_for_sub_fchmod_oserror(self, sub, token_dir):
+        from mnemo_mcp.token_store import save_token_for_sub
+
+        token = {"access_token": "sub_fchmod_fail"}
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch(
+                "mnemo_mcp.token_store.os.fchmod", side_effect=OSError("Fchmod failed")
+            ),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        from mnemo_mcp.token_store import get_token_path_for_sub
+
+        path = get_token_path_for_sub(sub, "drive")
+        saved = json.loads(path.read_text())
+        assert saved["access_token"] == "sub_fchmod_fail"
+
+    def test_save_token_for_sub_fallback_chmod_oserror(self, sub, token_dir):
+        from pathlib import Path
+
+        from mnemo_mcp.token_store import save_token_for_sub
+
+        token = {"access_token": "sub_fallback_chmod_fail"}
+
+        original_chmod = Path.chmod
+
+        def mock_chmod(self, mode):
+            if self.name == "drive.json":
+                raise OSError("Fallback chmod failed")
+            return original_chmod(self, mode)
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.token_store.os.open", side_effect=OSError("Open failed")),
+            patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        from mnemo_mcp.token_store import get_token_path_for_sub
+
+        path = get_token_path_for_sub(sub, "drive")
+        saved = json.loads(path.read_text())
+        assert saved["access_token"] == "sub_fallback_chmod_fail"
+
+    def test_save_token_for_sub_nt(self, sub, token_dir):
+        from mnemo_mcp.token_store import save_token_for_sub
+
+        token = {"access_token": "sub_nt"}
+
+        with (
+            patch("mnemo_mcp.token_store.settings") as m,
+            patch("mnemo_mcp.token_store.os.name", "nt"),
+        ):
+            m.get_data_dir.return_value = token_dir.parent
+            save_token_for_sub(sub, "drive", token)
+
+        from mnemo_mcp.token_store import get_token_path_for_sub
+
+        path = get_token_path_for_sub(sub, "drive")
+        saved = json.loads(path.read_text())
+        assert saved["access_token"] == "sub_nt"
