@@ -268,80 +268,99 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
     counts = {"entities_applied": 0, "edges_applied": 0, "links_applied": 0}
     cursor = db._conn.cursor()
 
+    # 1. Entities
     ents_raw = payload.get("memories_entities.jsonl", b"").decode("utf-8")
+    ents = []
     for line in ents_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            ent = json.loads(line)
+            ents.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO memory_entities "
-                "(id, name, entity_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (
-                    ent.get("id"),
-                    ent.get("name"),
-                    ent.get("entity_type"),
-                    ent.get("created_at"),
-                    ent.get("updated_at"),
-                ),
-            )
-            counts["entities_applied"] += cursor.rowcount or 0
-        except Exception as e:
-            logger.debug(f"apply_bundle: entity skipped ({e})")
 
+    if ents:
+        try:
+            # Bolt Performance Optimization:
+            # Use json_each to prevent N+1 SQLite query overhead while
+            # maintaining reliable rowcount for sync stats.
+            cursor.execute(
+                """INSERT OR IGNORE INTO memory_entities
+                (id, name, entity_type, created_at, updated_at)
+                SELECT
+                    json_extract(value, '$.id'),
+                    json_extract(value, '$.name'),
+                    json_extract(value, '$.entity_type'),
+                    json_extract(value, '$.created_at'),
+                    json_extract(value, '$.updated_at')
+                FROM json_each(?)""",
+                (json.dumps(ents),),
+            )
+            counts["entities_applied"] = cursor.rowcount or 0
+        except Exception as e:
+            logger.debug(f"apply_bundle: entities bulk skipped ({e})")
+
+    # 2. Edges
     edges_raw = payload.get("memories_edges.jsonl", b"").decode("utf-8")
+    edges = []
     for line in edges_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            edge = json.loads(line)
+            edges.append(json.loads(line))
         except json.JSONDecodeError:
             continue
+
+    if edges:
         try:
             cursor.execute(
-                "INSERT OR IGNORE INTO memory_edges "
-                "(id, source_id, target_id, relation_type, created_at, "
-                " memory_id, valid_from, valid_to) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    edge.get("id"),
-                    edge.get("source_id"),
-                    edge.get("target_id"),
-                    edge.get("relation_type"),
-                    edge.get("created_at"),
-                    edge.get("memory_id"),
-                    edge.get("valid_from"),
-                    edge.get("valid_to"),
-                ),
+                """INSERT OR IGNORE INTO memory_edges
+                (id, source_id, target_id, relation_type, created_at,
+                 memory_id, valid_from, valid_to)
+                SELECT
+                    json_extract(value, '$.id'),
+                    json_extract(value, '$.source_id'),
+                    json_extract(value, '$.target_id'),
+                    json_extract(value, '$.relation_type'),
+                    json_extract(value, '$.created_at'),
+                    json_extract(value, '$.memory_id'),
+                    json_extract(value, '$.valid_from'),
+                    json_extract(value, '$.valid_to')
+                FROM json_each(?)""",
+                (json.dumps(edges),),
             )
-            counts["edges_applied"] += cursor.rowcount or 0
+            counts["edges_applied"] = cursor.rowcount or 0
         except Exception as e:
-            logger.debug(f"apply_bundle: edge skipped ({e})")
+            logger.debug(f"apply_bundle: edges bulk skipped ({e})")
 
+    # 3. Links
     links_raw = payload.get("memories_entity_links.jsonl", b"").decode("utf-8")
+    links = []
     for line in links_raw.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            link = json.loads(line)
+            links.append(json.loads(line))
         except json.JSONDecodeError:
             continue
+
+    if links:
         try:
             cursor.execute(
-                "INSERT OR IGNORE INTO memory_entity_links "
-                "(memory_id, entity_id) VALUES (?, ?)",
-                (link.get("memory_id"), link.get("entity_id")),
+                """INSERT OR IGNORE INTO memory_entity_links
+                (memory_id, entity_id)
+                SELECT
+                    json_extract(value, '$.memory_id'),
+                    json_extract(value, '$.entity_id')
+                FROM json_each(?)""",
+                (json.dumps(links),),
             )
-            counts["links_applied"] += cursor.rowcount or 0
+            counts["links_applied"] = cursor.rowcount or 0
         except Exception as e:
-            logger.debug(f"apply_bundle: link skipped ({e})")
+            logger.debug(f"apply_bundle: links bulk skipped ({e})")
 
     db._conn.commit()
     return counts
