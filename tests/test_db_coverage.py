@@ -532,3 +532,55 @@ class TestScoringEdgeCases:
 
         # Test with naive datetime string
         assert tmp_db._calc_recency("2023-01-01T00:00:00", now) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 temporal backfill edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillPhase3Temporal:
+    def test_backfill_phase3_temporal(self, tmp_db: MemoryDB):
+        """Backfill commit_sha and valid_from for legacy rows using executemany."""
+        import hashlib
+
+        # Manually create a legacy-like state
+        tmp_db._conn.execute("DELETE FROM memories")
+        tmp_db._conn.commit()
+
+        # Insert rows with NULL commit_sha and valid_from
+        rows = [
+            ("id1", "content1", "2023-01-01 10:00:00"),
+            ("id2", "content2", "2023-01-02 11:00:00"),
+        ]
+        for rid, content, created in rows:
+            tmp_db._conn.execute(
+                "INSERT INTO memories (id, content, created_at, updated_at, last_accessed, commit_sha, valid_from) "
+                "VALUES (?, ?, ?, ?, ?, NULL, NULL)",
+                (rid, content, created, created, created),
+            )
+        tmp_db._conn.commit()
+
+        # Run the backfill
+        tmp_db._backfill_phase3_temporal()
+
+        # Verify they are NOT NULL and have correct values
+        updated_rows = tmp_db._conn.execute(
+            "SELECT id, content, created_at, commit_sha, valid_from FROM memories"
+        ).fetchall()
+        assert len(updated_rows) == 2
+        for row in updated_rows:
+            expected_sha = hashlib.sha256(row["content"].encode("utf-8")).hexdigest()
+            assert row["commit_sha"] == expected_sha
+            assert row["valid_from"] == row["created_at"]
+
+    def test_backfill_phase3_temporal_empty(self, tmp_db: MemoryDB):
+        """Backfill should not crash on empty database."""
+        tmp_db._backfill_phase3_temporal()
+        # Should complete without error
+
+    def test_backfill_phase3_temporal_no_table(self, tmp_db: MemoryDB):
+        """Backfill handles missing memories table gracefully."""
+        tmp_db._conn.execute("DROP TABLE memories")
+        tmp_db._backfill_phase3_temporal()
+        # Should return early via cursor is None check
