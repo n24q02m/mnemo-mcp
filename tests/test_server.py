@@ -709,6 +709,28 @@ class TestPrompts:
         assert "machine learning" in result
         assert "search" in result.lower()
 
+    def test_save_summary_empty(self):
+        result = save_summary("")
+        data = json.loads(result)
+        assert "error" in data
+        assert "summary is required" in data["error"]
+
+    def test_save_summary_whitespace(self):
+        result = save_summary("   ")
+        data = json.loads(result)
+        assert "error" in data
+
+    def test_recall_context_empty(self):
+        result = recall_context("")
+        data = json.loads(result)
+        assert "error" in data
+        assert "topic is required" in data["error"]
+
+    def test_recall_context_whitespace(self):
+        result = recall_context("   ")
+        data = json.loads(result)
+        assert "error" in data
+
 
 class TestServerVersion:
     def test_serverinfo_version_matches_package(self):
