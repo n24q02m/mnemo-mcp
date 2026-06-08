@@ -423,3 +423,62 @@ def test_encode_bundle_structural_integrity() -> None:
     assert data_len == len(payload["manifest.json"])
     data = framed[4 + name_len + 8 : 4 + name_len + 8 + data_len]
     assert data == payload["manifest.json"]
+
+
+def test_decode_rejects_missing_salt() -> None:
+    """Header missing 'salt' -> ValueError."""
+    header = {
+        "version": 2,
+        "kdf": "argon2id",
+        "aead": "aes-256-gcm",
+        "nonce": "00" * 12,
+    }
+    hdr_bytes = json.dumps(header).encode("utf-8")
+    bundle = struct.pack("!I", len(hdr_bytes)) + hdr_bytes + b"ciphertext"
+    with pytest.raises(ValueError, match="missing salt"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_rejects_missing_nonce() -> None:
+    """Header missing 'nonce' -> ValueError."""
+    header = {
+        "version": 2,
+        "kdf": "argon2id",
+        "aead": "aes-256-gcm",
+        "salt": "00" * 32,
+    }
+    hdr_bytes = json.dumps(header).encode("utf-8")
+    bundle = struct.pack("!I", len(hdr_bytes)) + hdr_bytes + b"ciphertext"
+    with pytest.raises(ValueError, match="missing nonce"):
+        decode_bundle(bundle, _PASS)
+
+
+def test_decode_rejects_malformed_section_name_encoding() -> None:
+    """Section name that is not valid UTF-8 -> ValueError."""
+    import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from mnemo_mcp.sync.bundle import _derive_key
+
+    salt = os.urandom(32)
+    nonce = os.urandom(12)
+    header = json.dumps(
+        {
+            "version": 2,
+            "kdf": "argon2id",
+            "salt": salt.hex(),
+            "aead": "aes-256-gcm",
+            "nonce": nonce.hex(),
+        }
+    ).encode()
+    key = _derive_key(_PASS, salt)
+
+    # Framed payload: name_len(4), name (invalid UTF-8), data_len(8), data
+    # 0xFF is not a valid start byte in UTF-8
+    framed = struct.pack("!I", 1) + b"\xff" + struct.pack("!Q", 1) + b"x"
+    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
+    bundle = struct.pack("!I", len(header)) + header + ciphertext
+
+    with pytest.raises(ValueError, match="malformed section name"):
+        decode_bundle(bundle, _PASS)

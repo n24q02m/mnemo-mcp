@@ -183,6 +183,11 @@ def decode_bundle(bundle: bytes, passphrase: str) -> dict[str, bytes]:
             f"(this build supports {_AEAD_NAME})"
         )
 
+    if "salt" not in header:
+        raise ValueError("decode_bundle: missing salt in header")
+    if "nonce" not in header:
+        raise ValueError("decode_bundle: missing nonce in header")
+
     salt = bytes.fromhex(header["salt"])
     nonce = bytes.fromhex(header["nonce"])
     ciphertext = bundle[4 + hdr_len :]
@@ -226,7 +231,12 @@ def _unframe_payload(framed: bytes) -> dict[str, bytes]:
         offset += 4
         if offset + name_len > n:
             raise ValueError("decode_bundle: truncated section name")
-        name = framed[offset : offset + name_len].decode("utf-8")
+        try:
+            name = framed[offset : offset + name_len].decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"decode_bundle: malformed section name (not UTF-8): {e}"
+            ) from e
         offset += name_len
         if offset + 8 > n:
             raise ValueError("decode_bundle: truncated section data length")
