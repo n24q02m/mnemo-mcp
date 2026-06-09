@@ -298,10 +298,9 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 "VALUES (?, ?, ?, ?, ?)",
                 ents_to_insert,
             )
-            # Use rowcount to track actually applied (new) records.
-            # Note: Although executemany rowcount can be a footgun in some contexts,
-            # it is used here for sync convergence metrics, matching patterns in db.py.
-            counts["entities_applied"] = cursor.rowcount or 0
+            # Use += to maintain semantic consistency with the original per-row loop
+            # and avoid overwriting if this function were ever called in parts.
+            counts["entities_applied"] += cursor.rowcount or 0
         except Exception as e:
             logger.debug(f"apply_bundle: entities bulk insert failed ({e})")
 
@@ -339,7 +338,7 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 edges_to_insert,
             )
-            counts["edges_applied"] = cursor.rowcount or 0
+            counts["edges_applied"] += cursor.rowcount or 0
         except Exception as e:
             logger.debug(f"apply_bundle: edges bulk insert failed ({e})")
 
@@ -364,7 +363,7 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 "(memory_id, entity_id) VALUES (?, ?)",
                 links_to_insert,
             )
-            counts["links_applied"] = cursor.rowcount or 0
+            counts["links_applied"] += cursor.rowcount or 0
         except Exception as e:
             logger.debug(f"apply_bundle: links bulk insert failed ({e})")
 
