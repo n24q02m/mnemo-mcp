@@ -298,6 +298,9 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 (json.dumps(ents),),
             )
             counts["entities_applied"] = cursor.rowcount or 0
+            # Explicitly commit here to reduce transaction scope and avoid
+            # "database disk image is malformed" on Windows during bulk writes.
+            db._conn.commit()
         except Exception as e:
             logger.debug(f"apply_bundle: entities bulk skipped ({e})")
 
@@ -332,6 +335,7 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 (json.dumps(edges),),
             )
             counts["edges_applied"] = cursor.rowcount or 0
+            db._conn.commit()
         except Exception as e:
             logger.debug(f"apply_bundle: edges bulk skipped ({e})")
 
@@ -359,10 +363,10 @@ def _apply_kg_sections(db: MemoryDB, payload: dict[str, bytes]) -> dict:
                 (json.dumps(links),),
             )
             counts["links_applied"] = cursor.rowcount or 0
+            db._conn.commit()
         except Exception as e:
             logger.debug(f"apply_bundle: links bulk skipped ({e})")
 
-    db._conn.commit()
     return counts
 
 
