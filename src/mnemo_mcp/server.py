@@ -301,6 +301,18 @@ def _json(obj: object) -> str:
     return json.dumps(obj, indent=2)
 
 
+def _require_string(val: str | None, name: str, suggestion: str) -> str | None:
+    """Validate that a string is present and not whitespace-only."""
+    if not val or not val.strip():
+        return _json(
+            {
+                "error": f"{name} is required",
+                "suggestion": suggestion,
+            }
+        )
+    return None
+
+
 async def _maybe_include_setup_hint(result: dict) -> dict:
     """If in awaiting_setup, surface a hint pointing the user at HTTP setup.
 
@@ -2146,13 +2158,12 @@ def save_summary(summary: str) -> str:
     - Use when a conversation is concluding or shifting topics to persist key takeaways.
     - Parameters: 'summary' (the consolidated text to save).
     """
-    if not summary or not summary.strip():
-        return _json(
-            {
-                "error": "summary is required",
-                "suggestion": "Provide the 'summary' parameter to save a conversation summary.",
-            }
-        )
+    if err := _require_string(
+        summary,
+        "summary",
+        "Provide the 'summary' parameter to save a conversation summary.",
+    ):
+        return err
     return (
         f"Save this conversation summary as a memory:\n\n{summary}\n\n"
         "Use the memory tool with action='add', category='context', "
@@ -2168,13 +2179,10 @@ def recall_context(topic: str) -> str:
     - Use when starting a new task or answering a question to retrieve prior context.
     - Parameters: 'topic' (the specific subject or keywords to search for).
     """
-    if not topic or not topic.strip():
-        return _json(
-            {
-                "error": "topic is required",
-                "suggestion": "Provide the 'topic' parameter to search for relevant context.",
-            }
-        )
+    if err := _require_string(
+        topic, "topic", "Provide the 'topic' parameter to search for relevant context."
+    ):
+        return err
     return (
         f"Search your memories for relevant context about: {topic}\n\n"
         "Use the memory tool with action='search' and this query. "
