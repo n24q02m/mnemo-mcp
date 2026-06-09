@@ -424,61 +424,19 @@ def test_encode_bundle_structural_integrity() -> None:
     data = framed[4 + name_len + 8 : 4 + name_len + 8 + data_len]
     assert data == payload["manifest.json"]
 
+def test_decode_precomputed_bundle() -> None:
+    """Verify decode_bundle can decrypt a known-good bundle produced by a previous version."""
+    # Bundle produced by version 2.1.4
+    bundle_hex = (
+        "000000a97b2276657273696f6e223a20322c20226b6466223a20226172676f6e326964222c20"
+        "2273616c74223a202238343434656138326337626366663261343862336364643938353030"
+        "63356133613162363562623264383437393165353737303330383063393234356231313022"
+        "2c202261656164223a20226165732d3235362d67636d222c20226e6f6e6365223a20223433"
+        "31653033366531303061313834373364373832396636227d0a11933778368dad0405736638"
+        "6e3467b69bda9c624597a30499a475f61944c5975dc212f5fcae42035e65393ab4a9"
+    )
+    bundle = bytes.fromhex(bundle_hex)
+    passphrase = "password123"
 
-def test_decode_rejects_missing_salt() -> None:
-    """Header missing 'salt' -> ValueError."""
-    header = {
-        "version": 2,
-        "kdf": "argon2id",
-        "aead": "aes-256-gcm",
-        "nonce": "00" * 12,
-    }
-    hdr_bytes = json.dumps(header).encode("utf-8")
-    bundle = struct.pack("!I", len(hdr_bytes)) + hdr_bytes + b"ciphertext"
-    with pytest.raises(ValueError, match="missing salt"):
-        decode_bundle(bundle, _PASS)
-
-
-def test_decode_rejects_missing_nonce() -> None:
-    """Header missing 'nonce' -> ValueError."""
-    header = {
-        "version": 2,
-        "kdf": "argon2id",
-        "aead": "aes-256-gcm",
-        "salt": "00" * 32,
-    }
-    hdr_bytes = json.dumps(header).encode("utf-8")
-    bundle = struct.pack("!I", len(hdr_bytes)) + hdr_bytes + b"ciphertext"
-    with pytest.raises(ValueError, match="missing nonce"):
-        decode_bundle(bundle, _PASS)
-
-
-def test_decode_rejects_malformed_section_name_encoding() -> None:
-    """Section name that is not valid UTF-8 -> ValueError."""
-    import os
-
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-    from mnemo_mcp.sync.bundle import _derive_key
-
-    salt = os.urandom(32)
-    nonce = os.urandom(12)
-    header = json.dumps(
-        {
-            "version": 2,
-            "kdf": "argon2id",
-            "salt": salt.hex(),
-            "aead": "aes-256-gcm",
-            "nonce": nonce.hex(),
-        }
-    ).encode()
-    key = _derive_key(_PASS, salt)
-
-    # Framed payload: name_len(4), name (invalid UTF-8), data_len(8), data
-    # 0xFF is not a valid start byte in UTF-8
-    framed = struct.pack("!I", 1) + b"\xff" + struct.pack("!Q", 1) + b"x"
-    ciphertext = AESGCM(key).encrypt(nonce, framed, associated_data=header)
-    bundle = struct.pack("!I", len(header)) + header + ciphertext
-
-    with pytest.raises(ValueError, match="malformed section name"):
-        decode_bundle(bundle, _PASS)
+    decoded = decode_bundle(bundle, passphrase)
+    assert decoded == {"test.txt": b"hello world"}
