@@ -369,18 +369,22 @@ class TestLinkMemoryEntitiesCoverage:
         ).fetchone()[0]
         assert count == 0
 
-    def test_exception_is_caught_and_logged(self, tmp_db: MemoryDB):
-        """Exception during linking is caught and logged with details."""
-        conn = MagicMock()
-        conn.executemany.side_effect = Exception("DB error")
-        with patch("mnemo_mcp.graph.logger") as mock_logger:
-            # Should not raise
-            link_memory_entities(conn, "fake-id", ["eid1", "eid2"])
-            # Verify error was actually logged
-            assert mock_logger.debug.called
-            args, _ = mock_logger.debug.call_args
-            assert "Failed to link memory entities" in args[0]
-            assert "DB error" in args[0]
+    def test_exception_with_realistic_db_failure(self, tmp_db: MemoryDB):
+        """Triggers a real sqlite3.OperationalError by renaming the table."""
+        conn = tmp_db._conn
+        mid = tmp_db.add("test")
+
+        # Rename table to cause error
+        conn.execute("ALTER TABLE memory_entity_links RENAME TO temp_links")
+        try:
+            with patch("mnemo_mcp.graph.logger") as mock_logger:
+                link_memory_entities(conn, mid, ["eid1"])
+                assert mock_logger.debug.called
+                args, _ = mock_logger.debug.call_args
+                assert "Failed to link memory entities" in args[0]
+        finally:
+            # Restore table
+            conn.execute("ALTER TABLE temp_links RENAME TO memory_entity_links")
 
 
 # ---------------------------------------------------------------------------
