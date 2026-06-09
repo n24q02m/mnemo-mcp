@@ -336,11 +336,13 @@ class TestMemoryConsolidate:
 class TestMemoryUnknownAction:
     async def test_unknown_action(self, ctx_with_db):
         ctx, _ = ctx_with_db
-        result = json.loads(await memory(action="invalid", ctx=ctx))
+        result = json.loads(await memory(action="ad", ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
         assert "add" in result["valid_actions"]
-        assert "suggestion" not in result
+        assert "suggestion" in result
+        assert result["suggestion"] == "Did you mean 'add'?"
+        assert result["error"] == "Unknown action 'ad'."
 
 
 class TestConfigTool:
@@ -398,10 +400,12 @@ class TestConfigTool:
 
     async def test_unknown_action(self, ctx_with_db):
         ctx, _ = ctx_with_db
-        result = json.loads(await config(action="invalid", ctx=ctx))
+        result = json.loads(await config(action="statu", ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
-        assert "suggestion" not in result
+        assert "suggestion" in result
+        assert result["suggestion"] == "Did you mean 'status'?"
+        assert result["error"] == "Unknown action 'statu'."
 
 
 class TestHelpTool:
@@ -415,9 +419,12 @@ class TestHelpTool:
         assert "config" in result.lower()
 
     async def test_invalid_topic(self):
-        result = json.loads(await help(topic="invalid"))
+        result = json.loads(await help(topic="memry"))
         assert "error" in result
         assert "valid_topics" in result
+        assert "suggestion" in result
+        assert result["suggestion"] == "Did you mean 'memory'?"
+        assert result["error"] == "Unknown topic 'memry'."
 
 
 class TestDedupWarning:
