@@ -16,10 +16,14 @@ from mnemo_mcp.graph import (
 
 class TestHasLlmProvider:
     def test_no_keys(self, monkeypatch):
-        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("XAI_API_KEY", raising=False)
+        for key in (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(key, raising=False)
         assert _has_llm_provider() is False
 
     def test_gemini_key(self, monkeypatch):
@@ -30,6 +34,18 @@ class TestHasLlmProvider:
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "test")
+        assert _has_llm_provider() is True
+
+    def test_anthropic_key_only(self, monkeypatch):
+        """ANTHROPIC_API_KEY alone enables LLM enrichment (litellm path)."""
+        for key in (
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENAI_API_KEY",
+            "XAI_API_KEY",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         assert _has_llm_provider() is True
 
 
@@ -195,6 +211,49 @@ class TestExtractEntities:
             llm_models = ""
 
         assert _resolve_llm_model(MockSettings()) == "gemini/gemini-3-flash-preview"
+
+    async def test_resolve_llm_model_equals_form_normalised(self):
+        """=-form first entry is normalised to slash form for litellm."""
+        from mnemo_mcp.graph import _resolve_llm_model
+
+        class MockSettings:
+            llm_models = "gemini=gemini-2.0-flash,openai=gpt-5-mini"
+
+        assert _resolve_llm_model(MockSettings()) == "gemini/gemini-2.0-flash"
+
+    async def test_resolve_llm_model_slash_form_unchanged(self):
+        """Slash-form first entry is passed through unchanged."""
+        from mnemo_mcp.graph import _resolve_llm_model
+
+        class MockSettings:
+            llm_models = "openai/gpt-5.4-mini,gemini/gemini-3-flash-preview"
+
+        assert _resolve_llm_model(MockSettings()) == "openai/gpt-5.4-mini"
+
+    async def test_equals_form_reaches_litellm_as_slash(self):
+        """End-to-end: =-form resolved model reaches acompletion as provider/model."""
+        from types import SimpleNamespace
+
+        from mnemo_mcp.graph import _litellm_model, _resolve_llm_model
+
+        class MockSettings:
+            llm_models = "openai=gpt-5-mini"
+
+        resolved = _resolve_llm_model(MockSettings())
+        assert resolved == "openai/gpt-5-mini"
+        # _litellm_model must NOT double-prefix an already-slash model.
+        assert _litellm_model(resolved) == "openai/gpt-5-mini"
+
+        mock = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+            )
+        )
+        with patch("mcp_core.llm.acompletion", mock):
+            from mnemo_mcp.graph import _llm_completion
+
+            await _llm_completion(resolved, [{"role": "user", "content": "hi"}])
+        assert mock.call_args.kwargs["model"] == "openai/gpt-5-mini"
 
 
 class TestScoreImportance:

@@ -14,14 +14,21 @@ def _has_llm_provider() -> bool:
         os.getenv("GEMINI_API_KEY")
         or os.getenv("GOOGLE_API_KEY")
         or os.getenv("OPENAI_API_KEY")
+        or os.getenv("ANTHROPIC_API_KEY")
         or os.getenv("XAI_API_KEY")
     )
 
 
 def _resolve_llm_model(settings_obj) -> str:
-    """Resolve the LLM model to use from settings."""
+    """Resolve the LLM model to use from settings, in litellm ``provider/model`` form.
+
+    ``LLM_MODELS`` accepts ``provider=model`` (=-form) or ``provider/model``
+    (slash form). A bare =-form first entry (no slash) is normalised to slash
+    form so ``_litellm_model`` does not double-prefix it.
+    """
     models = [m.strip() for m in settings_obj.llm_models.split(",") if m.strip()]
-    return models[0] if models else "gemini/gemini-3-flash-preview"
+    raw = models[0] if models else "gemini/gemini-3-flash-preview"
+    return raw.replace("=", "/", 1) if ("=" in raw and "/" not in raw) else raw
 
 
 def _litellm_model(model: str) -> str:

@@ -66,7 +66,6 @@ class CloudReranker:
         self.api_base = api_base
         self.api_key = api_key
         self._provider = _detect_rerank_provider(self.model)
-        self._bare_model = _strip_provider(self.model)
 
     def _litellm_model(self) -> str:
         """Map mnemo's model naming to a litellm ``provider/model`` string."""

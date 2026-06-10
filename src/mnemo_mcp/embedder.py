@@ -192,7 +192,6 @@ class CloudEmbeddingBackend:
         self.api_key = api_key
         self.api_base = api_base
         self._provider = _detect_embedding_provider(self.model)
-        self._bare_model = _strip_provider(self.model)
 
     def _litellm_model(self) -> str:
         """Map mnemo's model naming to a litellm ``provider/model`` string."""
@@ -235,7 +234,12 @@ class CloudEmbeddingBackend:
     def _call_provider_sync(
         self, texts: list[str], dimensions: int | None = None
     ) -> list[list[float]]:
-        """Sync cloud path for ``check_available`` (sync mirror)."""
+        """Sync cloud path for ``check_available`` (sync mirror).
+
+        Keep in sync with :meth:`_call_provider`: same model/api_base/api_key
+        resolution + ``_build_kwargs`` + ``_parse_embeddings``; only the
+        sync ``embedding`` vs async ``aembedding`` call differs.
+        """
         from mcp_core.llm import embedding
 
         response = embedding(
