@@ -436,6 +436,21 @@ class TestLinkMemoryEntities:
             assert "Failed to link memory entities" in args[0]
             assert "DB error" in args[0]
 
+    def test_exception_realistic_db_failure(self, tmp_db: MemoryDB):
+        """Trigger a real sqlite3.OperationalError by renaming the table."""
+        conn = tmp_db._conn
+        # Break the database by renaming the required table
+        conn.execute("ALTER TABLE memory_entity_links RENAME TO broken_table")
+
+        with patch("mnemo_mcp.graph.logger") as mock_logger:
+            # Should not raise despite the real DB error
+            link_memory_entities(conn, "some-id", ["eid1"])
+            # Verify error was caught and logged
+            assert mock_logger.debug.called
+            args, _ = mock_logger.debug.call_args
+            assert "Failed to link memory entities" in args[0]
+            assert "no such table: memory_entity_links" in args[0]
+
 
 class TestFindRelatedMemoryIds:
     def test_finds_related_via_shared_entity(self, tmp_db: MemoryDB):
