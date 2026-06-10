@@ -121,60 +121,64 @@ class TestExtractEntities:
             assert result is not None
             mock_llm.assert_called_once()
 
-    async def test_llm_completion_gemini_no_prefix(self):
-        with (
-            patch(
-                "mnemo_mcp.graph.os.getenv",
-                side_effect=lambda k, d=None: "test-key" if "KEY" in k else d,
-            ),
-            patch("google.genai.Client") as mock_genai,
-        ):
-            mock_genai.return_value.models.generate_content.return_value.text = (
-                "gemini response"
+    async def test_llm_completion_gemini_bare_name_gets_prefixed(self):
+        """Bare gemini model is prefixed to litellm 'gemini/...' form."""
+        from types import SimpleNamespace
+
+        mock = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content="gemini response"))
+                ]
             )
+        )
+        with patch("mcp_core.llm.acompletion", mock):
             from mnemo_mcp.graph import _llm_completion
 
             res = await _llm_completion(
                 "gemini-pro", [{"role": "user", "content": "hi"}]
             )
             assert res == "gemini response"
+            assert mock.call_args.kwargs["model"] == "gemini/gemini-pro"
 
-    async def test_llm_completion_openai_with_prefix(self):
-        with (
-            patch(
-                "mnemo_mcp.graph.os.getenv",
-                side_effect=lambda k, d=None: "test-key" if "KEY" in k else d,
-            ),
-            patch("openai.OpenAI") as mock_openai,
-        ):
-            mock_openai.return_value.chat.completions.create.return_value.choices[
-                0
-            ].message.content = "openai response"
+    async def test_llm_completion_slash_form_passes_through(self):
+        """A 'provider/model' string is passed to litellm unchanged."""
+        from types import SimpleNamespace
+
+        mock = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content="openai response"))
+                ]
+            )
+        )
+        with patch("mcp_core.llm.acompletion", mock):
             from mnemo_mcp.graph import _llm_completion
 
             res = await _llm_completion(
                 "openai/gpt-4", [{"role": "user", "content": "hi"}]
             )
             assert res == "openai response"
+            assert mock.call_args.kwargs["model"] == "openai/gpt-4"
 
-    async def test_llm_completion_xai_routing(self):
-        def mock_getenv(k, d=None):
-            if k == "XAI_API_KEY":
-                return "xai-key"
-            if k == "OPENAI_API_KEY":
-                return None
-            return d
+    async def test_llm_completion_response_format_forwarded(self):
+        """response_format is forwarded to litellm only when provided."""
+        from types import SimpleNamespace
 
-        with (
-            patch("mnemo_mcp.graph.os.getenv", side_effect=mock_getenv),
-            patch("openai.OpenAI") as mock_openai,
-        ):
+        mock = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+            )
+        )
+        with patch("mcp_core.llm.acompletion", mock):
             from mnemo_mcp.graph import _llm_completion
 
-            await _llm_completion("gpt-4", [{"role": "user", "content": "hi"}])
-            # Verify base_url was set for xAI
-            _, kwargs = mock_openai.call_args
-            assert kwargs["base_url"] == "https://api.x.ai/v1"
+            await _llm_completion(
+                "gemini/gemini-3-flash-preview",
+                [{"role": "user", "content": "hi"}],
+                response_format={"type": "json_object"},
+            )
+            assert mock.call_args.kwargs["response_format"] == {"type": "json_object"}
 
     async def test_resolve_llm_model_custom(self):
         from mnemo_mcp.graph import _resolve_llm_model
