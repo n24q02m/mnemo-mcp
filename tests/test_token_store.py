@@ -327,7 +327,8 @@ class TestSubTokenStore:
             import hashlib
 
             safe_sub = hashlib.sha256(sub.encode("utf-8")).hexdigest()
-            assert str(path).endswith(f"subs/{safe_sub}/tokens/{provider}.json")
+            expected = tmp_path / "subs" / safe_sub / "tokens" / f"{provider}.json"
+            assert path == expected
 
     def test_save_token_for_sub_creates_file(self, sub_token_dir, tmp_path):
         from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
