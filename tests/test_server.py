@@ -403,6 +403,13 @@ class TestConfigTool:
         assert "valid_actions" in result
         assert "suggestion" not in result
 
+    async def test_models_action_removed(self, ctx_with_db):
+        """The 'models' catalog-listing action no longer exists."""
+        ctx, _ = ctx_with_db
+        result = json.loads(await config(action="models", ctx=ctx))
+        assert "Unknown action 'models'" in result["error"]
+        assert "models" not in result["valid_actions"]
+
 
 class TestHelpTool:
     async def test_memory_topic(self):
