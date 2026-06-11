@@ -128,5 +128,16 @@ RELAY_SCHEMA: dict[str, Any] = {
             "priority": "configurable",
             "description": "Memory importance scoring + graph analysis. Empty = basic heuristics.",
         },
+        {
+            "label": "Passport Sync (operator-config)",
+            "priority": "S3 (env) XOR Google Drive (default)",
+            "description": (
+                "Mutually exclusive: deployment sets SYNC_S3_BUCKET + "
+                "SYNC_PASSPHRASE env at docker spawn -> S3 mode with "
+                "encrypted bundles (AES-256-GCM + Argon2id). No S3 env "
+                "-> Google Drive Device Code OAuth via this relay. See "
+                "docs/passport.md for operator runbook."
+            ),
+        },
     ],
 }
