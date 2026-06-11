@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from loguru import logger
+from mcp_core.llm.providers import key_env_for_model
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
@@ -252,11 +253,13 @@ class Settings(BaseSettings):
 
         return mode
 
+    # Explicit provider prefixes so key-availability filtering + litellm
+    # routing are unambiguous (cohere/openai bare names would mis-detect).
     _DEFAULT_EMBEDDING_CHAIN = (
         "jina_ai/jina-embeddings-v5-text-small",
         "gemini/gemini-embedding-001",
-        "text-embedding-3-large",
-        "embed-multilingual-v3.0",
+        "openai/text-embedding-3-large",
+        "cohere/embed-multilingual-v3.0",
     )
     _DEFAULT_RERANK_CHAIN = (
         "jina_ai/jina-reranker-v3",
@@ -273,9 +276,28 @@ class Settings(BaseSettings):
                 legacy,
             )
             return [legacy.strip()]
-        if self.resolve_provider_mode() == "sdk":
-            return list(default)
-        return []
+        # No explicit chain: fall back to the curated default, but ONLY the
+        # models whose provider key is actually configured. If none are (e.g.
+        # an OpenAI-only key with a Jina/Cohere rerank default), the chain is
+        # empty -> the task falls to local ONNX. This keeps "no usable key ->
+        # local-core still runs" (spec §5.4) without a priority-router.
+        return [m for m in default if self._key_available(key_env_for_model(m))]
+
+    def _key_available(self, env_var: str) -> bool:
+        """Whether a provider key is configured via env, bundled api_keys, or alias.
+
+        Mirrors the resolution that ``setup_api_keys`` performs at startup so
+        chain filtering is correct before the env export (and in tests that
+        pass ``api_keys=`` without calling setup).
+        """
+        bundled = self.api_keys or ""
+        if os.getenv(env_var) or env_var in bundled:
+            return True
+        # An alias (e.g. GOOGLE_API_KEY) satisfies its canonical key (GEMINI).
+        for alias, canonical in self._ENV_ALIASES.items():
+            if canonical == env_var and (os.getenv(alias) or alias in bundled):
+                return True
+        return False
 
     def embedding_chain(self) -> list[str]:
         return self._chain(

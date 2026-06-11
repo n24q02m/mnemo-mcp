@@ -193,8 +193,17 @@ class TestEmbeddingModel:
         assert s.embedding_chain() == ["custom/model"]
 
     def test_sdk_mode_returns_default_chain(self):
-        """With API keys but no explicit chain, the default chain is used."""
+        """Default chain keeps only models whose provider key is configured.
+
+        A GOOGLE/GEMINI key yields the gemini default (jina/openai/cohere
+        models are dropped — no key for them).
+        """
         s = Settings(api_keys="GOOGLE_API_KEY:key")
+        assert s.embedding_primary() == "gemini/gemini-embedding-001"
+
+    def test_sdk_mode_default_filters_to_keyed_models(self):
+        """With a Jina key, the jina default model leads the chain."""
+        s = Settings(api_keys="JINA_AI_API_KEY:key")
         assert s.embedding_primary() == "jina_ai/jina-embeddings-v5-text-small"
 
     def test_no_keys_returns_empty(self):
@@ -319,7 +328,14 @@ class TestRerankSettings:
         assert s.rerank_chain() == ["custom/reranker"]
 
     def test_rerank_chain_sdk_mode_default(self, monkeypatch):
+        # Cohere key -> only the cohere default reranker survives the filter
+        # (jina is dropped: no Jina key).
         monkeypatch.setenv("COHERE_API_KEY", "test-key")
+        s = Settings()
+        assert s.rerank_primary() == "cohere/rerank-v3.5"
+
+    def test_rerank_chain_jina_key_leads(self, monkeypatch):
+        monkeypatch.setenv("JINA_AI_API_KEY", "test-key")
         s = Settings()
         assert s.rerank_primary() == "jina_ai/jina-reranker-v3"
 
@@ -332,10 +348,12 @@ class TestRerankSettings:
         s = Settings(rerank_enabled=False, rerank_models="custom/reranker")
         assert s.rerank_chain() == []
 
-    def test_resolve_rerank_backend_any_sdk_key_infers_cloud(self):
-        """Any sdk-mode key yields the default chain -> 'cloud'."""
+    def test_resolve_rerank_backend_non_rerank_key_infers_local(self):
+        """A non-rerank key (OpenAI) leaves the rerank default chain empty
+        (no Jina/Cohere key) -> 'local', so reranking still works via ONNX."""
         s = Settings(api_keys="OPENAI_API_KEY:test-key")
-        assert s.resolve_rerank_backend() == "cloud"
+        assert s.rerank_chain() == []
+        assert s.resolve_rerank_backend() == "local"
 
     def test_resolve_local_rerank_model(self):
         s = Settings()
