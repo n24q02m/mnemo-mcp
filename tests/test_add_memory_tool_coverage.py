@@ -1,7 +1,6 @@
 """Coverage tests for add_memory tool and _handle_add/history in server.py."""
 
 import json
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,7 +24,10 @@ def mock_ctx(tmp_path):
 
 
 class TestAddMemoryCoverage:
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_add_memory_wrapper(self, _mock_thread, mock_ctx):
         """Verify add_memory tool wrapper calls _handle_add."""
         ctx, db = mock_ctx
@@ -34,7 +36,10 @@ class TestAddMemoryCoverage:
         assert data["status"] == "saved"
         assert data["id"]
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_add_success(self, _mock_thread, mock_ctx):
         """Verify _handle_add with full metadata."""
         ctx, db = mock_ctx
@@ -59,7 +64,10 @@ class TestAddMemoryCoverage:
         assert "error" in data
         assert "content is required" in data["error"]
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_add_dedup_warning(self, _mock_thread, mock_ctx):
         """Verify dedup warnings (covers lines 460-462)."""
         ctx, db = mock_ctx
@@ -78,7 +86,10 @@ class TestAddMemoryCoverage:
             data = json.loads(result)
             assert data["dedup_warning"] == {"similar": True, "id": "sim-id"}
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_add_dedup_exception(self, _mock_thread, mock_ctx):
         """Verify dedup exception handling (covers lines 461-462)."""
         ctx, db = mock_ctx
@@ -89,7 +100,10 @@ class TestAddMemoryCoverage:
                 assert data["status"] == "saved"
                 mock_logger.warning.assert_called()
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_add_value_error(self, _mock_thread, mock_ctx):
         """Verify ValueError handling (covers lines 496-501)."""
         ctx, db = mock_ctx
@@ -98,7 +112,10 @@ class TestAddMemoryCoverage:
             data = json.loads(result)
             assert data["error"] == "Test value error"
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_add_unexpected_exception(self, _mock_thread, mock_ctx):
         """Verify unexpected Exception handling (covers lines 502-508)."""
         ctx, db = mock_ctx
@@ -108,8 +125,13 @@ class TestAddMemoryCoverage:
             assert "Internal error" in data["error"]
 
     @patch("mnemo_mcp.server._enrich_memory", new_callable=AsyncMock)
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
-    async def test_handle_add_triggers_enrich(self, _mock_thread, mock_enrich, mock_ctx):
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
+    async def test_handle_add_triggers_enrich(
+        self, _mock_thread, mock_enrich, mock_ctx
+    ):
         """Verify background enrichment is triggered."""
         ctx, db = mock_ctx
         await _handle_add(ctx, content="trigger enrich")
@@ -123,12 +145,18 @@ class TestAddMemoryCoverage:
         assert "error" in data
         assert "entity_id required" in data["error"]
 
-    @patch("mnemo_mcp.server.asyncio.to_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw))
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
     async def test_handle_history_success(self, _mock_thread, mock_ctx):
         """Verify _handle_history success case (covers lines 1124-1127)."""
         ctx, db = mock_ctx
         # We need to mock history_for_entity because it's imported inside the function
-        with patch("mnemo_mcp.temporal.queries.history_for_entity", return_value=[{"id": "mem1"}]):
+        with patch(
+            "mnemo_mcp.temporal.queries.history_for_entity",
+            return_value=[{"id": "mem1"}],
+        ):
             result = await _handle_history(ctx, entity_id="ent1")
             data = json.loads(result)
             assert data["entity_id"] == "ent1"
