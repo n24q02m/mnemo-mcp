@@ -544,11 +544,11 @@ wheels = [
 
 [[package]]
 name = "filelock"
-version = "3.29.3"
+version = "3.29.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/91/f5/3557bf28e0f1943e4849154c821533706e6dea010f96fb6aa0b6949037d1/filelock-3.29.3.tar.gz", hash = "sha256:7fc1b3f39cf172fd8203812043c57b8a65aef9969f38b6704f628b881f761a84", size = 61956, upload-time = "2026-06-10T17:37:11.832Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/dc/be6cbe99670cd6e4ad387123647cb08e0c32975e223f82551e914c5568a6/filelock-3.29.4.tar.gz", hash = "sha256:10cdb3656fc44541cdf30652a93fb10ec6b05325620eb316bd26893e4201538a", size = 63028, upload-time = "2026-06-13T16:12:00.744Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/8f/b61d427c4f49a8bdadc93f4e7e74df8a6df6f77ee6e26bf0df53d3925363/filelock-3.29.3-py3-none-any.whl", hash = "sha256:e58333029cc9b925f39aad59b1d8f0a1ad836af4e60d7217f4a4dba87461261d", size = 42324, upload-time = "2026-06-10T17:37:10.37Z" },
+    { url = "https://files.pythonhosted.org/packages/13/37/a065dc3bd6e49423a6532c642ca7378d3f467b1ef44c2800c937af7f9739/filelock-3.29.4-py3-none-any.whl", hash = "sha256:dac1648087d5115554850d113e7dd8c83ab2d38e3435dde2d4f163847e57b767", size = 42757, upload-time = "2026-06-13T16:11:59.582Z" },
 ]
 
 [[package]]
@@ -1737,7 +1737,7 @@ wheels = [
 
 [[package]]
 name = "qwen3-embed"
-version = "1.12.0b2"
+version = "1.12.0b3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1748,9 +1748,9 @@ dependencies = [
     { name = "tokenizers" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/b1/20c225672a262c9facb1301dc9166e6be6dbb07a15990d2e205408afd0dd/qwen3_embed-1.12.0b2.tar.gz", hash = "sha256:ec39c0b9c270646b4ec4285df0d0ff9bec0ce916bd71967c73111d6a3a72553c", size = 204642, upload-time = "2026-06-12T12:41:00.208Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/77/2f/df58495f9e7557515937452351c680566fe172e6b7f7ca3cae97e5966c31/qwen3_embed-1.12.0b3.tar.gz", hash = "sha256:1eaf95b306ee712ed22d5bd899b16ed19e3cff45c2fe0d51133a82eebafce39f", size = 206252, upload-time = "2026-06-13T11:13:20.583Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/f8/95bbbdbfe1b7fff17d72c6264de3920b944607d2c334357039aa15370b17/qwen3_embed-1.12.0b2-py3-none-any.whl", hash = "sha256:1b0a6971047dccf6e5e29fd724b247cfccbcdad4df4c68c93082f920391915c6", size = 65310, upload-time = "2026-06-12T12:41:01.357Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/7a/e38811a3eb0f51e4fe5a5b377b566b9250566a654399aec77c3f1b1105a6/qwen3_embed-1.12.0b3-py3-none-any.whl", hash = "sha256:ba22e7ccbba20bea22e2ffeaf196e98db230483dcfeb750b24334ae55a006ec1", size = 66012, upload-time = "2026-06-13T11:13:21.707Z" },
 ]
 
 [[package]]
