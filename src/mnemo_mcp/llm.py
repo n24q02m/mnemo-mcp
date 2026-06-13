@@ -51,12 +51,22 @@ _DEFAULT_MODELS: Final[dict[str, str]] = {
 }
 
 
-def detect_provider() -> str | None:
-    """Return the highest-priority provider with a configured API key.
+def detect_provider(model: str | None = None) -> str | None:
+    """Detect LLM provider from model string prefix or environment.
 
-    Returns ``None`` when no provider key is found in the environment so
-    callers can short-circuit to a graceful skip path.
+    When ``model`` is provided (e.g. "openai/gpt-4o"), detects via prefix.
+    Otherwise, returns the highest-priority provider with a configured
+    API key from the environment.
     """
+    if model:
+        for sep in ("/", ":"):
+            if sep in model:
+                prefix = model.split(sep)[0].lower().strip()
+                for provider, _ in _PROVIDER_ENV_VARS:
+                    if prefix == provider:
+                        return provider
+        return None
+
     for provider, env_vars in _PROVIDER_ENV_VARS:
         for env_var in env_vars:
             if os.environ.get(env_var):
