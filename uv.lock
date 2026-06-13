@@ -1106,7 +1106,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "boto3", specifier = ">=1.43.27" },
-    { name = "cryptography", specifier = ">=48.0.1" },
+    { name = "cryptography", specifier = ">=49.0.0" },
     { name = "httpx" },
     { name = "idna", specifier = ">=3.18" },
     { name = "loguru" },
