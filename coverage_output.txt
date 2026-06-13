@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.12, pytest-9.0.3, pluggy-1.6.0
+rootdir: /app
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.13.0, asyncio-1.4.0, syrupy-5.3.2, xdist-3.8.0, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+timeout: 30.0s
+timeout method: signal
+timeout func_only: False
+collected 6 items
+
+tests/test_db_rrf.py ......
+ERROR: Coverage failure: total of 9 is less than fail-under=95
+                                                                         [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.13.12-final-0 _______________
+
+Name                  Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------
+src/mnemo_mcp/db.py     665    587    220      0     9%   44-56, 61, 78-86, 128-171, 180-191, 201, 210-218, 222, 240-283, 292-294, 304-310, 314-381, 399-407, 447, 475-510, 515, 533-561, 611-684, 697-708, 733-757, 807-904, 922-938, 959-1034, 1045-1050, 1054-1055, 1087-1131, 1135-1146, 1162-1193, 1197-1200, 1217-1272, 1276-1287, 1291-1301, 1317-1341, 1345-1348, 1352-1368, 1374-1415, 1421-1432, 1444-1460, 1480-1505, 1535-1581, 1591-1636, 1647-1681, 1685-1717, 1721-1728, 1732, 1749-1802, 1819-1871, 1879-1887, 1896-1910
+-----------------------------------------------------------------
+TOTAL                   665    587    220      0     9%
+FAIL Required test coverage of 95.0% not reached. Total coverage: 9.27%
+============================== 6 passed in 0.15s ===============================
