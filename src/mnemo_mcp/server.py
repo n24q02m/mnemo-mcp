@@ -397,17 +397,10 @@ async def _handle_add(
             embedding=embedding,
         )
     except ValueError as e:
-        return _json(
-            {"error": str(e), "suggestion": "Ensure the request data is valid."}
-        )
+        return _json({"error": str(e)})
     except Exception:
         logger.exception("Unexpected error in _handle_add")
-        return _json(
-            {
-                "error": "Internal error while adding memory",
-                "suggestion": "Check server logs for database connectivity or permission issues.",
-            }
-        )
+        return _json({"error": "Internal error while adding memory"})
 
     result: dict = {
         "id": memory_id,
@@ -668,17 +661,10 @@ async def _handle_update(
             embedding=embedding,
         )
     except ValueError as e:
-        return _json(
-            {"error": str(e), "suggestion": "Ensure the request data is valid."}
-        )
+        return _json({"error": str(e)})
     except Exception:
         logger.exception("Unexpected error in _handle_update")
-        return _json(
-            {
-                "error": "Internal error while updating memory",
-                "suggestion": "Check server logs for details.",
-            }
-        )
+        return _json({"error": "Internal error while updating memory"})
     if ok:
         # Background: re-extract entities if content changed
         if content:
@@ -892,17 +878,10 @@ async def _handle_capture(
                     ),
                 }
             )
-        return _json(
-            {"error": msg, "suggestion": "Review the error message for details."}
-        )
+        return _json({"error": msg})
     except Exception:
         logger.exception("Unexpected error in _handle_capture")
-        return _json(
-            {
-                "error": "Internal error while capturing memory",
-                "suggestion": "Check server logs for details.",
-            }
-        )
+        return _json({"error": "Internal error while capturing memory"})
 
     # Background enrichment only when we actually inserted a new row.
     if not result.get("deduplicated"):
@@ -1013,7 +992,6 @@ async def _handle_entity_graph(
         return _json(
             {
                 "error": "entity_id or name required for entity_graph",
-                "suggestion": "Provide either entity_id or name to generate the graph.",
                 "example": "action='entity_graph', name='Python', depth=2",
             }
         )
@@ -1063,12 +1041,7 @@ async def _handle_consolidate(
 
     mode = settings.resolve_provider_mode()
     if mode == "local" and not _has_llm_provider():
-        return _json(
-            {
-                "error": "Consolidation requires LLM (SDK mode with API keys)",
-                "suggestion": "Configure an LLM provider to enable consolidation.",
-            }
-        )
+        return _json({"error": "Consolidation requires LLM (SDK mode with API keys)"})
 
     if not category:
         return _json(
@@ -1122,12 +1095,7 @@ async def _handle_consolidate(
             }
         )
     except Exception as e:
-        return _json(
-            {
-                "error": f"Consolidation failed: {e}",
-                "suggestion": "Check LLM connectivity.",
-            }
-        )
+        return _json({"error": f"Consolidation failed: {e}"})
 
 
 # --- Tools ---
@@ -1682,7 +1650,6 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
         return _json(
             {
                 "error": f"Invalid key: {key}",
-                "suggestion": "Choose a key from the valid_keys list.",
                 "valid_keys": sorted(valid_keys),
             }
         )
@@ -1707,7 +1674,6 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
             return _json(
                 {
                     "error": f"Invalid log level: {value}",
-                    "suggestion": "Choose a log level from the valid_levels list.",
                     "valid_levels": sorted(valid_levels),
                 }
             )
@@ -1925,7 +1891,6 @@ async def _handle_config_sync_now(ctx: Context | None, backend: str | None) -> s
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "suggestion": "Configure the SYNC_PASSPHRASE environment variable.",
                 "hint": (
                     "Set SYNC_PASSPHRASE env var (stdio mode) or submit "
                     "the relay form passphrase field (HTTP mode) before "
@@ -1941,17 +1906,10 @@ async def _handle_config_sync_now(ctx: Context | None, backend: str | None) -> s
         result = await sync_now(db, target, passphrase)
         return _json({"backend": target, **result})
     except KeyError as e:
-        return _json(
-            {"error": str(e), "suggestion": "Ensure the request data is valid."}
-        )
+        return _json({"error": str(e)})
     except Exception as e:
         logger.exception("sync_now failed")
-        return _json(
-            {
-                "error": f"sync_now failed: {e}",
-                "suggestion": "Check sync configuration and network.",
-            }
-        )
+        return _json({"error": f"sync_now failed: {e}"})
 
 
 async def _handle_config_export_passport(ctx: Context | None) -> str:
@@ -1962,7 +1920,6 @@ async def _handle_config_export_passport(ctx: Context | None) -> str:
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "suggestion": "Configure the SYNC_PASSPHRASE environment variable.",
                 "hint": (
                     "Set SYNC_PASSPHRASE env var or submit the relay form "
                     "passphrase before exporting a passport."
@@ -1990,7 +1947,6 @@ async def _handle_config_import_passport(
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "suggestion": "Configure the SYNC_PASSPHRASE environment variable.",
                 "hint": (
                     "Set SYNC_PASSPHRASE env var or submit the relay form "
                     "passphrase before importing a passport."
@@ -2006,17 +1962,10 @@ async def _handle_config_import_passport(
         backend = get_backend(target)
         bundle = await backend.pull(sequence=None)
     except KeyError as e:
-        return _json(
-            {"error": str(e), "suggestion": "Ensure the request data is valid."}
-        )
+        return _json({"error": str(e)})
     except Exception as e:
         logger.exception("import_passport: backend pull failed")
-        return _json(
-            {
-                "error": f"backend pull failed: {e}",
-                "suggestion": "Check sync configuration and network.",
-            }
-        )
+        return _json({"error": f"backend pull failed: {e}"})
 
     if not bundle:
         return _json(
@@ -2034,7 +1983,6 @@ async def _handle_config_import_passport(
         return _json(
             {
                 "error": "Passphrase mismatch or tampered bundle",
-                "suggestion": "Verify your SYNC_PASSPHRASE is correct.",
                 "detail": f"{type(e).__name__}: {e}",
                 "backend": target,
             }
@@ -2063,12 +2011,7 @@ async def _handle_memory_compress(ctx: Context | None, memory_id: str | None) ->
 
     row = await asyncio.to_thread(db.get, memory_id)
     if not row:
-        return _json(
-            {
-                "error": f"Memory {memory_id} not found",
-                "suggestion": "Verify the memory_id using action='search' or action='list'.",
-            }
-        )
+        return _json({"error": f"Memory {memory_id} not found"})
     if row.get("compressed"):
         return _json(
             {
