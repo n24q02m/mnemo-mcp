@@ -1671,6 +1671,8 @@ class MemoryDB:
                     "id": r[0],
                     "content": r[1][:200],
                     "category": r[2],
+                    # Bolt Performance Optimization:
+                    # Prevent expensive json.loads calls for the default empty list.
                     "tags": [] if tags_val == "[]" else json.loads(tags_val),
                     "importance": r[4],
                     "archived_at": r[5],
