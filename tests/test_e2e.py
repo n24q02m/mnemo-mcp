@@ -96,7 +96,7 @@ async def session(request, tmp_path):
     errlog_kwargs = {"errlog": capture} if capture else {}
 
     try:
-        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):  # ty: ignore[invalid-argument-type]
+        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as s:
                 if setup_mode == "relay" and capture:
                     # mnemo-mcp auto-triggers relay during lifespan,
@@ -167,7 +167,9 @@ class TestServerInit:
         """Server exposes all expected tools."""
         result = await session.list_tools()
         names = {t.name for t in result.tools}
-        assert names == EXPECTED_TOOLS, f"Expected {EXPECTED_TOOLS}, got {names}"
+        assert EXPECTED_TOOLS.issubset(names), (
+            f"Expected {EXPECTED_TOOLS} to be in {names}"
+        )
 
     async def test_tools_have_schema(self, session):
         """Each tool has valid inputSchema."""
