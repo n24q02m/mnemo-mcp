@@ -209,6 +209,83 @@ def _ensure_overrides_table(db: MemoryDB) -> None:
     )
 
 
+def _upsert_rows_lww_batch(db: MemoryDB, rows: list[dict]) -> dict:
+    """Batch apply Phase 2 rows via LWW to resolve N+1 overhead.
+
+    ⚡ Bolt Optimization: Replaces N+1 SELECT and INSERT OR REPLACE queries
+    with batched operations. Existing rows are queried in chunks of 999
+    (SQLite limit). Updates are filtered in memory and applied via a single
+    executemany, significantly reducing overhead for large syncs.
+    """
+    counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    if not rows:
+        return counts
+
+    cursor = db._conn.cursor()
+    ids = [r["id"] for r in rows]
+
+    # Query existing rows in chunks of 999
+    existing_map = {}
+    for i in range(0, len(ids), 999):
+        chunk = ids[i : i + 999]
+        placeholders = ",".join("?" * len(chunk))
+        res = cursor.execute(
+            f"SELECT id, updated_at, content FROM memories WHERE id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        for r in res:
+            existing_map[r["id"]] = r
+
+    to_insert = []
+    to_override = []
+
+    for remote in rows:
+        existing = existing_map.get(remote["id"])
+
+        if existing is None:
+            counts["inserted"] += 1
+            to_insert.append(tuple(remote.get(c) for c in _INSERT_COLS))
+        else:
+            local_updated = existing["updated_at"]
+            remote_updated = remote.get("updated_at", "")
+
+            if local_updated >= remote_updated:
+                counts["skipped"] += 1
+                to_override.append(
+                    (
+                        remote["id"],
+                        local_updated,
+                        remote_updated,
+                        existing["content"],
+                        remote.get("content", ""),
+                        __import__("time").time(),
+                    )
+                )
+            else:
+                counts["updated"] += 1
+                to_insert.append(tuple(remote.get(c) for c in _INSERT_COLS))
+
+    if to_override:
+        _ensure_overrides_table(db)
+        cursor.executemany(
+            """INSERT INTO sync_overrides
+               (memory_id, local_updated_at, remote_updated_at, local_content, remote_content, recorded_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            to_override,
+        )
+
+    if to_insert:
+        placeholders = ", ".join("?" for _ in _INSERT_COLS)
+        cols_csv = ", ".join(_INSERT_COLS)
+        cursor.executemany(
+            f"INSERT OR REPLACE INTO memories ({cols_csv}) VALUES ({placeholders})",
+            to_insert,
+        )
+
+    db._conn.commit()
+    return counts
+
+
 def _upsert_row_lww(db: MemoryDB, remote: dict) -> str:
     """Insert / update / skip per LWW. Returns 'inserted', 'updated', 'skipped'.
 
@@ -401,9 +478,11 @@ async def apply_bundle(db: MemoryDB, bundle: bytes, passphrase: str) -> dict:
             logger.warning("apply_bundle: skipping malformed JSONL line")
             continue
 
-    for row in rows:
-        outcome = await asyncio.to_thread(_upsert_row_lww, db, row)
-        counts[outcome] += 1
+    # ⚡ Bolt Optimization: Batch apply to resolve N+1 overhead
+    batch_counts = await asyncio.to_thread(_upsert_rows_lww_batch, db, rows)
+    counts["inserted"] += batch_counts["inserted"]
+    counts["updated"] += batch_counts["updated"]
+    counts["skipped"] += batch_counts["skipped"]
 
     # Phase 3 KG sections.
     kg_counts = await asyncio.to_thread(_apply_kg_sections, db, payload)
