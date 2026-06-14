@@ -167,7 +167,9 @@ class TestServerInit:
         """Server exposes all expected tools."""
         result = await session.list_tools()
         names = {t.name for t in result.tools}
-        assert EXPECTED_TOOLS.issubset(names), f"Expected {EXPECTED_TOOLS} to be in {names}"
+        assert EXPECTED_TOOLS.issubset(names), (
+            f"Expected {EXPECTED_TOOLS} to be in {names}"
+        )
 
     async def test_tools_have_schema(self, session):
         """Each tool has valid inputSchema."""
