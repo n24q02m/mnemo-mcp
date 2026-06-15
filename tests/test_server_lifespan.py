@@ -214,7 +214,7 @@ class TestConfigActions:
         result = json.loads(await config(action="xyzxyzxyz", ctx=ctx))
         assert "error" in result
         assert "Unknown action" in result["error"]
-        assert "suggestion" not in result
+        assert "suggestion" in result
 
 
 # ---------------------------------------------------------------------------

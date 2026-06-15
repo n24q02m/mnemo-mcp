@@ -1608,10 +1608,10 @@ async def memory(
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
-                "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
+                "suggestion": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
             }
             if closest:
-                resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+                resp["suggestion"] = f"Did you mean '{closest[0]}'? {resp.get('suggestion', '')}".strip()
             return _json(resp)
 
 
@@ -1703,10 +1703,10 @@ async def config(
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
-                "hint": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
+                "suggestion": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
             }
             if closest:
-                resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+                resp["suggestion"] = f"Did you mean '{closest[0]}'? {resp.get('suggestion', '')}".strip()
             return _json(resp)
 
 
@@ -2003,12 +2003,7 @@ async def _handle_config_sync_now(ctx: Context | None, backend: str | None) -> s
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var (stdio mode) or submit "
-                    "the relay form passphrase field (HTTP mode) before "
-                    "triggering passport sync."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+                "suggestion": "Set SYNC_PASSPHRASE env var (stdio mode) or submit the relay form passphrase field (HTTP mode) before triggering passport sync.",
             }
         )
 
@@ -2043,11 +2038,7 @@ async def _handle_config_export_passport(ctx: Context | None) -> str:
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var or submit the relay form "
-                    "passphrase before exporting a passport."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+                "suggestion": "Set SYNC_PASSPHRASE env var or submit the relay form passphrase before exporting a passport.",
             }
         )
 
@@ -2071,11 +2062,7 @@ async def _handle_config_import_passport(
         return _json(
             {
                 "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var or submit the relay form "
-                    "passphrase before importing a passport."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+                "suggestion": "Set SYNC_PASSPHRASE env var or submit the relay form passphrase before importing a passport.",
             }
         )
 
@@ -2231,7 +2218,7 @@ async def help(topic: str = "memory") -> str:
             "valid_topics": list(valid_topics.keys()),
         }
         if closest:
-            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+            resp["suggestion"] = f"Did you mean '{closest[0]}'? {resp.get('suggestion', '')}".strip()
         return _json(resp)
 
     doc_file = docs_package / filename
