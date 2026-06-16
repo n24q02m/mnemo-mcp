@@ -275,6 +275,43 @@ class MemoryDBD1:
         params += [limit, offset]
         return self._d1.execute(sql, params)
 
+    def get_sync_state(self, backend: str) -> dict | None:
+        """Return the per-sub sync cursor for a backend (db.py:690-757 port)."""
+        rows = self._d1.execute(
+            "SELECT backend, last_sync_at, last_commit_sha, upload_cursor "
+            "FROM sync_state WHERE sub = ? AND backend = ?",
+            [self.sub, backend],
+        )
+        return rows[0] if rows else None
+
+    def upsert_sync_state(
+        self,
+        backend: str,
+        last_sync_at: float | None = None,
+        last_commit_sha: str | None = None,
+        upload_cursor: int | None = None,
+    ) -> None:
+        """Upsert the per-sub sync cursor; unset fields keep their stored value."""
+        existing = self.get_sync_state(backend) or {}
+        self._d1.execute(
+            "INSERT OR REPLACE INTO sync_state "
+            "(sub, backend, last_sync_at, last_commit_sha, upload_cursor) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                self.sub,
+                backend,
+                last_sync_at
+                if last_sync_at is not None
+                else existing.get("last_sync_at"),
+                last_commit_sha
+                if last_commit_sha is not None
+                else existing.get("last_commit_sha"),
+                upload_cursor
+                if upload_cursor is not None
+                else existing.get("upload_cursor"),
+            ],
+        )
+
     # ------------------------------------------------------------------
     # Hybrid search: D1 FTS5 + Vectorize KNN + app-side RRF (k=60).
     # Ranking math (RRF, recency, frequency, importance) is ported byte-for-byte
