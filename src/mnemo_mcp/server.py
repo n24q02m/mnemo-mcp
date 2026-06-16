@@ -1612,7 +1612,9 @@ async def memory(
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
             else:
-                resp["suggestion"] = "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID."
+                resp["suggestion"] = (
+                    "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID."
+                )
             return _json(resp)
 
 
@@ -1708,7 +1710,9 @@ async def config(
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
             else:
-                resp["suggestion"] = "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync."
+                resp["suggestion"] = (
+                    "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync."
+                )
             return _json(resp)
 
 
