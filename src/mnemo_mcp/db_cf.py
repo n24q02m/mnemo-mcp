@@ -56,11 +56,70 @@ class MemoryDBD1:
     def vec_enabled(self) -> bool:
         return self._vec_enabled
 
+    def get_store_meta(self, key: str) -> str | None:
+        rows = self._d1.execute(
+            "SELECT value FROM store_meta WHERE sub = ? AND key = ?", [self.sub, key]
+        )
+        return rows[0]["value"] if rows else None
+
+    def _set_store_meta(self, key: str, value: str) -> None:
+        self._d1.execute(
+            "INSERT OR REPLACE INTO store_meta (sub, key, value) VALUES (?, ?, ?)",
+            [self.sub, key, value],
+        )
+
+    def _stamp_embedding_identity(self) -> None:
+        self._set_store_meta("embedding_dims", str(self._embedding_dims))
+        if self._embedding_model:
+            self._set_store_meta("embedding_model", self._embedding_model)
+
     def _guard_embedding_identity(self) -> None:
-        """Per-sub embedding-identity guard. The full store_meta probe (stamp on
-        a fresh store, raise EmbeddingModelMismatch on a dims/model change) lands
-        in Task 9; until then this is a no-op so a fresh store opens cleanly."""
-        return None
+        """Per-sub embedding-identity guard, ported from db.py:227-294.
+
+        Stamps a fresh store with the current ``(embedding_model, embedding_dims)``,
+        proceeds on a match, and aborts (EmbeddingModelMismatch) on a dims/model
+        change unless ``reindex_on_model_change`` is set -- in which case it
+        re-stamps and the embed pass re-upserts this sub's vectors. Per-sub so a
+        shared D1 never false-blocks one user on another's identity. Dims are
+        always compared (even when a model id is absent) since a dims mismatch is
+        the most dangerous corruption; operators MUST set REINDEX_ON_MODEL_CHANGE
+        before changing EMBEDDING_DIMS.
+        """
+        from mnemo_mcp.exceptions import EmbeddingModelMismatch
+
+        if self._embedding_dims <= 0:
+            return
+        stored_model = self.get_store_meta("embedding_model")
+        stored_dims_raw = self.get_store_meta("embedding_dims")
+        if stored_dims_raw is None and stored_model is None:
+            self._stamp_embedding_identity()
+            return
+        try:
+            stored_dims = int(stored_dims_raw) if stored_dims_raw is not None else 0
+        except ValueError:
+            stored_dims = 0
+        dims_match = stored_dims == self._embedding_dims
+        model_match = (
+            not stored_model
+            or not self._embedding_model
+            or stored_model == self._embedding_model
+        )
+        if dims_match and model_match:
+            return
+        if self._reindex_on_model_change:
+            logger.warning(
+                "Embedding identity changed (sub={}); REINDEX set -- Vectorize "
+                "vectors for this sub will be rebuilt on the next embed pass.",
+                self.sub,
+            )
+            self._stamp_embedding_identity()
+            return
+        raise EmbeddingModelMismatch(
+            stored_model=stored_model or "",
+            stored_dims=stored_dims,
+            requested_model=self._embedding_model or "",
+            requested_dims=self._embedding_dims,
+        )
 
     def add(
         self,
