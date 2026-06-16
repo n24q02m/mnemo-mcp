@@ -34,6 +34,12 @@ temp/
 # Ruff
 .ruff_cache/
 
+# Node / Cloudflare Worker toolchain (worker.ts + wrangler)
+node_modules/
+package-lock.json
+.wrangler/
+.wrangler-dryrun/
+
 # Build artifacts
 dist/
 build/
