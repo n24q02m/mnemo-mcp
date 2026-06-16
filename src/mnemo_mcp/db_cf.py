@@ -598,5 +598,27 @@ class MemoryDBD1:
             m.pop("bm25_score", None)
         return top
 
+    def stats(self) -> dict:
+        """Per-sub database statistics (ported from db.py:1289-1307)."""
+        total_rows = self._d1.execute(
+            "SELECT COUNT(*) AS n FROM memories WHERE sub = ?", [self.sub]
+        )
+        total = total_rows[0]["n"] if total_rows else 0
+        cats = self._d1.execute(
+            "SELECT category, COUNT(*) AS cnt FROM memories WHERE sub = ? "
+            "GROUP BY category ORDER BY cnt DESC",
+            [self.sub],
+        )
+        last = self._d1.execute(
+            "SELECT MAX(updated_at) AS m FROM memories WHERE sub = ?", [self.sub]
+        )
+        return {
+            "total_memories": total,
+            "categories": {r["category"]: r["cnt"] for r in cats},
+            "last_updated": last[0]["m"] if last else None,
+            "vec_enabled": self._vec_enabled,
+            "db_path": "cf-d1",
+        }
+
     def close(self) -> None:
         return None
