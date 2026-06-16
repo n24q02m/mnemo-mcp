@@ -3,21 +3,12 @@ metadata filter by sub. This test is the executable contract; the DDL and
 MemoryDBD1 must satisfy it. Rejected alternatives (per-sub index / one-D1-per-sub)
 are documented in the plan, not implemented.
 
-Marked xfail(strict) until ``migrations/0001_init_mnemo.sql`` lands (Task 5) and
-the sync_state PK fix lands (Task 11); the marker is removed then so the contract
-goes live.
+Live since Task 5: ``migrations/0001_init_mnemo.sql`` exists and already carries
+the ``sync_state`` PK ``(sub, backend)`` fix, so both contracts pass now.
 """
 
 import re
 from pathlib import Path
-
-import pytest
-
-pytestmark = pytest.mark.xfail(
-    reason="D3 contract; DDL lands in Task 5, sync_state PK in Task 11",
-    strict=True,
-    raises=(AssertionError, FileNotFoundError),
-)
 
 D1_TABLES = {
     "memories",
