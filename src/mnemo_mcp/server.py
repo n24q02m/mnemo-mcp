@@ -1757,7 +1757,9 @@ async def _handle_config_status(ctx: Context | None) -> str:
     return _json(
         {
             "database": {
-                "path": str(settings.get_db_path()),
+                # MemoryDBD1.stats() reports db_path="cf-d1"; the local MemoryDB
+                # omits it, so fall back to the on-disk path only off Cloudflare.
+                "path": s.get("db_path") or str(settings.get_db_path()),
                 "total_memories": s["total_memories"],
                 "categories": s["categories"],
                 "vec_enabled": s["vec_enabled"],
