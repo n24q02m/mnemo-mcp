@@ -1,3 +1,9 @@
 ## 2025-05-18 - Added context-aware `suggestion` to JSON error responses
 **Learning:** In a backend/CLI-focused MCP server, traditional frontend UX paradigms translate to Developer/Agent Experience (DX). When the server returns raw errors without guidance, consumers (like LLMs or developers debugging tools) struggle to recover. Standardizing on a top-level `suggestion` key in JSON error responses makes the API significantly more actionable and "intuitive".
 **Action:** When adding or refactoring error paths in server tool handlers (like `_handle_add`, `_handle_capture`, etc.), always ensure `_json({"error": ...})` includes a corresponding `"suggestion": "..."` field with concrete next steps.
+## 2026-06-19 - Added fallback suggestion to help tool
+**Learning:** When using  to suggest alternatives for unknown input (like invalid help topics), it can return an empty list if the input is completely unrelated. If we don't handle this empty state, the API consumer receives an error without any actionable guidance. Providing a static default fallback suggestion ensures the API remains intuitive and helpful even when it can't guess what the user meant.
+**Action:** Always include an  branch when relying on fuzzy matching for error suggestions, providing a baseline fallback recommendation to guide the user.
+## 2025-05-18 - Added fallback suggestion to help tool
+**Learning:** When using difflib.get_close_matches to suggest alternatives for unknown input (like invalid help topics), it can return an empty list if the input is completely unrelated. If we don't handle this empty state, the API consumer receives an error without any actionable guidance. Providing a static default fallback suggestion ensures the API remains intuitive and helpful even when it can't guess what the user meant.
+**Action:** Always include an else branch when relying on fuzzy matching for error suggestions, providing a baseline fallback recommendation to guide the user.
