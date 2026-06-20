@@ -2303,6 +2303,10 @@ async def help(topic: str = "memory") -> str:
         }
         if closest:
             resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = (
+                "Available topics: 'memory' for memory management, 'config' for configuration."
+            )
         return _json(resp)
 
     doc_file = docs_package / filename
