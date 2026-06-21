@@ -95,6 +95,15 @@ let text = readFileSync(SRC, "utf8")
 const mainAbs = join(repo, "src", "worker.ts").replaceAll("\\", "\\\\");
 text = text.replace(/("main":\s*")[^"]+(")/, `$1${mainAbs}$2`);
 
+// MNEMO_SKIP_ROUTES=1 drops the "routes" (custom_domain) block. The custom domain
+// is claimed once at first deploy; a config-only redeploy of an already-live
+// Worker should not re-assert it, which avoids needing a zone-scoped
+// Workers-Routes:Edit permission on the deploy token (the account-scoped token
+// used for the container/bundle update typically lacks it).
+if (process.env.MNEMO_SKIP_ROUTES === "1") {
+  text = text.replace(/^\s*"routes":\s*\[[^\]]*\],?\s*$/m, "");
+}
+
 const tmp = join(mkdtempSync(join(tmpdir(), "mnemo-cf-")), "wrangler.deploy.jsonc");
 writeFileSync(tmp, text, "utf8");
 
