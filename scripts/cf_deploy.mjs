@@ -116,6 +116,6 @@ const localEntry = join(repo, "node_modules", "wrangler", "bin", "wrangler.js");
 const [bin, args] = existsSync(localEntry)
   ? [process.execPath, [localEntry, ...wranglerArgs]]
   : ["npx", ["wrangler", ...wranglerArgs]];
-console.error(`cf:deploy: account=${account} image=mnemo-mcp:${imageTag}`);
+console.error("cf:deploy: deploying mnemo-mcp container image");
 console.error(`cf:deploy: wrangler ${wranglerArgs.join(" ")}`);
 execFileSync(bin, args, { stdio: "inherit", cwd: repo });
