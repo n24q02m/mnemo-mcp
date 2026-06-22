@@ -38,7 +38,23 @@ CREDENTIAL_ENV_VARS = [
     "COHERE_API_KEY",
 ]
 
-EXPECTED_TOOLS = {"memory", "config", "help"}
+EXPECTED_TOOLS = {
+    "add_memory",
+    "archived_memories",
+    "config",
+    "config__open_relay",
+    "consolidate_memories",
+    "delete_memory",
+    "export_memories",
+    "help",
+    "import_memories",
+    "list_memories",
+    "memory",
+    "memory_stats",
+    "restore_memory",
+    "search_memory",
+    "update_memory"
+}
 
 
 # -- Fixtures ----------------------------------------------------------------
