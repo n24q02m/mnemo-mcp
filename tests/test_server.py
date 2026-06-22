@@ -384,6 +384,8 @@ class TestConfigTool:
         )
         assert "error" in result
         assert "valid_keys" in result
+        assert "suggestion" in result
+        assert "sync_enabled" in result["suggestion"]
 
     async def test_set_sync_enabled(self, ctx_with_db):
         ctx, _ = ctx_with_db
