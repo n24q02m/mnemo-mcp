@@ -53,7 +53,7 @@ EXPECTED_TOOLS = {
     "memory_stats",
     "restore_memory",
     "search_memory",
-    "update_memory"
+    "update_memory",
 }
 
 
