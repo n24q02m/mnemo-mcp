@@ -1875,12 +1875,22 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
         "log_level",
     }
     if key not in valid_keys:
-        return _json(
-            {
-                "error": f"Invalid key: {key}",
-                "valid_keys": sorted(valid_keys),
-            }
-        )
+        import difflib
+
+        closest = []
+        if key is not None:
+            closest = difflib.get_close_matches(key, list(valid_keys), n=1)
+        resp: dict[str, typing.Any] = {
+            "error": f"Invalid key: {key}",
+            "valid_keys": sorted(valid_keys),
+        }
+        if closest:
+            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = (
+                "Common keys: 'sync_enabled', 'sync_interval', 'log_level'."
+            )
+        return _json(resp)
 
     # Apply setting
     if key == "sync_enabled":
