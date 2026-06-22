@@ -1051,7 +1051,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "2.3.0b17"
+version = "2.3.0b19"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

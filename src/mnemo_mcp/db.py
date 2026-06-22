@@ -1483,23 +1483,21 @@ class MemoryDB:
             "SELECT datetime('now', ?)", (f"-{days} days",)
         ).fetchone()[0]
 
-        rows = cursor.execute(
-            """SELECT id FROM memories
+        now = _now_iso()
+
+        # Bolt Performance Optimization:
+        # Pushing the bulk UPDATE directly into SQLite eliminates the N+1 Python
+        # execution overhead of loading IDs and running `executemany`, which significantly
+        # reduces execution time for large datasets.
+        cursor.execute(
+            """UPDATE memories SET archived_at = ?
                WHERE last_accessed < ?
                  AND importance < ?
                  AND archived_at IS NULL""",
-            (cutoff_date, importance_threshold),
-        ).fetchall()
-
-        if not rows:
-            return 0
-
-        now = _now_iso()
-        cursor.executemany(
-            "UPDATE memories SET archived_at = ? WHERE id = ?",
-            [(now, row[0]) for row in rows],
+            (now, cutoff_date, importance_threshold),
         )
-        count = len(rows)
+
+        count = cursor.rowcount
         self._conn.commit()
         logger.info(f"[AUDIT] archived count={count} mode=soft")
         return count
