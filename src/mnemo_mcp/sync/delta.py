@@ -439,35 +439,6 @@ def _apply_bundle_sync(db: MemoryDB, bundle: bytes, passphrase: str) -> dict:
     return {**counts, **kg_counts, "row_count": len(rows), "manifest": manifest}
 
 
-def _apply_bundle_sync(db: MemoryDB, bundle: bytes, passphrase: str) -> dict:
-    """Synchronous implementation of apply_bundle to avoid N+1 threads."""
-    payload = decode_bundle(bundle, passphrase)
-    manifest = json.loads(payload.get("manifest.json", b"{}").decode("utf-8"))
-    memories_jsonl = payload.get("memories.jsonl", b"").decode("utf-8")
-
-    counts = {"inserted": 0, "updated": 0, "skipped": 0}
-    rows: list[dict] = []
-    for line in memories_jsonl.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            logger.warning("apply_bundle: skipping malformed JSONL line")
-            continue
-
-    if rows:
-        batch_counts = _upsert_rows_lww_batch(db, rows)
-        for k, v in batch_counts.items():
-            counts[k] += v
-
-    # Phase 3 KG sections.
-    kg_counts = _apply_kg_sections(db, payload)
-
-    return {**counts, **kg_counts, "row_count": len(rows), "manifest": manifest}
-
-
 async def apply_bundle(db: MemoryDB, bundle: bytes, passphrase: str) -> dict:
     """Decrypt bundle and apply each memory row via LWW per row.
 
