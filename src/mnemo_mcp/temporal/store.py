@@ -82,22 +82,29 @@ def store_kg_with_memory_id(
     edge_count = 0
     if relations:
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        updates = []
         for rel in relations:
             src_name = rel.get("source", "").strip()
             tgt_name = rel.get("target", "").strip()
             rtype = rel.get("type", "").strip().lower()
             src_id = name_to_id.get(src_name)
             tgt_id = name_to_id.get(tgt_name)
-            if not (src_id and tgt_id and rtype):
-                continue
-            cursor = conn.execute(
+            if src_id and tgt_id and rtype:
+                updates.append((memory_id, now_iso, src_id, tgt_id, rtype))
+
+        if updates:
+            # Bolt Performance Optimization:
+            # Replaced N+1 conn.execute calls in a loop with a single
+            # conn.executemany to eliminate SQLite query compilation and
+            # context switching overhead per row.
+            cursor = conn.executemany(
                 "UPDATE memory_edges SET "
                 "  memory_id = COALESCE(memory_id, ?), "
                 "  valid_from = COALESCE(valid_from, ?) "
                 "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
+                updates,
             )
-            edge_count += cursor.rowcount or 0
+            edge_count = cursor.rowcount or 0
         conn.commit()
 
     logger.debug(
