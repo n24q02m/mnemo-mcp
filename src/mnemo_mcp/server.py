@@ -667,6 +667,51 @@ async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
         logger.debug(f"Entity extraction background error: {e}")
 
 
+async def _apply_rerank(
+    query: str,
+    results: list[dict],
+    reranker: typing.Any,
+    limit: int,
+) -> tuple[list[dict], bool]:
+    """Apply reranking to a search result pool."""
+    if not reranker or len(results) <= 1:
+        return results[:limit], False
+
+    documents = [r["content"] for r in results]
+    try:
+        ranked = await asyncio.to_thread(reranker.rerank, query, documents, top_n=limit)
+        if ranked:
+            reranked_results = []
+            for idx, score in ranked:
+                r = results[idx].copy()
+                r["rerank_score"] = round(score, 4)
+                reranked_results.append(r)
+            return reranked_results, True
+    except Exception as e:
+        logger.debug(f"Reranking failed, using original order: {e}")
+
+    return results[:limit], False
+
+
+async def _apply_graph_boost(results: list[dict], db: MemoryDB) -> None:
+    """Find related memories via entity graph and mark them in results."""
+    if not results:
+        return
+
+    try:
+        from mnemo_mcp.graph import find_related_memory_ids
+
+        top_id = results[0]["id"]
+        related_ids = await asyncio.to_thread(find_related_memory_ids, db._conn, top_id)
+        if related_ids:
+            related_set = set(related_ids)
+            for r in results:
+                if r["id"] in related_set:
+                    r["graph_related"] = True
+    except Exception as e:
+        logger.warning(f"Graph boost failed (non-blocking): {e}")
+
+
 async def _handle_search(
     ctx: Context | None,
     query: str | None,
@@ -690,8 +735,6 @@ async def _handle_search(
                 "suggestion": "Provide the 'query' parameter to perform a search.",
             }
         )
-
-    db, _, _ = _get_ctx(ctx)
 
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
@@ -721,47 +764,8 @@ async def _handle_search(
         candidate_pool=rerank_pool,
     )
 
-    reranked = False
-    if reranker and len(results) > 1:
-        documents = [r["content"] for r in results]
-        try:
-            ranked = await asyncio.to_thread(
-                reranker.rerank, query, documents, top_n=limit
-            )
-            if ranked:
-                reranked_results = []
-                for idx, score in ranked:
-                    r = results[idx].copy()
-                    r["rerank_score"] = round(score, 4)
-                    reranked_results.append(r)
-                results = reranked_results
-                reranked = True
-            else:
-                # No reranker output -> fall back to top-``limit`` of the
-                # hybrid-scored pool so the response still respects ``limit``.
-                results = results[:limit]
-        except Exception as e:
-            logger.debug(f"Reranking failed, using original order: {e}")
-            results = results[:limit]
-    else:
-        results = results[:limit]
-
-    # Graph boost: find related memories via entity graph
-    if results:
-        try:
-            from mnemo_mcp.graph import find_related_memory_ids
-
-            top_id = results[0]["id"]
-            related_ids = await asyncio.to_thread(
-                find_related_memory_ids, db._conn, top_id
-            )
-            if related_ids:
-                related_set = set(related_ids)
-                for r in results:
-                    if r["id"] in related_set:
-                        r["graph_related"] = True
-        except Exception as e:
-            logger.warning(f"Graph boost failed (non-blocking): {e}")
+    results, reranked = await _apply_rerank(query, results, reranker, limit)
+    await _apply_graph_boost(results, db)
 
     response: dict = {
         "count": len(results),
