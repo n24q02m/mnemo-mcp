@@ -62,12 +62,15 @@ def set_current_sub(sub: str | None) -> None:
 
 
 def get_current_sub() -> str | None:
-    """Return the per-request JWT sub if any, else ``None``.
+    """Return the authenticated JWT `sub` for the current context, if any.
 
-    ``None`` indicates stdio mode or single-user HTTP -- callers should read
-    credentials from environment variables.
+    In multi-user remote mode, this identifies the user. In single-user
+    HTTP mode, it's typically 'admin' or None. In stdio mode, it's None.
     """
-    return _current_sub.get()
+    sub = _current_sub.get()
+    if not sub:
+        return None
+    return sub
 
 
 def _cred_backend():
@@ -81,13 +84,13 @@ def _cred_backend():
 def credentials_for_current_request() -> dict[str, str]:
     """Return the credential dict for the current request.
 
-    HTTP multi-user mode (``_current_sub`` set): load from
+    HTTP multi-user mode (sub set): load from
     ``$MNEMO_DATA_DIR/subs/<sub>/config.json``.
-    Stdio + single-user HTTP (``_current_sub`` None): fall back to
+    Stdio + single-user HTTP (sub None): fall back to
     ``os.environ`` filtered to ``CLOUD_KEYS`` so callers never see unrelated
     process env.
     """
-    sub = _current_sub.get()
+    sub = get_current_sub()
     if sub is None:
         return {k: v for k, v in os.environ.items() if k in CLOUD_KEYS and v}
     from mcp_core.storage.per_plugin_store import PerPluginStore
@@ -106,10 +109,10 @@ def api_key_for_model(model: str) -> str | None:
 
     Behaviour:
 
-    - **Single-user** (``_current_sub`` unset -- stdio or single-user HTTP):
+    - **Single-user** (sub unset -- stdio or single-user HTTP):
       returns ``None`` so litellm keeps reading the key from ``os.environ``
       (the existing singleton / ``apply_config`` -> env path is unchanged).
-    - **Multi-user remote** (``_current_sub`` set): resolves the canonical key
+    - **Multi-user remote** (sub set): resolves the canonical key
       env var for ``model`` (via the mcp-core ``key_env_for_model`` primitive,
       e.g. ``jina_ai/...`` -> ``JINA_AI_API_KEY``) and returns the matching
       value from the per-``sub`` config, or ``None`` when that user has not
@@ -119,7 +122,7 @@ def api_key_for_model(model: str) -> str | None:
     ``api_key`` as "let litellm resolve from env", and in multi-user mode the
     process env carries no per-sub secrets.
     """
-    if _current_sub.get() is None:
+    if get_current_sub() is None:
         return None
     from mcp_core.llm.providers import key_env_for_model
 
