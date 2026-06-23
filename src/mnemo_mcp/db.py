@@ -19,6 +19,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import sqlite_vec
 from loguru import logger
@@ -903,15 +904,7 @@ class MemoryDB:
 
         return top
 
-    def _build_filter_sql(
-        self,
-        *,
-        context_type: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
-        min_importance: float = 0.0,
-        include_archived: bool = False,
-    ) -> tuple[str, list]:
+    def _build_filter_sql(self, **kwargs: Any) -> tuple[str, list]:
         """Build the shared WHERE-tail used by FTS + vec search paths.
 
         Phase 1 retrieval polish filters live on the ``memories`` table only
@@ -919,6 +912,12 @@ class MemoryDB:
         ``WHERE m.... = ...`` clause and the matching positional params so
         FTS and vec can compose the same filter set without duplication.
         """
+        context_type = kwargs.get("context_type")
+        since = kwargs.get("since")
+        until = kwargs.get("until")
+        min_importance = kwargs.get("min_importance", 0.0)
+        include_archived = kwargs.get("include_archived", False)
+
         sql = ""
         params: list = []
         if context_type is not None:
