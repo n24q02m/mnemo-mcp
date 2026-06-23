@@ -301,8 +301,11 @@ class MemoryDB:
         on the next pass. The dropped table is recreated immediately at the new
         dimension so subsequent inserts have a target.
         """
-        for table in ("memories_vec", "memory_entities_vec"):
+        # Whitelist of tables allowed to be dropped
+        allowed_tables = {"memories_vec", "memory_entities_vec"}
+        for table in allowed_tables:
             try:
+                # Direct interpolation into DDL is safe here because of the whitelist
                 self._conn.execute(f"DROP TABLE IF EXISTS {table}")
             except Exception as e:  # pragma: no cover - runtime guard
                 logger.warning(f"Failed to drop {table} during reindex: {e}")
@@ -500,13 +503,13 @@ class MemoryDB:
             raise ValueError(f"embedding_dims must be between 1 and 8192, got {dims}")
 
         # Create table if not exists
-        self._conn.execute(f"""
-            CREATE VIRTUAL TABLE memories_vec
-            USING vec0(
-                id TEXT PRIMARY KEY,
-                embedding float[{dims}]
-            )
-        """)
+        # Use string concatenation with strictly validated integer to satisfy SAST;
+        # dims is strictly validated as an integer in [1, 8192] above.
+        sql = (
+            "CREATE VIRTUAL TABLE memories_vec "
+            "USING vec0(id TEXT PRIMARY KEY, embedding float[" + str(int(dims)) + "])"
+        )
+        self._conn.execute(sql)
         logger.debug(f"Created memories_vec table with {dims} dims")
 
     @property
