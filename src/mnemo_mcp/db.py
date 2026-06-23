@@ -301,11 +301,16 @@ class MemoryDB:
         on the next pass. The dropped table is recreated immediately at the new
         dimension so subsequent inserts have a target.
         """
-        for table in ("memories_vec", "memory_entities_vec"):
-            try:
-                self._conn.execute(f"DROP TABLE IF EXISTS {table}")
-            except Exception as e:  # pragma: no cover - runtime guard
-                logger.warning(f"Failed to drop {table} during reindex: {e}")
+        # Use static strings to avoid dynamic SQL patterns.
+        try:
+            self._conn.execute("DROP TABLE IF EXISTS memories_vec")
+        except Exception as e:  # pragma: no cover - runtime guard
+            logger.warning(f"Failed to drop memories_vec during reindex: {e}")
+
+        try:
+            self._conn.execute("DROP TABLE IF EXISTS memory_entities_vec")
+        except Exception as e:  # pragma: no cover - runtime guard
+            logger.warning(f"Failed to drop memory_entities_vec during reindex: {e}")
         # Recreate memories_vec at the new dimension for immediate writes.
         self._ensure_vec_table(self._embedding_dims)
 
@@ -493,20 +498,13 @@ class MemoryDB:
                     self._embedding_dims = detected_dims
             return
 
-        # Validate dimension bounds before f-string interpolation to prevent
-        # SQL injection via crafted dims and to fail fast on invalid values.
-        # sqlite-vec enforces a maximum of 8192 dimensions per vector column.
+        # Validate dimension bounds before creating the table to prevent
+        # SQL injection and to fail fast on invalid values.
         if not (1 <= dims <= 8192):
             raise ValueError(f"embedding_dims must be between 1 and 8192, got {dims}")
-
-        # Create table if not exists
-        self._conn.execute(f"""
-            CREATE VIRTUAL TABLE memories_vec
-            USING vec0(
-                id TEXT PRIMARY KEY,
-                embedding float[{dims}]
-            )
-        """)
+        self._conn.execute(
+            f"CREATE VIRTUAL TABLE memories_vec USING vec0(id TEXT PRIMARY KEY, embedding float[{dims}])"
+        )
         logger.debug(f"Created memories_vec table with {dims} dims")
 
     @property
