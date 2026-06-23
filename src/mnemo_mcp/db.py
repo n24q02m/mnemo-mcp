@@ -514,6 +514,14 @@ class MemoryDB:
         """Whether vector search is available."""
         return self._vec_enabled
 
+    def _store_embedding(self, memory_id: str, embedding: list[float] | None) -> None:
+        """Store embedding if provided and vector storage is enabled."""
+        if embedding and self._vec_enabled:
+            self._conn.execute(
+                "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
+                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
+            )
+
     def add(
         self,
         content: str,
@@ -530,35 +538,14 @@ class MemoryDB:
         Raises:
             ValueError: If content exceeds MAX_CONTENT_LENGTH.
         """
-        if len(content) > MAX_CONTENT_LENGTH:
-            raise ValueError(
-                f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
-            )
-
-        memory_id = uuid.uuid4().hex
-        now = _now_iso()
-
-        # Bolt Performance Optimization:
-        # Prevent expensive json.dumps calls for the default empty list.
-        tags_json = "[]" if not tags else json.dumps(tags)
-
-        self._conn.execute(
-            """INSERT INTO memories (id, content, category, tags, source,
-               created_at, updated_at, access_count, last_accessed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            (memory_id, content, category, tags_json, source, now, now, now),
+        return self.add_with_context_type(
+            content=content,
+            category=category,
+            tags=tags,
+            source=source,
+            embedding=embedding,
+            context_type="conversation",
         )
-
-        # Store embedding if provided
-        if embedding and self._vec_enabled:
-            self._conn.execute(
-                "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
-            )
-
-        self._conn.commit()
-        logger.info(f"[AUDIT] add id={memory_id} cat={category} len={len(content)}")
-        return memory_id
 
     def add_with_context_type(
         self,
@@ -622,58 +609,33 @@ class MemoryDB:
 
         compressed_int = 1 if compressed else 0
 
-        if importance is not None:
-            importance = max(0.0, min(1.0, importance))
-            self._conn.execute(
-                """INSERT INTO memories (id, content, category, tags, source,
-                   created_at, updated_at, access_count, last_accessed,
-                   context_type, importance,
-                   text_raw, compressed, compression_provider)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    content,
-                    category,
-                    tags_json,
-                    source,
-                    now,
-                    now,
-                    now,
-                    context_type,
-                    importance,
-                    text_raw,
-                    compressed_int,
-                    compression_provider,
-                ),
-            )
-        else:
-            self._conn.execute(
-                """INSERT INTO memories (id, content, category, tags, source,
-                   created_at, updated_at, access_count, last_accessed,
-                   context_type,
-                   text_raw, compressed, compression_provider)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""",
-                (
-                    memory_id,
-                    content,
-                    category,
-                    tags_json,
-                    source,
-                    now,
-                    now,
-                    now,
-                    context_type,
-                    text_raw,
-                    compressed_int,
-                    compression_provider,
-                ),
-            )
+        # Default to 0.5 if not provided, consistent with DB schema default.
+        importance_val = 0.5 if importance is None else max(0.0, min(1.0, importance))
 
-        if embedding and self._vec_enabled:
-            self._conn.execute(
-                "INSERT INTO memories_vec (id, embedding) VALUES (?, ?)",
-                (memory_id, _serialize_f32(embedding, self._embedding_dims)),
-            )
+        self._conn.execute(
+            """INSERT INTO memories (id, content, category, tags, source,
+               created_at, updated_at, access_count, last_accessed,
+               context_type, importance,
+               text_raw, compressed, compression_provider)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
+            (
+                memory_id,
+                content,
+                category,
+                tags_json,
+                source,
+                now,
+                now,
+                now,
+                context_type,
+                importance_val,
+                text_raw,
+                compressed_int,
+                compression_provider,
+            ),
+        )
+
+        self._store_embedding(memory_id, embedding)
 
         self._conn.commit()
         logger.info(
