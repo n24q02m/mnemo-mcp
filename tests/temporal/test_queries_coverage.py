@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from mnemo_mcp.db import MemoryDB
@@ -87,7 +88,8 @@ def test_entity_search_limit_clamping(tmp_db: MemoryDB):
     res2 = entity_search(tmp_db, name="E", limit=1000)
     assert len(res2) == 1
     # limit not int -> skips clamping
-    res3 = entity_search(tmp_db, name="E", limit="1")
+    limit_val: Any = "1"
+    res3 = entity_search(tmp_db, name="E", limit=limit_val)
     assert len(res3) == 1
 
 
@@ -129,5 +131,6 @@ def test_memories_as_of_limit_clamping(tmp_db: MemoryDB):
     res2 = memories_as_of(tmp_db, limit=1000)
     assert len(res2) == 1
     # limit not int -> skips clamping
-    res3 = memories_as_of(tmp_db, limit="1")
+    limit_val: Any = "1"
+    res3 = memories_as_of(tmp_db, limit=limit_val)
     assert len(res3) == 1
