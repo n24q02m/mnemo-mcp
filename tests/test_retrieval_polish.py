@@ -342,7 +342,7 @@ async def test_handle_search_passes_candidate_pool_when_reranker_active(
     mock_ctx,
 ):
     """Reranker presence should expand the candidate pool fed to db.search."""
-    from mnemo_mcp.server import _handle_search
+    from mnemo_mcp.server import SearchOptions, _handle_search
 
     ctx, db = mock_ctx
     for i in range(20):
@@ -353,7 +353,9 @@ async def test_handle_search_passes_candidate_pool_when_reranker_active(
 
     with patch("mnemo_mcp.reranker.get_reranker", return_value=fake_reranker):
         with patch.object(db, "search", wraps=db.search) as wrapped:
-            await _handle_search(ctx, query="reindex job", limit=5)
+            await _handle_search(
+                ctx, query="reindex job", options=SearchOptions(limit=5)
+            )
 
     call_kwargs = wrapped.call_args.kwargs
     assert call_kwargs.get("candidate_pool") is not None

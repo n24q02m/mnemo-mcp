@@ -21,6 +21,7 @@ from importlib.metadata import version as _pkgver
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel
 
 from mnemo_mcp.config import settings
 from mnemo_mcp.db import MemoryDB
@@ -667,19 +668,33 @@ async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
         logger.debug(f"Entity extraction background error: {e}")
 
 
+class SearchOptions(BaseModel):
+    category: str | None = None
+    tags: list[str] | None = None
+    limit: int = 5
+    context_type: str | None = None
+    since: str | None = None
+    until: str | None = None
+    min_importance: float = 0.0
+    include_archived: bool = False
+
+
 async def _handle_search(
     ctx: Context | None,
     query: str | None,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    limit: int = 5,
-    *,
-    context_type: str | None = None,
-    since: str | None = None,
-    until: str | None = None,
-    min_importance: float = 0.0,
-    include_archived: bool = False,
+    options: SearchOptions | None = None,
 ) -> str:
+
+    options = options or SearchOptions()
+    category = options.category
+    tags = options.tags
+    limit = options.limit
+    context_type = options.context_type
+    since = options.since
+    until = options.until
+    min_importance = options.min_importance
+    include_archived = options.include_archived
+
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
     if not query:
@@ -1365,7 +1380,9 @@ async def search_memory(
     limit: int = 5,
     ctx: Context | None = None,
 ) -> str:
-    return await _handle_search(ctx, query, category, tags, limit)
+    return await _handle_search(
+        ctx, query, SearchOptions(category=category, tags=tags, limit=limit)
+    )
 
 
 @mcp.tool(
@@ -1642,14 +1659,16 @@ async def memory(
             return await _handle_search(
                 ctx,
                 query,
-                category,
-                tags,
-                limit,
-                context_type=ctype_filter,
-                since=since,
-                until=until,
-                min_importance=min_importance,
-                include_archived=include_archived,
+                SearchOptions(
+                    category=category,
+                    tags=tags,
+                    limit=limit,
+                    context_type=ctype_filter,
+                    since=since,
+                    until=until,
+                    min_importance=min_importance,
+                    include_archived=include_archived,
+                ),
             )
         case "list":
             return await _handle_list(ctx, category, limit)
