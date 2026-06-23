@@ -667,7 +667,7 @@ async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
         logger.debug(f"Entity extraction background error: {e}")
 
 
-async def _handle_search(
+async def _handle_search(  # noqa: PLR0913
     ctx: Context | None,
     query: str | None,
     category: str | None = None,
@@ -811,7 +811,7 @@ async def _handle_list(
     return _json(response)
 
 
-async def _handle_update(
+async def _handle_update(  # noqa: PLR0913
     ctx: Context | None,
     memory_id: str | None,
     content: str | None = None,
@@ -1015,7 +1015,7 @@ def _archive_trigger_interval() -> int:
     return max(1, value)
 
 
-async def _handle_capture(
+async def _handle_capture(  # noqa: PLR0913
     ctx: Context | None,
     text: str | None,
     context_type: str = "conversation",
@@ -1402,7 +1402,7 @@ async def list_memories(
         destructiveHint=False,
     ),
 )
-async def update_memory(
+async def update_memory(  # noqa: PLR0913
     memory_id: str,
     content: str | None = None,
     category: str | None = None,
@@ -1572,7 +1572,7 @@ async def consolidate_memories(category: str, ctx: Context | None = None) -> str
         openWorldHint=False,
     ),
 )
-async def memory(
+async def memory(  # noqa: PLR0913
     action: str,
     content: str | None = None,
     query: str | None = None,

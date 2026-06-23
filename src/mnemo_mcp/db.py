@@ -560,7 +560,7 @@ class MemoryDB:
         logger.info(f"[AUDIT] add id={memory_id} cat={category} len={len(content)}")
         return memory_id
 
-    def add_with_context_type(
+    def add_with_context_type(  # noqa: PLR0913
         self,
         content: str,
         context_type: str = "conversation",
@@ -756,7 +756,7 @@ class MemoryDB:
         )
         self._conn.commit()
 
-    def search(
+    def search(  # noqa: PLR0913
         self,
         query: str,
         embedding: list[float] | None = None,
@@ -937,7 +937,7 @@ class MemoryDB:
             sql += " AND m.archived_at IS NULL"
         return sql, params
 
-    def _search_fts(
+    def _search_fts(  # noqa: PLR0913
         self,
         query: str,
         category: str | None = None,
@@ -1199,7 +1199,7 @@ class MemoryDB:
         ).fetchone()
         return dict(row) if row else None
 
-    def update(
+    def update(  # noqa: PLR0913
         self,
         memory_id: str,
         content: str | None = None,
