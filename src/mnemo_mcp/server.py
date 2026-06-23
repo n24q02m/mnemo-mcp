@@ -811,17 +811,20 @@ async def _handle_list(
     return _json(response)
 
 
+class UpdateParams(typing.TypedDict, total=False):
+    content: str | None
+    category: str | None
+    tags: list[str] | None
+    source: str | None
+    importance: float | None
+
+
 async def _handle_update(
     ctx: Context | None,
     memory_id: str | None,
-    content: str | None = None,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    source: str | None = None,
-    importance: float | None = None,
+    **kwargs: typing.Unpack[UpdateParams],
 ) -> str:
 
-    db, _, _ = _get_ctx(ctx)
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
     if not memory_id:
@@ -833,6 +836,7 @@ async def _handle_update(
             }
         )
 
+    content = kwargs.get("content")
     embedding = None
     if content:
         embedding = await _embed(content, embedding_model, embedding_dims)
@@ -841,12 +845,8 @@ async def _handle_update(
         ok = await asyncio.to_thread(
             db.update,
             memory_id=memory_id,
-            content=content,
-            category=category,
-            tags=tags,
-            source=source,
-            importance=importance,
             embedding=embedding,
+            **kwargs,
         )
     except ValueError as e:
         return _json(
@@ -1412,7 +1412,13 @@ async def update_memory(
     ctx: Context | None = None,
 ) -> str:
     return await _handle_update(
-        ctx, memory_id, content, category, tags, source, importance
+        ctx,
+        memory_id,
+        content=content,
+        category=category,
+        tags=tags,
+        source=source,
+        importance=importance,
     )
 
 
@@ -1655,7 +1661,13 @@ async def memory(
             return await _handle_list(ctx, category, limit)
         case "update":
             return await _handle_update(
-                ctx, memory_id, content, category, tags, source, importance
+                ctx,
+                memory_id,
+                content=content,
+                category=category,
+                tags=tags,
+                source=source,
+                importance=importance,
             )
         case "delete":
             return await _handle_delete(ctx, memory_id)
