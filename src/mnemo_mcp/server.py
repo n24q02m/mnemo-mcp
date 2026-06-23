@@ -1015,6 +1015,41 @@ def _archive_trigger_interval() -> int:
     return max(1, value)
 
 
+def _maybe_trigger_auto_archive(db: MemoryDB) -> None:
+    """Archive policy auto-trigger: every Nth capture (default 100), run a
+    background archive_by_score sweep.
+    """
+    if not settings.archive_enabled:
+        return
+
+    _CAPTURE_COUNTER["calls"] += 1
+    interval = _archive_trigger_interval()
+    if _CAPTURE_COUNTER["calls"] % interval == 0:
+        asyncio.create_task(
+            asyncio.to_thread(
+                db.archive_by_score,
+                archive_after_days=int(settings.archive_after_days),
+            )
+        )
+
+
+def _format_capture_response(result: dict, context_type: str, semantic: bool) -> str:
+    """Construct JSON response for capture action."""
+    dedup = bool(result.get("deduplicated"))
+    resp = {
+        "status": "deduplicated" if dedup else "captured",
+        "id": result["memory_id"],
+        "context_type": result.get("context_type", context_type),
+        "deduplicated": dedup,
+        "auto": bool(result.get("auto")),
+        "semantic": semantic,
+    }
+    if dedup:
+        resp["similarity"] = result["similarity"]
+        resp["existing_content"] = result.get("existing_content")
+    return _json(resp)
+
+
 async def _handle_capture(
     ctx: Context | None,
     text: str | None,
@@ -1092,37 +1127,10 @@ async def _handle_capture(
     if not result.get("deduplicated"):
         asyncio.create_task(_enrich_memory(db, result["memory_id"], text))
 
-    # Archive policy auto-trigger: every Nth capture (default 100), run a
-    # background archive_by_score sweep so old low-importance rows soft-archive
-    # without requiring a manual ``archive_now`` call.
-    if settings.archive_enabled:
-        _CAPTURE_COUNTER["calls"] += 1
-        interval = _archive_trigger_interval()
-        if _CAPTURE_COUNTER["calls"] % interval == 0:
-            asyncio.create_task(
-                asyncio.to_thread(
-                    db.archive_by_score,
-                    archive_after_days=int(settings.archive_after_days),
-                )
-            )
+    _maybe_trigger_auto_archive(db)
 
-    return _json(
-        {
-            "status": "deduplicated" if result.get("deduplicated") else "captured",
-            "id": result["memory_id"],
-            "context_type": result.get("context_type", context_type),
-            "deduplicated": bool(result.get("deduplicated")),
-            "auto": bool(result.get("auto")),
-            "semantic": embedding is not None,
-            **(
-                {
-                    "similarity": result["similarity"],
-                    "existing_content": result.get("existing_content"),
-                }
-                if result.get("deduplicated")
-                else {}
-            ),
-        }
+    return _format_capture_response(
+        result, context_type, semantic=(embedding is not None)
     )
 
 
