@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypedDict, Unpack
 
 from loguru import logger
 
@@ -78,17 +78,22 @@ def _resolve_dedup_threshold() -> float:
 # ---------------------------------------------------------------------------
 
 
+class CaptureOptions(TypedDict, total=False):
+    """Optional parameters for the capture pipeline."""
+
+    category: str
+    tags: list[str] | None
+    source: str | None
+    embedding: list[float] | None
+    importance: float | None
+    auto: bool
+
+
 async def capture(
     db: MemoryDB,
     text: str,
     context_type: str = "conversation",
-    *,
-    category: str = "general",
-    tags: list[str] | None = None,
-    source: str | None = None,
-    embedding: list[float] | None = None,
-    importance: float | None = None,
-    auto: bool = False,
+    **options: Unpack[CaptureOptions],
 ) -> dict:
     """Capture ``text`` as a typed memory with embedding-aware dedup.
 
@@ -98,16 +103,13 @@ async def capture(
         context_type: One of :data:`CONTEXT_TYPES`. Raises ``ValueError`` when
             the value is unknown so the caller can return a structured tool
             error instead of writing an invalid row.
-        category: Free-form bucket (defaults to "general", matches add()).
-        tags: Optional tag list.
-        source: Optional provenance marker.
-        embedding: Optional dense vector — caller (server.py) embeds the text
-            because the embedding backend lives in the lifespan context.
-        importance: Optional importance score in [0.0, 1.0]. ``None`` defers
-            to the schema default (0.5) so background importance scoring can
-            update it later.
-        auto: Forward-compat flag for hook-driven auto-capture (Phase 2).
-            Stored in the response payload but does not change execution.
+        **options: Optional capture parameters:
+            category: Free-form bucket (defaults to "general").
+            tags: Optional tag list.
+            source: Optional provenance marker.
+            embedding: Optional dense vector.
+            importance: Optional importance score in [0.0, 1.0].
+            auto: Forward-compat flag for hook-driven auto-capture (Phase 2).
 
     Returns:
         A dict with at least ``memory_id``, ``deduplicated``, and ``auto``
@@ -127,6 +129,14 @@ async def capture(
         )
 
     threshold = _resolve_dedup_threshold()
+
+    # Extract options with defaults
+    category = options.get("category", "general")
+    tags = options.get("tags")
+    source = options.get("source")
+    embedding = options.get("embedding")
+    importance = options.get("importance")
+    auto = options.get("auto", False)
 
     # Dedup probe — runs FTS-backed similarity, never blocks on embedding.
     # Use to_thread because check_duplicate itself runs sync SQLite + search.
