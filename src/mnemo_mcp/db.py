@@ -1654,6 +1654,9 @@ class MemoryDB:
         merged = []
         for r in list(soft_rows) + list(legacy_rows):
             tags_val = r[3]
+            # Bolt Performance Optimization:
+            # Prevent expensive json.loads calls for the default empty list.
+            # This occurs frequently when returning search and list results.
             merged.append(
                 {
                     "id": r[0],
