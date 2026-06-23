@@ -540,9 +540,7 @@ def _trigger_gdrive_flow(
                         _gdrive_token_poll(
                             s.google_drive_client_id,
                             s.google_drive_client_secret,
-                            device_data["device_code"],
-                            device_data.get("interval", 5),
-                            device_data.get("expires_in", 1800),
+                            device_data,
                             sub=sub,
                         )
                     )
@@ -569,9 +567,7 @@ def _trigger_gdrive_flow(
 async def _gdrive_token_poll(
     client_id: str,
     client_secret: str,
-    device_code: str,
-    interval: int,
-    expires_in: int,
+    device_data: dict[str, Any],
     sub: str | None = None,
 ) -> None:
     """Background poll Google OAuth for device code token completion.
@@ -595,6 +591,10 @@ async def _gdrive_token_poll(
     import time
 
     import httpx
+
+    device_code = device_data["device_code"]
+    interval = device_data.get("interval", 5)
+    expires_in = device_data.get("expires_in", 1800)
 
     def _notify_failed(error: str) -> None:
         if _on_gdrive_failed is None:

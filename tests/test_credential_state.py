@@ -330,7 +330,11 @@ class TestGDriveTokenPoll:
             mock_client.post = AsyncMock(side_effect=fake_post)
             mock_client_cls.return_value.__aenter__.return_value = mock_client
 
-            await _gdrive_token_poll("cid", "csec", "devcode", 0, 5)
+            await _gdrive_token_poll(
+                "cid",
+                "csec",
+                {"device_code": "devcode", "interval": 0, "expires_in": 5},
+            )
 
         failed_cb.assert_called_once()
         args, _ = failed_cb.call_args
@@ -360,7 +364,11 @@ class TestGDriveTokenPoll:
             mock_client.post = AsyncMock(side_effect=fake_post)
             mock_client_cls.return_value.__aenter__.return_value = mock_client
 
-            await _gdrive_token_poll("cid", "csec", "devcode", 0, 5)
+            await _gdrive_token_poll(
+                "cid",
+                "csec",
+                {"device_code": "devcode", "interval": 0, "expires_in": 5},
+            )
 
         failed_cb.assert_called_once_with("gdrive", "user rejected")
         cs._on_gdrive_failed = None
@@ -378,7 +386,11 @@ class TestGDriveTokenPoll:
             mock_client = AsyncMock()
             mock_client_cls.return_value.__aenter__.return_value = mock_client
 
-            await _gdrive_token_poll("cid", "csec", "devcode", 0, 0)
+            await _gdrive_token_poll(
+                "cid",
+                "csec",
+                {"device_code": "devcode", "interval": 0, "expires_in": 0},
+            )
 
         failed_cb.assert_called_once_with("gdrive", "expired")
         cs._on_gdrive_failed = None
@@ -397,7 +409,11 @@ class TestGDriveTokenPoll:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
 
             # expires_in=0 -> immediate deadline -> _notify_failed('expired')
-            await _gdrive_token_poll("cid", "csec", "devcode", 0, 0)
+            await _gdrive_token_poll(
+                "cid",
+                "csec",
+                {"device_code": "devcode", "interval": 0, "expires_in": 0},
+            )
 
         failed_cb.assert_called_once()
         cs._on_gdrive_failed = None
@@ -429,7 +445,11 @@ class TestGDriveTokenPoll:
             mock_client.post = AsyncMock(side_effect=fake_post)
             mock_client_cls.return_value.__aenter__.return_value = mock_client
 
-            await _gdrive_token_poll("cid", "csec", "devcode", 0, 5)
+            await _gdrive_token_poll(
+                "cid",
+                "csec",
+                {"device_code": "devcode", "interval": 0, "expires_in": 5},
+            )
 
         complete_cb.assert_called_once()
         failed_cb.assert_not_called()
