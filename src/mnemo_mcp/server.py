@@ -272,17 +272,12 @@ def _make_db(
     )
 
 
-@asynccontextmanager
-async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Initialize DB, embeddings, and sync on startup.
+def _resolve_credentials():
+    """Non-blocking credential resolution (fast, <10ms).
 
-    Embedding backend init runs as a background task so the server accepts
-    connections immediately. Tools gracefully degrade to FTS5-only search
-    until the embedding model is ready.
+    Replaces the old blocking ensure_config() which waited 300s for relay.
+    Relay is now triggered lazily on first tool call via _maybe_include_setup_hint().
     """
-    # 0. Non-blocking credential resolution (fast, <10ms)
-    # Replaces the old blocking ensure_config() which waited 300s for relay.
-    # Relay is now triggered lazily on first tool call via _maybe_include_setup_hint().
     try:
         from mnemo_mcp.credential_state import resolve_credential_state
 
@@ -290,6 +285,13 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     except Exception as e:
         logger.debug(f"Credential resolution not available: {e}")
 
+
+def _initialize_db() -> tuple[MemoryDB, int, str]:
+    """Initialize database and resolve provider mode.
+
+    Returns:
+        tuple[MemoryDB, int, str]: (db, embedding_dims, provider_mode)
+    """
     # 1. Setup provider mode (sdk/local)
     mode = settings.setup_providers()
 
@@ -300,10 +302,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
     # 3. Initialize database (fast, no network)
     # Resolve the active embedding-model identity synchronously so the vector
-    # store can guard against silent corruption when the model changes. The
-    # background _init_embedding_backend task only refines availability; the
-    # configured identity (local resolved id, or cloud chain head) is already
-    # known here. dims is the primary guard; the model id is a secondary tag.
+    # store can guard against silent corruption when the model changes.
     if settings.resolve_embedding_backend() == "local":
         embedding_model_identity = settings.resolve_local_embedding_model()
     else:
@@ -323,12 +322,16 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         f"Database: {stats.get('db_path', '?')} ({stats['total_memories']} memories, "
         f"vec={'on' if db.vec_enabled else 'off'})"
     )
+    return db, embedding_dims, mode
 
-    # 4. Resolve sync mode (XOR per deployment) + start backend-specific init.
-    #
-    # Per the 2026-05-14 Test B design: operator picks ONE backend at deploy
-    # time. SYNC_S3_BUCKET set -> S3 (Method 2/3 docker); otherwise -> GDrive
-    # (Method 1 local-relay). See ``docs/passport.md``.
+
+def _initialize_sync(db: MemoryDB):
+    """Resolve sync mode (XOR per deployment) + start backend-specific init.
+
+    Per the 2026-05-14 Test B design: operator picks ONE backend at deploy
+    time. SYNC_S3_BUCKET set -> S3 (Method 2/3 docker); otherwise -> GDrive
+    (Method 1 local-relay). See ``docs/passport.md``.
+    """
     from mnemo_mcp.sync import resolve_active_backend
 
     sync_mode = resolve_active_backend()
@@ -347,6 +350,21 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
                 f"Sync: Google Drive/{settings.sync_folder} "
                 f"(interval={settings.sync_interval}s)"
             )
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
+    """Initialize DB, embeddings, and sync on startup.
+
+    Embedding backend init runs as a background task so the server accepts
+    connections immediately. Tools gracefully degrade to FTS5-only search
+    until the embedding model is ready.
+    """
+    _resolve_credentials()
+
+    db, embedding_dims, mode = _initialize_db()
+
+    _initialize_sync(db)
 
     # Shared context -- embedding_model starts as None (not ready yet).
     # Background task updates it in-place once the backend is validated.
