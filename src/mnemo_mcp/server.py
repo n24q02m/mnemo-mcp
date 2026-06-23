@@ -1604,7 +1604,7 @@ async def memory(
                 "stats",
                 "update",
             ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            closest = difflib.get_close_matches(action or "", valid_actions, n=1)
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
@@ -1699,7 +1699,7 @@ async def config(
                 "sync_now",
                 "warmup",
             ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            closest = difflib.get_close_matches(action or "", valid_actions, n=1)
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
@@ -2225,7 +2225,7 @@ async def help(topic: str = "memory") -> str:
     if not filename:
         import difflib
 
-        closest = difflib.get_close_matches(topic, list(valid_topics.keys()), n=1)
+        closest = difflib.get_close_matches(topic or "", list(valid_topics.keys()), n=1)
         resp: dict[str, typing.Any] = {
             "error": f"Unknown topic '{topic}'.",
             "valid_topics": list(valid_topics.keys()),
