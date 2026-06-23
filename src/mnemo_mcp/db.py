@@ -517,6 +517,7 @@ class MemoryDB:
     def add(
         self,
         content: str,
+        *,
         category: str = "general",
         tags: list[str] | None = None,
         source: str | None = None,
@@ -563,13 +564,13 @@ class MemoryDB:
     def add_with_context_type(
         self,
         content: str,
+        *,
         context_type: str = "conversation",
         category: str = "general",
         tags: list[str] | None = None,
         source: str | None = None,
         embedding: list[float] | None = None,
         importance: float | None = None,
-        *,
         text_raw: str | None = None,
         compressed: bool = False,
         compression_provider: str | None = None,

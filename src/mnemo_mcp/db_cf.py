@@ -157,6 +157,7 @@ class MemoryDBD1:
     def add(
         self,
         content: str,
+        *,
         category: str = "general",
         tags: list[str] | None = None,
         source: str | None = None,
