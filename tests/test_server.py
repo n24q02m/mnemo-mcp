@@ -10,6 +10,7 @@ import pytest
 
 from mnemo_mcp.db import MAX_CONTENT_LENGTH, MemoryDB
 from mnemo_mcp.server import (
+    SearchOptions,
     _enrich_memory,
     _handle_add,
     _handle_consolidate,
@@ -581,7 +582,11 @@ class TestSearchRerankerAndGraph:
         mock_reranker = MagicMock()
         mock_reranker.rerank.return_value = [(1, 0.95), (0, 0.85), (2, 0.70)]
         with patch("mnemo_mcp.reranker.get_reranker", return_value=mock_reranker):
-            result = json.loads(await _handle_search(ctx, "Python", None, None, 5))
+            result = json.loads(
+                await _handle_search(
+                    ctx, "Python", SearchOptions(category=None, tags=None, limit=5)
+                )
+            )
         assert result["reranked"] is True
         assert result["results"][0]["rerank_score"] == 0.95
 
@@ -593,7 +598,11 @@ class TestSearchRerankerAndGraph:
         mock_reranker = MagicMock()
         mock_reranker.rerank.side_effect = RuntimeError("rerank failed")
         with patch("mnemo_mcp.reranker.get_reranker", return_value=mock_reranker):
-            result = json.loads(await _handle_search(ctx, "Python", None, None, 5))
+            result = json.loads(
+                await _handle_search(
+                    ctx, "Python", SearchOptions(category=None, tags=None, limit=5)
+                )
+            )
         assert result["reranked"] is False
 
     async def test_search_with_graph_boost(self, ctx_with_db):
@@ -602,7 +611,11 @@ class TestSearchRerankerAndGraph:
         db.add("Python for AI")
         mid2 = db.add("Python for web development")
         with patch("mnemo_mcp.graph.find_related_memory_ids", return_value=[mid2]):
-            result = json.loads(await _handle_search(ctx, "Python", None, None, 5))
+            result = json.loads(
+                await _handle_search(
+                    ctx, "Python", SearchOptions(category=None, tags=None, limit=5)
+                )
+            )
         # At least one result should have graph_related
         related = [r for r in result["results"] if r.get("graph_related")]
         assert len(related) >= 1
@@ -615,7 +628,11 @@ class TestSearchRerankerAndGraph:
             "mnemo_mcp.graph.find_related_memory_ids",
             side_effect=RuntimeError("graph error"),
         ):
-            result = json.loads(await _handle_search(ctx, "Python", None, None, 5))
+            result = json.loads(
+                await _handle_search(
+                    ctx, "Python", SearchOptions(category=None, tags=None, limit=5)
+                )
+            )
         assert result["count"] > 0
 
 
