@@ -43,10 +43,11 @@ def ctx_with_db(tmp_path: Path) -> Generator[tuple[MagicMock, MemoryDB]]:
 
 
 class TestSetupStatus:
-    async def test_returns_state_and_url(self, ctx_with_db):
+    async def test_returns_state_and_url(self, ctx_with_db, monkeypatch):
         """setup_status returns credential state and setup URL."""
         ctx, _ = ctx_with_db
         set_state(CredentialState.CONFIGURED)
+        monkeypatch.setenv("GEMINI_API_KEY", "test_key")
 
         with patch(
             "mnemo_mcp.credential_state.get_setup_url",
@@ -153,7 +154,12 @@ class TestSetupReset:
 
 
 class TestSetupComplete:
-    async def test_refreshes_state(self, ctx_with_db):
+    @patch(
+        "mnemo_mcp.server.asyncio.to_thread",
+        side_effect=lambda fn, *a, **kw: fn(*a, **kw),
+    )
+    @patch("mnemo_mcp.embedder.init_backend")
+    async def test_refreshes_state(self, mock_init, _mock_thread, ctx_with_db):
         """setup_complete re-resolves credential state."""
         ctx, _ = ctx_with_db
 
