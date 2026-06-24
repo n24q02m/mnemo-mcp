@@ -2367,7 +2367,7 @@ async def run_http(port: int = 0) -> None:
     auth_disabled = os.environ.get("MCP_AUTH_DISABLE") == "1"
 
     await run_http_server(
-        mcp,  # ty: ignore[invalid-argument-type]
+        mcp,
         server_name="mnemo-mcp",
         relay_schema=RELAY_SCHEMA,
         auth_disabled=auth_disabled,
