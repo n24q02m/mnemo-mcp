@@ -301,14 +301,11 @@ class MemoryDB:
         on the next pass. The dropped table is recreated immediately at the new
         dimension so subsequent inserts have a target.
         """
-        try:
-            self._conn.execute("DROP TABLE IF EXISTS memories_vec")
-        except Exception as e:  # pragma: no cover - runtime guard
-            logger.warning(f"Failed to drop memories_vec during reindex: {e}")
-        try:
-            self._conn.execute("DROP TABLE IF EXISTS memory_entities_vec")
-        except Exception as e:  # pragma: no cover - runtime guard
-            logger.warning(f"Failed to drop memory_entities_vec during reindex: {e}")
+        for table in ("memories_vec", "memory_entities_vec"):
+            try:
+                self._conn.execute(f"DROP TABLE IF EXISTS {table}")
+            except Exception as e:  # pragma: no cover - runtime guard
+                logger.warning(f"Failed to drop {table} during reindex: {e}")
         # Recreate memories_vec at the new dimension for immediate writes.
         self._ensure_vec_table(self._embedding_dims)
 
