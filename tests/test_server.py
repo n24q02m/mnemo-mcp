@@ -353,7 +353,7 @@ class TestMemoryUnknownAction:
         assert "error" in result
         assert "valid_actions" in result
         assert "add" in result["valid_actions"]
-        assert "suggestion" not in result
+        assert "suggestion" in result
 
 
 class TestConfigTool:
@@ -414,7 +414,7 @@ class TestConfigTool:
         result = json.loads(await config(action="invalid", ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
-        assert "suggestion" not in result
+        assert "suggestion" in result
 
     async def test_models_action_removed(self, ctx_with_db):
         """The 'models' catalog-listing action no longer exists."""
@@ -819,6 +819,26 @@ class TestMaybeRegisterCustomRerank:
 
 class TestSpecializedTools:
     """Tests for direct invocation of @mcp.tool decorated functions."""
+
+    async def test_memory_none_action_fallback(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        res = json.loads(await memory(action=None, ctx=ctx))
+        assert "error" in res
+        assert "Unknown action 'None'" in res["error"]
+        assert "Available actions are:" in res["suggestion"]
+
+    async def test_config_none_action_fallback(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        res = json.loads(await config(action=None, ctx=ctx))
+        assert "error" in res
+        assert "Unknown action 'None'" in res["error"]
+        assert "Available actions are:" in res["suggestion"]
+
+    async def test_help_none_topic_fallback(self):
+        res = json.loads(await help(topic=None))
+        assert "error" in res
+        assert "Unknown topic 'None'" in res["error"]
+        assert "Available topics are:" in res["suggestion"]
 
     async def test_tool_workflow(self, ctx_with_db):
         ctx, db = ctx_with_db
