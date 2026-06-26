@@ -1614,7 +1614,9 @@ async def memory(
                 if closest:
                     resp["suggestion"] = f"Did you mean '{closest[0]}'?"
             if "suggestion" not in resp:
-                resp["suggestion"] = f"Available actions are: {', '.join(valid_actions)}."
+                resp["suggestion"] = (
+                    f"Available actions are: {', '.join(valid_actions)}."
+                )
             return _json(resp)
 
 
@@ -1712,7 +1714,9 @@ async def config(
                 if closest:
                     resp["suggestion"] = f"Did you mean '{closest[0]}'?"
             if "suggestion" not in resp:
-                resp["suggestion"] = f"Available actions are: {', '.join(valid_actions)}."
+                resp["suggestion"] = (
+                    f"Available actions are: {', '.join(valid_actions)}."
+                )
             return _json(resp)
 
 
@@ -2236,11 +2240,15 @@ async def help(topic: str = "memory") -> str:
             "valid_topics": list(valid_topics.keys()),
         }
         if topic:
-            closest = difflib.get_close_matches(str(topic), list(valid_topics.keys()), n=1)
+            closest = difflib.get_close_matches(
+                str(topic), list(valid_topics.keys()), n=1
+            )
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
         if "suggestion" not in resp:
-            resp["suggestion"] = f"Available topics are: {', '.join(list(valid_topics.keys()))}."
+            resp["suggestion"] = (
+                f"Available topics are: {', '.join(list(valid_topics.keys()))}."
+            )
         return _json(resp)
 
     doc_file = docs_package / filename
