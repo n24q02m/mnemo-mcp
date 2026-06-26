@@ -32,7 +32,7 @@ dependencies = [
     # Local ONNX embedding (auto-fallback when no cloud API)
     "qwen3-embed>=1.12.0b2",
     # Zero-env-config credential relay + LLM/embed/rerank via litellm passthrough
-    "n24q02m-mcp-core[llm]>=1.18.0b2,<2",
+    "n24q02m-mcp-core[llm] @ file:///app/.mcp-core/packages/core-py",
     # Pin Pygments to fix ReDoS (CVE in <2.20.0)
     "Pygments>=2.20.0",
     "alembic>=1.18.4",
@@ -146,3 +146,5 @@ branch = true
 fail_under = 95
 show_missing = true
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+[tool.hatch.metadata]
+allow-direct-references = true
