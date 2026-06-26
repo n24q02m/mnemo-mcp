@@ -56,7 +56,8 @@ jobs:
       - name: Patch pyproject.toml for CI
         shell: bash
         run: |
-          python3 -c "import re; content=open('pyproject.toml').read(); content=re.sub(r'path\s*=\s*[\'\"].*?mcp-core/packages/core-py[\'\"]', 'path = \".mcp-core/packages/core-py\"', content); open('pyproject.toml', 'w').write(content)"
+          python3 -c "import re, os; content=open('pyproject.toml').read(); content=re.sub(r'\"n24q02m-mcp-core\[llm\]>=1\\.18\\.0b2,<2\"', '\"n24q02m-mcp-core[llm] @ file://' + os.getcwd().replace('\\\\', '/') + '/.mcp-core/packages/core-py\"', content); open('pyproject.toml', 'w').write(content)"
+          python3 -c "content=open('pyproject.toml').read(); open('pyproject.toml', 'w').write(content + '\n[tool.hatch.metadata]\nallow-direct-references = true\n')"
 
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
