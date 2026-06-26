@@ -1479,29 +1479,23 @@ class MemoryDB:
         """
         cursor = self._conn.cursor()
 
-        cutoff_date = cursor.execute(
-            "SELECT datetime('now', ?)", (f"-{days} days",)
-        ).fetchone()[0]
-
-        rows = cursor.execute(
-            """SELECT id FROM memories
-               WHERE last_accessed < ?
-                 AND importance < ?
-                 AND archived_at IS NULL""",
-            (cutoff_date, importance_threshold),
-        ).fetchall()
-
-        if not rows:
-            return 0
-
+        # Bolt Performance Optimization:
+        # Replaced SELECT + Python loop + executemany with a single pure SQL UPDATE.
+        # This completely bypasses Python's runtime memory allocation and execution
+        # overhead for date math and iteration, executing entirely in SQLite.
         now = _now_iso()
-        cursor.executemany(
-            "UPDATE memories SET archived_at = ? WHERE id = ?",
-            [(now, row[0]) for row in rows],
+        cursor.execute(
+            """UPDATE memories
+               SET archived_at = ?
+               WHERE archived_at IS NULL
+                 AND last_accessed < datetime('now', ?)
+                 AND importance < ?""",
+            (now, f"-{days} days", importance_threshold),
         )
-        count = len(rows)
-        self._conn.commit()
-        logger.info(f"[AUDIT] archived count={count} mode=soft")
+        count = cursor.rowcount
+        if count > 0:
+            self._conn.commit()
+            logger.info(f"[AUDIT] archived count={count} mode=soft")
         return count
 
     def archive_by_score(
@@ -1545,30 +1539,28 @@ class MemoryDB:
         archive_ts = _now_iso()
 
         # Bolt Performance Optimization:
-        # Replaced Python-level N+1 processing with a single SQL UPDATE.
-        # This completely bypasses memory allocation and runtime execution overhead
-        # caused by fetching all valid rows into Python, repeatedly calling
-        # datetime.fromisoformat(), and iteratively running float math calculations.
+        # Replaced Python row iteration, datetime parsing, and executemany
+        # with a single native SQL UPDATE statement.
+        # This completely bypasses Python's runtime overhead, leveraging SQLite's
+        # julianday() to compute dates natively.
         query = """
-            UPDATE memories
-            SET archived_at = ?
-            WHERE archived_at IS NULL
-            AND (
-                MAX(0.0, julianday('now') - julianday(updated_at)) / ?
-                * (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0))))
-            ) > ?
+        UPDATE memories
+        SET archived_at = ?
+        WHERE archived_at IS NULL
+        AND (
+            MAX(0.0, julianday('now') - julianday(updated_at)) / ?
+        ) * (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0)))) > ?
         """
 
-        cursor.execute(
-            query, (archive_ts, float(archive_after_days), float(score_threshold))
-        )
-        # calculate rowcount to match the return signature
-        count = cursor.rowcount if cursor.rowcount > 0 else 0
-        self._conn.commit()
-        logger.info(
-            f"[AUDIT] archived_by_score count={count} "
-            f"after_days={archive_after_days} threshold={score_threshold}"
-        )
+        cursor.execute(query, (archive_ts, float(archive_after_days), score_threshold))
+        count = cursor.rowcount
+
+        if count > 0:
+            self._conn.commit()
+            logger.info(
+                f"[AUDIT] archived_by_score count={count} "
+                f"after_days={archive_after_days} threshold={score_threshold}"
+            )
         return count
 
     def restore_memory(self, memory_id: str) -> bool:
