@@ -38,7 +38,23 @@ CREDENTIAL_ENV_VARS = [
     "COHERE_API_KEY",
 ]
 
-EXPECTED_TOOLS = {"memory", "config", "help"}
+EXPECTED_TOOLS = {
+    "add_memory",
+    "search_memory",
+    "list_memories",
+    "update_memory",
+    "delete_memory",
+    "export_memories",
+    "import_memories",
+    "memory_stats",
+    "restore_memory",
+    "archived_memories",
+    "consolidate_memories",
+    "memory",
+    "config",
+    "config__open_relay",
+    "help",
+}
 
 
 # -- Fixtures ----------------------------------------------------------------
@@ -96,7 +112,7 @@ async def session(request, tmp_path):
     errlog_kwargs = {"errlog": capture} if capture else {}
 
     try:
-        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):  # ty: ignore[invalid-argument-type]
+        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as s:
                 if setup_mode == "relay" and capture:
                     # mnemo-mcp auto-triggers relay during lifespan,
@@ -507,7 +523,7 @@ async def test_relay_all_tools(request, tmp_path):
     capture = StderrCapture()
 
     try:
-        async with stdio_client(params, errlog=capture) as (read_stream, write_stream):  # ty: ignore[invalid-argument-type]
+        async with stdio_client(params, errlog=capture) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as s:
                 # mnemo-mcp auto-triggers relay during lifespan,
                 # blocking initialize(). Open browser in parallel.
