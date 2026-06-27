@@ -357,7 +357,7 @@ class TestMemoryUnknownAction:
 
     async def test_none_action(self, ctx_with_db):
         ctx, _ = ctx_with_db
-        result = json.loads(await memory(action=None, ctx=ctx))  # type: ignore
+        result = json.loads(await memory(action=None, ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
         assert "suggestion" in result
@@ -426,7 +426,7 @@ class TestConfigTool:
 
     async def test_none_action(self, ctx_with_db):
         ctx, _ = ctx_with_db
-        result = json.loads(await config(action=None, ctx=ctx))  # type: ignore
+        result = json.loads(await config(action=None, ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
         assert "suggestion" in result
@@ -457,7 +457,7 @@ class TestHelpTool:
         assert "suggestion" in result
 
     async def test_none_topic(self):
-        result = json.loads(await help(topic=None))  # type: ignore
+        result = json.loads(await help(topic=None))
         assert "error" in result
         assert "valid_topics" in result
         assert "suggestion" in result
