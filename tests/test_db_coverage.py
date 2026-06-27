@@ -429,7 +429,7 @@ class TestImportJsonlEdgeCases:
     def test_import_invalid_type(self, tmp_db: MemoryDB):
         """Import with unsupported type returns empty result."""
         invalid_input: Any = 12345
-        result = tmp_db.import_jsonl(invalid_input, mode="merge")
+        result = tmp_db.import_jsonl(invalid_input, mode="merge")  # ty: ignore[invalid-argument-type]
         assert result["imported"] == 0
         assert result["skipped"] == 0
 
@@ -528,7 +528,7 @@ class TestScoringEdgeCases:
         now = datetime.now(UTC)
 
         # Test with None
-        assert tmp_db._calc_recency(None, now) == 0.0
+        assert tmp_db._calc_recency(None, now) == 0.0  # ty: ignore[invalid-argument-type]
 
         # Test with naive datetime string
         assert tmp_db._calc_recency("2023-01-01T00:00:00", now) == 0.0
