@@ -544,11 +544,11 @@ wheels = [
 
 [[package]]
 name = "filelock"
-version = "3.29.3"
+version = "3.29.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/91/f5/3557bf28e0f1943e4849154c821533706e6dea010f96fb6aa0b6949037d1/filelock-3.29.3.tar.gz", hash = "sha256:7fc1b3f39cf172fd8203812043c57b8a65aef9969f38b6704f628b881f761a84", size = 61956, upload-time = "2026-06-10T17:37:11.832Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/dc/be6cbe99670cd6e4ad387123647cb08e0c32975e223f82551e914c5568a6/filelock-3.29.4.tar.gz", hash = "sha256:10cdb3656fc44541cdf30652a93fb10ec6b05325620eb316bd26893e4201538a", size = 63028, upload-time = "2026-06-13T16:12:00.744Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/8f/b61d427c4f49a8bdadc93f4e7e74df8a6df6f77ee6e26bf0df53d3925363/filelock-3.29.3-py3-none-any.whl", hash = "sha256:e58333029cc9b925f39aad59b1d8f0a1ad836af4e60d7217f4a4dba87461261d", size = 42324, upload-time = "2026-06-10T17:37:10.37Z" },
+    { url = "https://files.pythonhosted.org/packages/13/37/a065dc3bd6e49423a6532c642ca7378d3f467b1ef44c2800c937af7f9739/filelock-3.29.4-py3-none-any.whl", hash = "sha256:dac1648087d5115554850d113e7dd8c83ab2d38e3435dde2d4f163847e57b767", size = 42757, upload-time = "2026-06-13T16:11:59.582Z" },
 ]
 
 [[package]]
@@ -936,7 +936,7 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.88.1"
+version = "1.90.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -952,9 +952,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/16/ea/f99ececb7f22703fe120f1d8be9ffb749ec9453fbbbbbebc0d6a6b4d7864/litellm-1.88.1.tar.gz", hash = "sha256:89c6b74cc7912d6365793006ff951c0450fe847625008dfe49de8a7dc4529aa5", size = 13885969, upload-time = "2026-06-09T01:06:25.192Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/c6/45b74e44f6605f91cffb2d6ad5463bc743f5636c66a2892c834d90b708e7/litellm-1.90.0.tar.gz", hash = "sha256:55f2be4adfc350ae2931bf369aebf1229aa54ea8ceaa1c13ee65a07724572dae", size = 14815671, upload-time = "2026-06-27T03:12:47.81Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/9a/8f8909201b4bebaf96498c09226f6baa8540086a4c4188ad57d7dfbd97c1/litellm-1.88.1-py3-none-any.whl", hash = "sha256:369b84e57d9426582ddc35e731956ddb6618cda97cc44e4e4d2dfa75982a6e3a", size = 15276206, upload-time = "2026-06-09T01:06:16.72Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/f7/0864ca487526ed478b857c704244255c7be4e13ed4dde7aeec13f679c904/litellm-1.90.0-py3-none-any.whl", hash = "sha256:3a0fec8405606e34f501544fb9cfe4261fe073bef340d3ca9a60d3fb31c639ee", size = 16607104, upload-time = "2026-06-27T03:12:44.493Z" },
 ]
 
 [[package]]
@@ -1111,7 +1111,7 @@ requires-dist = [
     { name = "idna", specifier = ">=3.18" },
     { name = "loguru" },
     { name = "mcp", extras = ["cli"] },
-    { name = "n24q02m-mcp-core", extras = ["llm"], specifier = ">=1.18.0b2,<2" },
+    { name = "n24q02m-mcp-core", extras = ["llm"], specifier = ">=1.18.0b20,<2" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pygments", specifier = ">=2.20.0" },
@@ -1217,7 +1217,7 @@ wheels = [
 
 [[package]]
 name = "n24q02m-mcp-core"
-version = "1.18.0b2"
+version = "1.18.0b20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1232,9 +1232,9 @@ dependencies = [
     { name = "starlette" },
     { name = "tomli-w" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/ed/59f51b85af63f4986918e6d76ccd7e8bb177706aeb397629d7cc76da5bcd/n24q02m_mcp_core-1.18.0b2.tar.gz", hash = "sha256:30baf5173e460ef20f1b24ac91e6310b8d7737696be033138a4b05785cb4b5a9", size = 256688, upload-time = "2026-06-11T05:07:18.225Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/10/ec1bdeff0df00bb00382107f79ca575c784c28067fda4229083ab3a97dc7/n24q02m_mcp_core-1.18.0b20.tar.gz", hash = "sha256:6814f5e0c9887dff3afdf2c7049ff4b598fa1c2cbca0656d95f48fb1f2226d8b", size = 301569, upload-time = "2026-06-23T02:28:51.212Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/47/1182dda7b70180245e57d5e6316940e219faf46d6692be2d8edf8d2c603d/n24q02m_mcp_core-1.18.0b2-py3-none-any.whl", hash = "sha256:905efd3e25ceb8ab6d14132a8f6e660bde6ba324bf0363342b1a5d87f09dd242", size = 139516, upload-time = "2026-06-11T05:07:19.407Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/db/a555b269c368c2238a82186e90f65a41a07a93b11d0c4b8516703a19a90b/n24q02m_mcp_core-1.18.0b20-py3-none-any.whl", hash = "sha256:66fae2c80c3287b1a7c5d3aa3eec0948ccd819efb1ddc9549a9ecfb003be3d84", size = 168546, upload-time = "2026-06-23T02:28:49.873Z" },
 ]
 
 [package.optional-dependencies]
