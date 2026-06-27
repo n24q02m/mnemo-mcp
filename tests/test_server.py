@@ -353,7 +353,15 @@ class TestMemoryUnknownAction:
         assert "error" in result
         assert "valid_actions" in result
         assert "add" in result["valid_actions"]
-        assert "suggestion" not in result
+        assert "suggestion" in result
+
+    async def test_none_action(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        result = json.loads(await memory(action=None, ctx=ctx))  # type: ignore
+        assert "error" in result
+        assert "valid_actions" in result
+        assert "suggestion" in result
+        assert "Available actions are: " in result["suggestion"]
 
 
 class TestConfigTool:
@@ -414,7 +422,15 @@ class TestConfigTool:
         result = json.loads(await config(action="invalid", ctx=ctx))
         assert "error" in result
         assert "valid_actions" in result
-        assert "suggestion" not in result
+        assert "suggestion" in result
+
+    async def test_none_action(self, ctx_with_db):
+        ctx, _ = ctx_with_db
+        result = json.loads(await config(action=None, ctx=ctx))  # type: ignore
+        assert "error" in result
+        assert "valid_actions" in result
+        assert "suggestion" in result
+        assert "Available actions are: " in result["suggestion"]
 
     async def test_models_action_removed(self, ctx_with_db):
         """The 'models' catalog-listing action no longer exists."""
@@ -438,6 +454,14 @@ class TestHelpTool:
         result = json.loads(await help(topic="invalid"))
         assert "error" in result
         assert "valid_topics" in result
+        assert "suggestion" in result
+
+    async def test_none_topic(self):
+        result = json.loads(await help(topic=None))  # type: ignore
+        assert "error" in result
+        assert "valid_topics" in result
+        assert "suggestion" in result
+        assert "Available topics are: " in result["suggestion"]
 
 
 class TestDedupWarning:
