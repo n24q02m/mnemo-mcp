@@ -93,10 +93,10 @@ async def session(request, tmp_path):
     params = _build_server_params(setup_mode, env)
 
     capture = StderrCapture() if setup_mode == "relay" else None
-    errlog_kwargs = {"errlog": capture} if capture else {}
+    errlog_kwargs = {"errlog": capture.stream} if capture else {}
 
     try:
-        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):  # ty: ignore[invalid-argument-type]
+        async with stdio_client(params, **errlog_kwargs) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as s:
                 if setup_mode == "relay" and capture:
                     # mnemo-mcp auto-triggers relay during lifespan,
@@ -507,7 +507,7 @@ async def test_relay_all_tools(request, tmp_path):
     capture = StderrCapture()
 
     try:
-        async with stdio_client(params, errlog=capture) as (read_stream, write_stream):  # ty: ignore[invalid-argument-type]
+        async with stdio_client(params, errlog=capture.stream) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as s:
                 # mnemo-mcp auto-triggers relay during lifespan,
                 # blocking initialize(). Open browser in parallel.
