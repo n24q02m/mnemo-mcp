@@ -53,7 +53,7 @@ EXPECTED_TOOLS = {
     "config",
     "config__open_relay",
     "help",
-    "memory"
+    "memory",
 }
 
 
