@@ -1604,14 +1604,21 @@ async def memory(
                 "stats",
                 "update",
             ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            action_str = action if action is not None else ""
+            closest = difflib.get_close_matches(action_str, valid_actions, n=1)
             resp: dict[str, typing.Any] = {
-                "error": f"Unknown action '{action}'.",
+                "error": f"Unknown action '{action}'."
+                if action
+                else "Missing action parameter.",
                 "valid_actions": valid_actions,
                 "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
             }
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+            else:
+                resp["suggestion"] = (
+                    f"Available actions are: {', '.join(valid_actions)}."
+                )
             return _json(resp)
 
 
@@ -1699,14 +1706,21 @@ async def config(
                 "sync_now",
                 "warmup",
             ]
-            closest = difflib.get_close_matches(action, valid_actions, n=1)
+            action_str = action if action is not None else ""
+            closest = difflib.get_close_matches(action_str, valid_actions, n=1)
             resp: dict[str, typing.Any] = {
-                "error": f"Unknown action '{action}'.",
+                "error": f"Unknown action '{action}'."
+                if action
+                else "Missing action parameter.",
                 "valid_actions": valid_actions,
                 "hint": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
             }
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+            else:
+                resp["suggestion"] = (
+                    f"Available actions are: {', '.join(valid_actions)}."
+                )
             return _json(resp)
 
 
@@ -2225,13 +2239,20 @@ async def help(topic: str = "memory") -> str:
     if not filename:
         import difflib
 
-        closest = difflib.get_close_matches(topic, list(valid_topics.keys()), n=1)
+        topic_str = topic if topic is not None else ""
+        closest = difflib.get_close_matches(topic_str, list(valid_topics.keys()), n=1)
         resp: dict[str, typing.Any] = {
-            "error": f"Unknown topic '{topic}'.",
+            "error": f"Unknown topic '{topic}'."
+            if topic
+            else "Missing topic parameter.",
             "valid_topics": list(valid_topics.keys()),
         }
         if closest:
             resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = (
+                f"Available topics are: {', '.join(valid_topics.keys())}."
+            )
         return _json(resp)
 
     doc_file = docs_package / filename
