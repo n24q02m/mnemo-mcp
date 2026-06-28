@@ -230,6 +230,7 @@ async def _save_folder_id(folder_name: str, folder_id: str) -> None:
         except (json.JSONDecodeError, OSError):
             pass
         data[folder_name] = folder_id
+
         def _secure_write() -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             text_data = json.dumps(data)
