@@ -1477,28 +1477,27 @@ class MemoryDB:
         Returns:
             Count of newly archived rows (already-archived rows are skipped).
         """
-        cursor = self._conn.cursor()
+        now = _now_iso()
 
-        cutoff_date = cursor.execute(
-            "SELECT datetime('now', ?)", (f"-{days} days",)
-        ).fetchone()[0]
-
-        rows = cursor.execute(
-            """SELECT id FROM memories
-               WHERE last_accessed < ?
-                 AND importance < ?
-                 AND archived_at IS NULL""",
-            (cutoff_date, importance_threshold),
+        # Bolt Performance Optimization:
+        # Replaced Python-level SELECT + executemany with a single native SQL UPDATE statement.
+        # This shifts the workload entirely to the SQLite engine, eliminating N+1 execution
+        # overhead and massive Python list/tuple memory allocations for large datasets.
+        rows = self._conn.execute(
+            """
+            UPDATE memories
+            SET archived_at = ?
+            WHERE last_accessed < datetime('now', ?)
+              AND importance < ?
+              AND archived_at IS NULL
+            RETURNING id
+            """,
+            (now, f"-{days} days", importance_threshold),
         ).fetchall()
 
         if not rows:
             return 0
 
-        now = _now_iso()
-        cursor.executemany(
-            "UPDATE memories SET archived_at = ? WHERE id = ?",
-            [(now, row[0]) for row in rows],
-        )
         count = len(rows)
         self._conn.commit()
         logger.info(f"[AUDIT] archived count={count} mode=soft")
@@ -1541,38 +1540,32 @@ class MemoryDB:
                 archive_after_days = 90
         archive_after_days = max(1, int(archive_after_days))
 
-        cursor = self._conn.cursor()
-        rows = cursor.execute(
-            """SELECT id, updated_at, importance FROM memories
-               WHERE archived_at IS NULL""",
+        archive_ts = _now_iso()
+
+        # Bolt Performance Optimization:
+        # Replaced Python-level loop (with datetime.fromisoformat and json allocations)
+        # with a pure SQL statement leveraging SQLite's julianday().
+        # This completely bypasses Python's execution overhead for date mathematics,
+        # yielding dramatic speedups for large record sets. Invalid ISO dates gracefully
+        # yield NULL in julianday(), bypassing the condition safely.
+        rows = self._conn.execute(
+            """
+            UPDATE memories
+            SET archived_at = ?
+            WHERE archived_at IS NULL
+              AND (
+                  (MAX(0.0, julianday('now') - julianday(updated_at)) / ?) *
+                  (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0))))
+              ) > ?
+            RETURNING id
+            """,
+            (archive_ts, float(archive_after_days), float(score_threshold)),
         ).fetchall()
 
         if not rows:
             return 0
 
-        now = datetime.now(UTC)
-        to_archive: list[tuple[str, str]] = []
-        archive_ts = _now_iso()
-        for row in rows:
-            try:
-                updated = datetime.fromisoformat(row["updated_at"])
-            except (ValueError, TypeError):
-                continue
-            days_since = max(0.0, (now - updated).total_seconds() / 86400.0)
-            recency_factor = days_since / archive_after_days
-            importance = float(row["importance"] or 0.0)
-            score = recency_factor * (1.0 - max(0.0, min(1.0, importance)))
-            if score > score_threshold:
-                to_archive.append((archive_ts, row["id"]))
-
-        if not to_archive:
-            return 0
-
-        cursor.executemany(
-            "UPDATE memories SET archived_at = ? WHERE id = ?",
-            to_archive,
-        )
-        count = len(to_archive)
+        count = len(rows)
         self._conn.commit()
         logger.info(
             f"[AUDIT] archived_by_score count={count} "
