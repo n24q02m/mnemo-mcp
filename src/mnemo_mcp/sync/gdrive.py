@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import stat
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -229,7 +231,21 @@ async def _save_folder_id(folder_name: str, folder_id: str) -> None:
             pass
         data[folder_name] = folder_id
         await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(path.write_text, json.dumps(data), encoding="utf-8")
+
+        def _secure_write():
+            # Prevent TOCTOU vulnerability by setting permissions on creation (0600)
+            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+            mode = stat.S_IRUSR | stat.S_IWUSR
+            fd = os.open(path, flags, mode)
+            try:
+                if os.name != "nt":
+                    os.fchmod(fd, mode)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8") as f_out:
+                f_out.write(json.dumps(data))
+
+        await asyncio.to_thread(_secure_write)
 
 
 async def _verify_folder_exists(token: dict, folder_id: str) -> bool:
