@@ -1809,7 +1809,9 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
         }
         if level not in valid_levels:
             closest = (
-                difflib.get_close_matches(level, list(valid_levels), n=1) if level else []
+                difflib.get_close_matches(level, list(valid_levels), n=1)
+                if level
+                else []
             )
             resp = {
                 "error": f"Invalid log level: {value}",
