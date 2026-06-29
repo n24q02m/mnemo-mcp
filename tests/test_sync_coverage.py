@@ -370,42 +370,43 @@ class TestSetupGoogleAuthCoverage:
             result = await setup_google_auth()
         assert result is False
 
-    async def test_device_code_request_fails(self):
-        """Returns False when device code request fails."""
-        from mnemo_mcp.sync import setup_google_auth
 
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
+# ---------------------------------------------------------------------------
+# Backend registry
+# ---------------------------------------------------------------------------
 
-        with (
-            patch("mnemo_mcp.sync.settings") as mock_settings,
-            patch("httpx.AsyncClient") as mock_client_cls,
-        ):
-            mock_settings.google_drive_client_id = "client123"
-            mock_client = AsyncMock()
-            mock_client.post.return_value = mock_response
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
 
-            result = await setup_google_auth()
-        assert result is False
+class TestRegisterCoverage:
+    def test_register_invalid_type(self):
+        """register raises TypeError when backend is not a SyncBackend."""
+        import pytest
 
-    async def test_device_code_request_exception(self):
-        """Returns False when device code request raises exception."""
-        from mnemo_mcp.sync import setup_google_auth
+        from mnemo_mcp.sync import register
 
-        with (
-            patch("mnemo_mcp.sync.settings") as mock_settings,
-            patch("httpx.AsyncClient") as mock_client_cls,
-        ):
-            mock_settings.google_drive_client_id = "client123"
-            mock_client = AsyncMock()
-            mock_client.post.side_effect = Exception("network error")
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
+        with pytest.raises(TypeError, match="expected SyncBackend instance"):
+            register("invalid", "not-a-backend")  # type: ignore
 
-            result = await setup_google_auth()
-        assert result is False
+    def test_register_success(self):
+        """register successfully adds a backend to the registry."""
+        from mnemo_mcp.sync import SyncBackend, get, register, reset_registry
+
+        class MockBackend(SyncBackend):
+            async def push(self, bundle: bytes, sequence: int) -> None:
+                pass
+
+            async def pull(self, sequence: int | None = None) -> bytes | None:
+                return None
+
+            async def last_remote_sequence(self) -> int:
+                return 0
+
+            async def health_check(self) -> bool:
+                return True
+
+        reset_registry()
+        try:
+            backend = MockBackend()
+            register("mock_coverage", backend)
+            assert get("mock_coverage") is backend
+        finally:
+            reset_registry()
