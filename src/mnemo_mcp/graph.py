@@ -226,12 +226,10 @@ def upsert_entities(conn, entities: list[dict]) -> list[str]:
     BATCH_SIZE = 400
     for i in range(0, len(unique_keys), BATCH_SIZE):
         batch = unique_keys[i : i + BATCH_SIZE]
-        placeholders = ", ".join(["(?, ?)"] * len(batch))
-        params = [val for key in batch for val in key]
         rows = conn.execute(
             "SELECT name, entity_type, id FROM memory_entities "
-            f"WHERE (name, entity_type) IN (VALUES {placeholders})",
-            params,
+            "WHERE (name, entity_type) IN (SELECT json_extract(value, \x27$[0]\x27), json_extract(value, \x27$[1]\x27) FROM json_each(?))",
+            (json.dumps(batch),),
         ).fetchall()
         for r_name, r_type, r_id in rows:
             unique_ents[(r_name, r_type)] = r_id
