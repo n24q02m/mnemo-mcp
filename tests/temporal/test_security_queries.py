@@ -1,8 +1,7 @@
-import pytest
-import json
 from mnemo_mcp.db import MemoryDB
-from mnemo_mcp.temporal.queries import entity_search, entity_graph
-from mnemo_mcp.graph import upsert_entities, link_memory_entities
+from mnemo_mcp.graph import link_memory_entities, upsert_entities
+from mnemo_mcp.temporal.queries import entity_graph, entity_search
+
 
 def test_entity_search_injection_safe(tmp_db: MemoryDB):
     # Seed some data
@@ -16,9 +15,13 @@ def test_entity_search_injection_safe(tmp_db: MemoryDB):
     assert len(results) == 1
     assert results[0]["id"] == mid
 
+
 def test_entity_graph_injection_safe(tmp_db: MemoryDB):
     mid = tmp_db.add("Graph content")
-    eids = upsert_entities(tmp_db._conn, [{"name": "A", "type": "concept"}, {"name": "B", "type": "concept"}])
+    eids = upsert_entities(
+        tmp_db._conn,
+        [{"name": "A", "type": "concept"}, {"name": "B", "type": "concept"}],
+    )
     link_memory_entities(tmp_db._conn, mid, eids)
     tmp_db._conn.commit()
 
@@ -26,6 +29,7 @@ def test_entity_graph_injection_safe(tmp_db: MemoryDB):
     result = entity_graph(tmp_db, name="A")
     assert len(result["nodes"]) >= 1
     assert any(n["name"] == "A" for n in result["nodes"])
+
 
 def test_entity_search_with_many_entities(tmp_db: MemoryDB):
     # This might trigger issues if placeholders generation was used
