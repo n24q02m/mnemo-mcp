@@ -197,7 +197,7 @@ uv run mnemo-mcp
 
 Run your own mnemo instance serverless on Cloudflare (Containers + D1 + Vectorize + KV).
 
-**Prerequisites:** a Cloudflare account on the Workers Paid plan and the `wrangler` CLI.
+**Prerequisites:** a Cloudflare account on the **Workers Paid plan** — required for Containers, D1, and Vectorize (the Cloudflare free tier does not include them) — and the `wrangler` CLI.
 
 1. `git clone https://github.com/n24q02m/mnemo-mcp && cd mnemo-mcp`
 2. `wrangler login`
