@@ -7,6 +7,3 @@
 ## $(date +%Y-%m-%d) - Consistent Error Suggestions
 **Learning:** Returning error messages without actionable next steps leaves the developer guessing what went wrong, which degrades Developer Experience (DX). In backend MCP servers, returning structured errors with `suggestion` strings is crucial.
 **Action:** When a tool returns an error structure (e.g., in `import_passport`), ensure it includes a `suggestion` key to guide the developer/agent on how to fix the issue.
-## 2024-05-23 - Add fallback suggestions to API responses
-**Learning:** Returning raw errors for invalid API inputs without actionable suggestions creates a poor Developer Experience (DX). In a backend/CLI project, DX is equivalent to UX.
-**Action:** Always provide a default `suggestion` key in JSON error responses to guide the user/LLM, even when fuzzy matching yields no direct corrections.

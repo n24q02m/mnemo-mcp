@@ -1622,7 +1622,6 @@ async def memory(
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
                 "hint": "Common actions: 'add' to store new info, 'search' to find existing, 'update' to modify by ID.",
-                "suggestion": "Check the spelling of the action.",
             }
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
@@ -1722,7 +1721,6 @@ async def config(
                 "error": f"Unknown action '{action}'.",
                 "valid_actions": valid_actions,
                 "hint": "Common actions: 'status' to view config, 'set' to update settings, 'sync' to manual sync.",
-                "suggestion": "Check the spelling of the action.",
             }
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
@@ -1786,7 +1784,6 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
         resp: dict[str, typing.Any] = {
             "error": f"Invalid key: {key}",
             "valid_keys": sorted(valid_keys),
-            "suggestion": "Check the spelling of the configuration key.",
         }
         if closest:
             resp["suggestion"] = f"Did you mean '{closest[0]}'?"
@@ -1819,7 +1816,6 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
             resp = {
                 "error": f"Invalid log level: {value}",
                 "valid_levels": sorted(valid_levels),
-                "suggestion": "Check the spelling of the log level.",
             }
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
@@ -2271,7 +2267,6 @@ async def help(topic: str = "memory") -> str:
         resp: dict[str, typing.Any] = {
             "error": f"Unknown topic '{topic}'.",
             "valid_topics": list(valid_topics.keys()),
-            "suggestion": "Check the spelling of the topic.",
         }
         if closest:
             resp["suggestion"] = f"Did you mean '{closest[0]}'?"
