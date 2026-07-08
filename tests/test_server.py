@@ -958,3 +958,19 @@ class TestSpecializedTools:
             mock_handle.return_value = json.dumps({"status": "consolidated"})
             await consolidate_memories(category="test", ctx=ctx)
             mock_handle.assert_called_once()
+
+    async def test_handle_capture_invalid_context_type_fuzzy_match(self, ctx_with_db):
+        from mnemo_mcp.server import _handle_capture
+
+        ctx, db = ctx_with_db
+
+        res = json.loads(
+            await _handle_capture(
+                ctx=ctx,
+                text="Test capture",
+                context_type="skil",
+            )
+        )
+        assert "error" in res
+        assert "Unknown context_type" in res["error"]
+        assert "Did you mean 'skill'?" in res.get("suggestion", "")
