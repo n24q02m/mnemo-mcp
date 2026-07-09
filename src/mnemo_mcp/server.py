@@ -989,7 +989,9 @@ async def _handle_capture(
             if closest:
                 resp["suggestion"] = f"Did you mean '{closest[0]}'?"
             else:
-                resp["suggestion"] = f"Available context types are: {', '.join(sorted(CONTEXT_TYPES))}."
+                resp["suggestion"] = (
+                    f"Available context types are: {', '.join(sorted(CONTEXT_TYPES))}."
+                )
             return _json(resp)
         return _json(
             {"error": msg, "suggestion": "Check payload length and constraints."}
