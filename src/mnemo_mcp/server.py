@@ -367,8 +367,14 @@ def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
 
 
 def _json(obj: object) -> str:
-    """Serialize to readable JSON."""
-    return json.dumps(obj, indent=2)
+    """Serialize to dense JSON.
+
+    # Bolt Performance Optimization:
+    # Use dense formatting with separators=(',', ':') instead of indent=2.
+    # This minimizes byte overhead, reduces serialization time, and lowers
+    # token costs for LLM clients processing the responses.
+    """
+    return json.dumps(obj, separators=(",", ":"))
 
 
 async def _maybe_include_setup_hint(result: dict) -> dict:

@@ -620,9 +620,9 @@ class TestJsonHelper:
     """Tests for the _json formatting helper."""
 
     def test_json_indentation(self):
-        """Verify _json serializes with indent=2."""
+        """Verify _json serializes densely without indentation."""
         data = {"a": 1, "b": [2, 3]}
         result = _json(data)
-        expected = json.dumps(data, indent=2)
+        expected = json.dumps(data, separators=(",", ":"))
         assert result == expected
-        assert "\n  " in result  # Check for 2-space indentation
+        assert "\n" not in result  # Check for no indentation
