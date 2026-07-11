@@ -2,7 +2,7 @@
 
 Bare invocation and any leading-dash argv start the server unchanged;
 subcommands (auth/warmup) run one-shot operator actions. No network or
-model calls -- run_setup_sync/run_warmup are mocked.
+model calls -- run_setup_sync/run_warmup/setup_google_auth are mocked.
 """
 
 import sys
@@ -38,12 +38,67 @@ class TestServeDispatch:
 
 
 class TestAuthSubcommand:
-    """`mnemo-mcp auth google` -- run_setup_sync dispatch."""
+    """`mnemo-mcp auth google` -- BYO client resolution + run_setup_sync."""
 
-    def test_happy_path(self, capsys):
+    def test_half_pair_flags_returns_clean_error(self, capsys):
         from mnemo_mcp import cli
 
-        result = {"status": "authenticated", "provider": "google_drive"}
+        with patch.object(
+            sys, "argv", ["mnemo-mcp", "auth", "google", "--client-secret", "shh"]
+        ):
+            rc = cli.main()
+
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "set both together" in err
+        assert "shh" not in err  # never print the secret value
+
+    def test_happy_path_threads_byo_pair_to_setup_google_auth(self, capsys):
+        """auth google --client-id/--client-secret must reach setup_google_auth.
+
+        mnemo_mcp.config.settings is a module-level singleton resolved at
+        import time, so a prior regression wrote the BYO pair to os.environ
+        (a no-op -- the singleton was already frozen) instead of threading
+        it through run_setup_sync's params. This does NOT blanket-mock
+        run_setup_sync: it lets the real function run (including its
+        missing-credentials check) and only mocks the network-touching
+        setup_google_auth, so the assertion below proves the pair actually
+        reaches that call rather than being silently dropped.
+        """
+        from mnemo_mcp import cli
+
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "mnemo-mcp",
+                    "auth",
+                    "google",
+                    "--client-id",
+                    "my-id",
+                    "--client-secret",
+                    "my-secret",
+                ],
+            ),
+            patch(
+                "mnemo_mcp.sync.setup_google_auth",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_setup_google_auth,
+        ):
+            rc = cli.main()
+
+        mock_setup_google_auth.assert_awaited_once_with(
+            client_id="my-id", client_secret="my-secret"
+        )
+        assert rc == 0
+        assert '"status": "authenticated"' in capsys.readouterr().out
+
+    def test_no_flags_skips_byo_resolution(self, capsys):
+        from mnemo_mcp import cli
+
+        result = {"status": "error", "error": "boom"}
         with (
             patch.object(sys, "argv", ["mnemo-mcp", "auth", "google"]),
             patch(
@@ -54,22 +109,6 @@ class TestAuthSubcommand:
             rc = cli.main()
 
         mock_setup.assert_awaited_once_with()
-        assert rc == 0
-        assert '"status": "authenticated"' in capsys.readouterr().out
-
-    def test_error_status_returns_nonzero(self):
-        from mnemo_mcp import cli
-
-        result = {"status": "error", "error": "boom"}
-        with (
-            patch.object(sys, "argv", ["mnemo-mcp", "auth", "google"]),
-            patch(
-                "mnemo_mcp.setup_tool.run_setup_sync",
-                new=AsyncMock(return_value=result),
-            ),
-        ):
-            rc = cli.main()
-
         assert rc == 1
 
 
