@@ -74,8 +74,9 @@ async def test_refresh_token_success():
 
 
 async def test_refresh_token_missing_params():
-    # Trigger line 91
-    token = {"refresh_token": ""}
+    # Trigger line 91. client_id must match the mocked settings so the
+    # client-mismatch guard doesn't intercept before this branch.
+    token = {"refresh_token": "", "client_id": ""}
     with patch("mnemo_mcp.sync.gdrive.settings") as mock_settings:
         mock_settings.google_drive_client_id = ""
         new_token = await _refresh_token(token)
@@ -83,7 +84,9 @@ async def test_refresh_token_missing_params():
 
 
 async def test_refresh_token_failure():
-    token = {"refresh_token": "ref"}
+    # client_id matches the mocked settings so this exercises the
+    # HTTP-failure branch, not the client-mismatch guard.
+    token = {"refresh_token": "ref", "client_id": "cid"}
     mock_resp = MagicMock()
     mock_resp.status_code = 400
     mock_resp.text = "invalid grant"
@@ -99,7 +102,9 @@ async def test_refresh_token_failure():
 
 
 async def test_refresh_token_exception():
-    token = {"refresh_token": "ref"}
+    # client_id matches the mocked settings so this exercises the
+    # network-exception branch, not the client-mismatch guard.
+    token = {"refresh_token": "ref", "client_id": "cid"}
     with (
         patch("httpx.AsyncClient.post", side_effect=Exception("net error")),
         patch("mnemo_mcp.sync.gdrive.settings") as mock_settings,
