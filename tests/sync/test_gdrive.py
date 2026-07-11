@@ -41,6 +41,20 @@ def fake_token():
 # --- Token management ---
 
 
+async def test_clear_token_deletes_file(tmp_path):
+    """_clear_token deletes the on-disk token via the real token_store."""
+    from mnemo_mcp.sync.gdrive import _clear_token, _load_token, _save_token
+
+    with patch("mnemo_mcp.token_store.settings") as mock_settings:
+        mock_settings.get_data_dir.return_value = tmp_path
+        await _save_token({"access_token": "to-clear"})
+        assert await _load_token() is not None
+
+        await _clear_token()
+
+        assert await _load_token() is None
+
+
 async def test_refresh_token_success():
     token = {"refresh_token": "ref", "client_id": "cid", "client_secret": "sec"}
     mock_resp = MagicMock()
