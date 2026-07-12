@@ -2111,7 +2111,24 @@ async def _handle_config_export_passport(ctx: Context | None) -> str:
     out_dir = settings.get_data_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"passport-{int(__import__('time').time())}.mnemo"
-    await asyncio.to_thread(path.write_bytes, bundle)
+
+    def _secure_write_bytes(file_path: typing.Any, content: bytes) -> None:
+        import os
+        import stat
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        mode = stat.S_IRUSR | stat.S_IWUSR
+        fd = os.open(file_path, flags, mode)
+        try:
+            if os.name != "nt":
+                os.fchmod(fd, mode)
+        except OSError:
+            pass
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+
+    await asyncio.to_thread(_secure_write_bytes, path, bundle)
     return _json({"status": "exported", "path": str(path), "size": len(bundle)})
 
 
