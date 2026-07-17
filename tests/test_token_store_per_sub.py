@@ -115,10 +115,10 @@ class TestSaveTokenForSub:
         # Restore (defensive)
         os.fchmod = original_fchmod  # noqa: SLF001
 
-    def test_save_write_oserror_fallback(self, data_dir):
+    def test_save_write_oserror_raises(self, data_dir):
         from unittest.mock import MagicMock
 
-        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
+        from mnemo_mcp.token_store import save_token_for_sub
 
         token = {"access_token": "sub_write_fail"}
         mock_file = MagicMock()
@@ -131,58 +131,9 @@ class TestSaveTokenForSub:
             patch("mnemo_mcp.token_store.os.fchmod"),
             patch("mnemo_mcp.token_store.os.fdopen", return_value=mock_file),
             patch("mnemo_mcp.token_store.os.close"),
+            pytest.raises(OSError)
         ):
             save_token_for_sub("user-write-fail", "drive", token)
-
-        path = get_token_path_for_sub("user-write-fail", "drive")
-        assert json.loads(path.read_text())["access_token"] == "sub_write_fail"
-
-    def test_save_fallback_chmod_oserror_swallowed(self, data_dir):
-        if os.name == "nt":
-            pytest.skip("POSIX-only fallback chmod path")
-        from mnemo_mcp.token_store import save_token_for_sub
-
-        original_chmod = Path.chmod
-
-        def mock_chmod(self, mode):
-            if self.name == "google_drive.json":
-                raise OSError("simulated chmod fail")
-            return original_chmod(self, mode)
-
-        with (
-            patch(
-                "mnemo_mcp.token_store.os.open", side_effect=OSError("trigger fallback")
-            ),
-            patch.object(Path, "chmod", mock_chmod),
-        ):
-            # Must not raise.
-            save_token_for_sub("user-fb-chmod", "google_drive", {"access_token": "ok"})
-
-
-class TestSaveTokenForSubFallback:
-    """Cover the fallback branch when ``os.open`` raises OSError."""
-
-    def test_falls_back_to_path_write_text(self, data_dir):
-        if os.name == "nt":
-            pytest.skip("POSIX-only os.open fallback path")
-        from mnemo_mcp.token_store import (
-            get_token_path_for_sub,
-            save_token_for_sub,
-        )
-
-        original_open = os.open
-
-        def mock_open(path, flags, mode=0o777):
-            if str(path).endswith("google_drive.json"):
-                raise OSError("simulated")
-            return original_open(path, flags, mode)
-
-        with patch.object(os, "open", mock_open):
-            save_token_for_sub("user-fb", "google_drive", {"access_token": "ok"})
-
-        path = get_token_path_for_sub("user-fb", "google_drive")
-        assert path.exists()
-
 
 class TestLoadTokenForSub:
     def test_returns_none_when_missing(self, data_dir):

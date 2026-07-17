@@ -166,7 +166,7 @@ class TestSaveToken:
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "fchmod_fail"
 
-    def test_save_os_open_oserror_fallback(self, token_dir):
+    def test_save_os_open_oserror_raises(self, token_dir):
         from mnemo_mcp.token_store import save_token
 
         token = {"access_token": "fallback_token"}
@@ -175,36 +175,12 @@ class TestSaveToken:
             patch("mnemo_mcp.token_store.settings") as m,
             patch("mnemo_mcp.token_store.os.name", "posix"),
             patch("mnemo_mcp.token_store.os.open", side_effect=OSError("Cannot open")),
+            pytest.raises(OSError)
         ):
             m.get_data_dir.return_value = token_dir.parent
             save_token("drive", token)
 
-        saved = json.loads((token_dir / "drive.json").read_text())
-        assert saved["access_token"] == "fallback_token"
 
-    def test_save_fallback_chmod_oserror(self, token_dir):
-        from mnemo_mcp.token_store import save_token
-
-        token = {"access_token": "fallback_chmod_fail"}
-
-        original_chmod = Path.chmod
-
-        def mock_chmod(self, mode):
-            if self.name == "drive.json":
-                raise OSError("Permission denied for file")
-            return original_chmod(self, mode)
-
-        with (
-            patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
-            patch("mnemo_mcp.token_store.os.open", side_effect=OSError("Cannot open")),
-            patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
-        ):
-            m.get_data_dir.return_value = token_dir.parent
-            save_token("drive", token)
-
-        saved = json.loads((token_dir / "drive.json").read_text())
-        assert saved["access_token"] == "fallback_chmod_fail"
 
     def test_save_nt_os(self, token_dir):
         from mnemo_mcp.token_store import save_token
@@ -223,7 +199,7 @@ class TestSaveToken:
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "abc"
 
-    def test_save_write_oserror_fallback(self, token_dir):
+    def test_save_write_oserror_raises(self, token_dir):
         from unittest.mock import MagicMock
 
         from mnemo_mcp.token_store import save_token
@@ -240,13 +216,10 @@ class TestSaveToken:
             patch("mnemo_mcp.token_store.os.fchmod"),
             patch("mnemo_mcp.token_store.os.fdopen", return_value=mock_file),
             patch("mnemo_mcp.token_store.os.close"),
+            pytest.raises(OSError)
         ):
             m.get_data_dir.return_value = token_dir.parent
             save_token("drive", token)
-
-        saved = json.loads((token_dir / "drive.json").read_text())
-        assert saved["access_token"] == "write_fail_fallback"
-
 
 class TestDeleteToken:
     def test_delete_existing(self, token_dir):
@@ -424,42 +397,22 @@ class TestSubTokenStore:
             result = load_token_for_sub(sub, provider)
         assert result is None
 
-    def test_save_token_for_sub_os_open_oserror_fallback(self, sub_token_dir, tmp_path):
-        from mnemo_mcp.token_store import get_token_path_for_sub, save_token_for_sub
-
-        sub = "test-user"
-        provider = "google"
-        token = {"access_token": "fallback"}
-
-        with (
-            patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
-            patch("mnemo_mcp.token_store.os.open", side_effect=OSError("Open error")),
-        ):
-            m.get_data_dir.return_value = tmp_path
-            save_token_for_sub(sub, provider, token)
-
-        path = get_token_path_for_sub(sub, provider)
-        saved = json.loads(path.read_text())
-        assert saved["access_token"] == "fallback"
-
-    def test_save_token_for_sub_chmod_oserror(self, sub_token_dir, tmp_path):
+    def test_save_token_for_sub_os_open_oserror_raises(self, sub_token_dir, tmp_path):
         from mnemo_mcp.token_store import save_token_for_sub
 
         sub = "test-user"
         provider = "google"
-        token = {"access_token": "chmod-fail"}
+        token = {"access_token": "fallback-test"}
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
             patch("mnemo_mcp.token_store.os.name", "posix"),
-            patch.object(Path, "chmod", side_effect=OSError("Chmod error")),
             patch(
                 "mnemo_mcp.token_store.os.open", side_effect=OSError("Force fallback")
             ),
+            pytest.raises(OSError)
         ):
             m.get_data_dir.return_value = tmp_path
-            # Should not raise
             save_token_for_sub(sub, provider, token)
 
     def test_save_token_for_sub_fchmod_oserror(self, sub_token_dir, tmp_path):

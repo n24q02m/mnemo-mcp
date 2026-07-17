@@ -96,24 +96,17 @@ def save_token(provider: str, token: dict) -> None:
     token_json = json.dumps(token, indent=2)
 
     if os.name != "nt":
+        # Prevent TOCTOU vulnerability by setting permissions on creation
+        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        mode = stat.S_IRUSR | stat.S_IWUSR  # 0600
+        fd = os.open(path, flags, mode)
         try:
-            # Prevent TOCTOU vulnerability by setting permissions on creation
-            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
-            mode = stat.S_IRUSR | stat.S_IWUSR  # 0600
-            fd = os.open(path, flags, mode)
-            try:
-                # Ensure existing files also get their permissions restricted
-                os.fchmod(fd, mode)
-            except OSError:
-                pass
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(token_json)
+            # Ensure existing files also get their permissions restricted
+            os.fchmod(fd, mode)
         except OSError:
-            path.write_text(token_json, encoding="utf-8")
-            try:
-                path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            except OSError:
-                pass
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token_json)
     else:
         path.write_text(token_json, encoding="utf-8")
 
@@ -164,22 +157,15 @@ def save_token_for_sub(sub: str, provider: str, token: dict) -> None:
     token_json = json.dumps(token, indent=2)
 
     if os.name != "nt":
+        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        mode = stat.S_IRUSR | stat.S_IWUSR
+        fd = os.open(path, flags, mode)
         try:
-            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
-            mode = stat.S_IRUSR | stat.S_IWUSR
-            fd = os.open(path, flags, mode)
-            try:
-                os.fchmod(fd, mode)
-            except OSError:
-                pass
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(token_json)
+            os.fchmod(fd, mode)
         except OSError:
-            path.write_text(token_json, encoding="utf-8")
-            try:
-                path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            except OSError:
-                pass
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token_json)
     else:
         path.write_text(token_json, encoding="utf-8")
 

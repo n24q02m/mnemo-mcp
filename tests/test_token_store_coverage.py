@@ -88,4 +88,5 @@ class TestTokenStoreCoverage:
         # Fallback Path.chmod error
         with patch("os.open", side_effect=OSError("open failed")):
             with patch.object(Path, "chmod", side_effect=OSError("final chmod failed")):
-                save_token_for_sub("sub3", "test", {"access_token": "abc"})
+                with pytest.raises(OSError):
+                    save_token_for_sub("sub3", "test", {"access_token": "abc"})
