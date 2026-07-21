@@ -735,29 +735,20 @@ class MemoryDB:
         the timestamp). When no row exists the unspecified fields are stored
         as NULL.
         """
-        existing = self.get_sync_state(backend) or {}
-        merged = {
-            "backend": backend,
-            "last_sync_at": last_sync_at
-            if last_sync_at is not None
-            else existing.get("last_sync_at"),
-            "last_commit_sha": last_commit_sha
-            if last_commit_sha is not None
-            else existing.get("last_commit_sha"),
-            "upload_cursor": upload_cursor
-            if upload_cursor is not None
-            else existing.get("upload_cursor"),
-        }
+        # Bolt Performance Optimization:
+        # Avoid the 'Read-Modify-Write' pattern (SELECT followed by Python merge and INSERT OR REPLACE).
+        # Instead, use a single atomic query with INSERT INTO ... ON CONFLICT DO UPDATE.
+        # This bypasses N+1 query overhead, Python object instantiation, and eliminates TOCTOU race conditions.
         self._conn.execute(
-            "INSERT OR REPLACE INTO sync_state "
-            "(backend, last_sync_at, last_commit_sha, upload_cursor) "
-            "VALUES (?, ?, ?, ?)",
-            (
-                merged["backend"],
-                merged["last_sync_at"],
-                merged["last_commit_sha"],
-                merged["upload_cursor"],
-            ),
+            """
+            INSERT INTO sync_state (backend, last_sync_at, last_commit_sha, upload_cursor)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(backend) DO UPDATE SET
+                last_sync_at = COALESCE(excluded.last_sync_at, sync_state.last_sync_at),
+                last_commit_sha = COALESCE(excluded.last_commit_sha, sync_state.last_commit_sha),
+                upload_cursor = COALESCE(excluded.upload_cursor, sync_state.upload_cursor)
+            """,
+            (backend, last_sync_at, last_commit_sha, upload_cursor),
         )
         self._conn.commit()
 
