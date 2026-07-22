@@ -1281,8 +1281,9 @@ async def _handle_consolidate(
             "note": "Review the summary and use add/delete to apply changes.",
         }
     except Exception as e:
+        logger.exception("Consolidation failed")
         return {
-            "error": f"Consolidation failed: {e}",
+            "error": "Consolidation failed: internal error",
             "suggestion": "Check LLM provider configuration and network connectivity.",
         }
 
@@ -2156,7 +2157,7 @@ async def _handle_config_sync_now(
     except Exception as e:
         logger.exception("sync_now failed")
         return {
-            "error": f"sync_now failed: {e}",
+            "error": "sync_now failed: internal error",
             "suggestion": "Check network connectivity and provider credentials.",
         }
 
@@ -2233,7 +2234,7 @@ async def _handle_config_import_passport(
     except Exception as e:
         logger.exception("import_passport: backend pull failed")
         return {
-            "error": f"backend pull failed: {e}",
+            "error": "backend pull failed: internal error",
             "suggestion": "Verify remote backend access and network connectivity.",
         }
 
@@ -2250,7 +2251,6 @@ async def _handle_config_import_passport(
         logger.exception("import_passport: apply_bundle failed")
         return {
             "error": "Passphrase mismatch or tampered bundle",
-            "detail": f"{type(e).__name__}: {e}",
             "backend": target,
             "suggestion": "Verify the passphrase matches the one used to export the passport bundle and that the bundle has not been modified.",
         }
