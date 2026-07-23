@@ -167,30 +167,30 @@ wheels = [
 
 [[package]]
 name = "boto3"
-version = "1.43.46"
+version = "1.43.55"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore" },
     { name = "jmespath" },
     { name = "s3transfer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/e7/976bf3dfe0aa5d7f31bec2f2cf57c79641620c910a39bc843a237aa9592d/boto3-1.43.46.tar.gz", hash = "sha256:66c0d943b049a46a492ec4ec2ebe73c930b1842c7137bee83aad6d93e95d4d96", size = 112654, upload-time = "2026-07-10T19:32:12.498Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/62/9a6795d2e85b04615a18bf25d39e9cfea243f7bd532f420eeee17045f157/boto3-1.43.55.tar.gz", hash = "sha256:ab2d18d00fd0ceb7110c3659176b9306e009a313dbc5fcc5bd8734253f115157", size = 112686, upload-time = "2026-07-23T19:29:59.448Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/1d/c52e66ff32ba7911664e6c4c2ac62e1c6d2d1e7550c7ac185d3f4b70a8a4/boto3-1.43.46-py3-none-any.whl", hash = "sha256:69453e2c1bcb9fd9806527ab99950cacfc2826cb0dce9a3a0414d19270c06c3c", size = 140031, upload-time = "2026-07-10T19:32:11.129Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/b4/354b0a469e7b215efe4ec9b4ef942ae14becedbfd14bf3f87bf72fb7350a/boto3-1.43.55-py3-none-any.whl", hash = "sha256:c8f23355b4eff538a9c04e09666c6defb5013051de23ca826559906787253188", size = 140026, upload-time = "2026-07-23T19:29:57.897Z" },
 ]
 
 [[package]]
 name = "botocore"
-version = "1.43.46"
+version = "1.43.55"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jmespath" },
     { name = "python-dateutil" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/f1/1917891851ac5ac09bb9f4862b8fc9252a009d7c24e8688bb67e4383d9e7/botocore-1.43.46.tar.gz", hash = "sha256:59f2e1ac3cdc66d191cae91c0804bc41847ce817dc8147cf43eaada8f76a5533", size = 15694635, upload-time = "2026-07-10T19:32:00.437Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/eb/a235d69083f5948d3ed7e1e5d75ceb16f5bf943761e33b54cb141c497ed1/botocore-1.43.55.tar.gz", hash = "sha256:46e8d9f457a804948abf45a22add963ebaaa6c2765c2f1c26ff3b534309d7a58", size = 15733294, upload-time = "2026-07-23T19:29:48.755Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/f2/4bd8f2f419088feb3ce55f0ca91040ff902f402edfd197450b20a2e1d533/botocore-1.43.46-py3-none-any.whl", hash = "sha256:cb673891e623ae6e6a1bf24d94ef169504f3eb02584adb5d5bee2f6aae819b60", size = 15380350, upload-time = "2026-07-10T19:31:57.616Z" },
+    { url = "https://files.pythonhosted.org/packages/78/23/0c7172020da4ff6d19e6aefa98abc024955dba2c87194b71ac48990d3e84/botocore-1.43.55-py3-none-any.whl", hash = "sha256:b7ceb3070dffb64cc1cfdda3c32db538eb143c46ad9e9e781b0d8f90c9246f37", size = 15417310, upload-time = "2026-07-23T19:29:45.736Z" },
 ]
 
 [[package]]
@@ -1045,7 +1045,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "2.7.0b1"
+version = "2.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -1084,7 +1084,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.5" },
-    { name = "boto3", specifier = ">=1.43.40" },
+    { name = "boto3", specifier = ">=1.43.50" },
     { name = "cryptography", specifier = ">=49.0.0" },
     { name = "httpx" },
     { name = "idna", specifier = ">=3.18" },
@@ -1112,7 +1112,7 @@ dev = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff" },
-    { name = "syrupy", specifier = ">=5.4.0" },
+    { name = "syrupy", specifier = ">=5.5.3" },
     { name = "ty" },
 ]
 
