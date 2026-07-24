@@ -1280,10 +1280,9 @@ async def _handle_consolidate(
             "summary": summary.strip(),
             "note": "Review the summary and use add/delete to apply changes.",
         }
-    except Exception:
-        logger.exception("Consolidation failed")
+    except Exception as e:
         return {
-            "error": "Consolidation failed: internal error",
+            "error": f"Consolidation failed: {e}",
             "suggestion": "Check LLM provider configuration and network connectivity.",
         }
 
@@ -2154,10 +2153,10 @@ async def _handle_config_sync_now(
             "error": str(e),
             "suggestion": "Check if backend configuration is complete.",
         }
-    except Exception:
+    except Exception as e:
         logger.exception("sync_now failed")
         return {
-            "error": "sync_now failed: internal error",
+            "error": f"sync_now failed: {e}",
             "suggestion": "Check network connectivity and provider credentials.",
         }
 
@@ -2231,10 +2230,10 @@ async def _handle_config_import_passport(
             "error": str(e),
             "suggestion": "Ensure the specified backend is properly configured.",
         }
-    except Exception:
+    except Exception as e:
         logger.exception("import_passport: backend pull failed")
         return {
-            "error": "backend pull failed: internal error",
+            "error": f"backend pull failed: {e}",
             "suggestion": "Verify remote backend access and network connectivity.",
         }
 
@@ -2247,11 +2246,11 @@ async def _handle_config_import_passport(
 
     try:
         result = await apply_bundle(db, bundle, passphrase)
-    except Exception:
+    except Exception as e:
         logger.exception("import_passport: apply_bundle failed")
         return {
             "error": "Passphrase mismatch or tampered bundle",
-            "detail": "internal error",
+            "detail": f"{type(e).__name__}: {e}",
             "backend": target,
             "suggestion": "Verify the passphrase matches the one used to export the passport bundle and that the bundle has not been modified.",
         }
