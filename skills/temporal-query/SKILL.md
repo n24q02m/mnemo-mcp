@@ -120,10 +120,12 @@ that does return rows — do not present a current-state answer as history.
 - **Never claim a fact was true at T** — only that it was recorded at T.
 - **Quote both ids** when reporting a change. The user's older notes
   reference the pre-update id, which no longer resolves through search.
-- **Do not reconstruct history by reading raw tables.** The temporal
-  actions apply the archival and validity filters; hand-written SQL over
-  `memories` will surface archived and superseded rows the tool path
-  deliberately excludes.
+- **Know which action hides what.** `as_of` excludes archived rows on top
+  of the validity window; `history` deliberately does not filter archived
+  rows, because a retired memory is still part of the timeline;
+  `entity_search` returns current rows only and is therefore the wrong
+  tool for a timeline. Hand-written SQL over `memories` reproduces none
+  of these filters — use the actions.
 
 ## When to Use
 
