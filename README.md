@@ -1,5 +1,7 @@
 # Mnemo MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.n24q02m%2Fmnemo-mcp.svg)](https://mcptoplist.com/server/io.github.n24q02m%2Fmnemo-mcp)
+
 mcp-name: io.github.n24q02m/mnemo-mcp
 
 **Persistent AI memory with hybrid search and embedded sync. Open, free, unlimited.**
