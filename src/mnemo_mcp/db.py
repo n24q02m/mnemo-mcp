@@ -1257,22 +1257,28 @@ class MemoryDB:
                 f"Content length {len(content)} exceeds limit of {MAX_CONTENT_LENGTH}"
             )
 
-        old_row = self._conn.execute(
-            "SELECT * FROM memories WHERE id = ? AND valid_to IS NULL", (memory_id,)
-        ).fetchone()
-        if old_row is None:
-            return None
-
         now = _now_iso()
         new_id = uuid.uuid4().hex
 
-        new_row = dict(old_row)
+        # Bolt Performance Optimization:
+        # Replaced SELECT followed by UPDATE with a single atomic UPDATE ... RETURNING
+        # This completely eliminates a database round-trip and bypasses a potential TOCTOU race.
+        updated_row = self._conn.execute(
+            "UPDATE memories SET valid_to = ?, superseded_by = ? WHERE id = ? AND valid_to IS NULL RETURNING *",
+            (now, new_id, memory_id),
+        ).fetchone()
+        if updated_row is None:
+            return None
+
+        new_row = dict(updated_row)
         new_row["id"] = new_id
         new_row["created_at"] = now
         new_row["updated_at"] = now
         new_row["last_accessed"] = now
         new_row["access_count"] = 0
         new_row["valid_from"] = now
+        # Note: RETURNING returns the row AFTER the update, so we must explicitly
+        # reset the mutated fields back to NULL for the new superseding row.
         new_row["valid_to"] = None
         new_row["superseded_by"] = None
         if "commit_sha" in new_row:
@@ -1296,10 +1302,6 @@ class MemoryDB:
         placeholders = ", ".join("?" for _ in columns)
 
         self._conn.execute(
-            "UPDATE memories SET valid_to = ?, superseded_by = ? WHERE id = ?",
-            (now, new_id, memory_id),
-        )
-        self._conn.execute(
             f"INSERT INTO memories ({column_list}) VALUES ({placeholders})",
             [new_row[c] for c in columns],
         )
@@ -1309,6 +1311,7 @@ class MemoryDB:
         # for metadata-only edits (content-only re-embedding is the
         # caller's responsibility, e.g. server._handle_update).
         if self._vec_enabled:
+            # Cannot use DELETE RETURNING on a virtual table (memories_vec).
             old_vec = self._conn.execute(
                 "SELECT embedding FROM memories_vec WHERE id = ?", (memory_id,)
             ).fetchone()

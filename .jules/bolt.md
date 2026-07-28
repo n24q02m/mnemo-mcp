@@ -22,3 +22,7 @@ Both PRs proposed the correct change and justified it with impact numbers that c
 
 ### 2026-07-25 - Unexpanded shell substitution in ledger headings (#1000)
 The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command written into Markdown. Two entries in `.jules/palette.md` already carried this and both have been corrected to their real commit dates. Write the date out.
+
+## 2026-07-28 - Eliminate SELECT before UPDATE via RETURNING
+**Learning:** When performing updates or deletes that require data from the existing row (like `update` handling vector copying), issuing a `SELECT` followed by `UPDATE`/`DELETE` adds unnecessary Python-to-SQLite overhead and risks TOCTOU race conditions.
+**Action:** Use SQLite's `RETURNING` clause directly on the `UPDATE` or `DELETE` statement. For example, `UPDATE foo SET valid_to = 'now' RETURNING *` performs the mutation and fetches the pre-mutation state in a single database round-trip. Note that virtual tables do not support RETURNING.
