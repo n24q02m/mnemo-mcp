@@ -16,6 +16,7 @@
 **A thread-hammering test was tried here and dropped.** Driving `upsert_sync_state` from two threads in a loop raises `SystemError: error return without exception set` from the `sqlite3` module, intermittently, on both the old and new code. `MemoryDB` shares one connection opened with `check_same_thread=False`, and that connection is not safe under genuinely simultaneous use — a separate pre-existing problem this change narrows but does not solve. Do not add a concurrency test here until the connection itself is guarded.
 
 ## 2026-08-01 - Supersede in one statement, and close the transaction on every exit
+**Commit:** 6633e6f (#1038)
 
 **Learning:** `MemoryDB.update` read the row with a `SELECT ... WHERE valid_to IS NULL`, then closed it with a separate `UPDATE`. A competing writer that supersedes the same row between the two statements leaves two live rows and a supersession chain that points at the wrong successor; injecting that writer deterministically reproduces it. The `SELECT` also carried the `valid_to IS NULL` guard that made the loser of the race back off, so the guard has to move onto the write for the check and the write to be one decision.
 
@@ -37,3 +38,6 @@ Both PRs proposed the correct change and justified it with impact numbers that c
 
 ### 2026-07-25 - Unexpanded shell substitution in ledger headings (#1000)
 The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command written into Markdown. Two entries in `.jules/palette.md` already carried this and both have been corrected to their real commit dates. Write the date out.
+
+### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
+Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
