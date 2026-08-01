@@ -750,6 +750,23 @@ class TestVectorParityWithSqlite:
     def either_vec_db(self, request, tmp_path, fake_worker, fake_vectorize):
         if request.param == "sqlite":
             db = MemoryDB(tmp_path / "memories.db", embedding_dims=DIMS)
+            if not db.vec_enabled:
+                # macOS hosted runners build Python without
+                # --enable-loadable-sqlite-extensions, so sqlite-vec cannot load
+                # and MemoryDB has no vector arm to compare against (see
+                # tests/test_db_vec_coverage.py, which documents the same
+                # constraint). Skipped rather than asserted around: forcing
+                # `_vec_enabled = True` over a stand-in table, as that file does
+                # for branch coverage, would compare this backend against a fake
+                # ranking and call the result parity. The cf-d1 half of this
+                # class still runs here; the parity claim itself rests on the
+                # runners where sqlite-vec is real.
+                db.close()
+                pytest.skip(
+                    "sqlite-vec is unavailable on this interpreter "
+                    "(sqlite3 built without loadable-extension support), so "
+                    "there is no SQLite vector arm to compare against"
+                )
             yield db
             db.close()
         else:
