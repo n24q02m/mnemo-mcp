@@ -8,6 +8,24 @@ import pytest
 from mnemo_mcp.server import lifespan
 
 
+async def await_embedding_ready(ctx: dict, timeout: float = 10.0) -> None:
+    """Block until lifespan's background embedding task publishes its result.
+
+    ``lifespan`` seeds ``ctx["embedding_model"]`` with None and fills it in
+    from an ``asyncio.create_task``. A fixed ``asyncio.sleep`` races that task:
+    it is long enough on an idle machine and too short on a busy one, so the
+    assertions below fail intermittently on loaded CI runners. Poll for the
+    value instead, with a deadline so a genuinely stuck task still fails.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while ctx["embedding_model"] is None:
+        assert loop.time() < deadline, (
+            f"background embedding init did not publish a model within {timeout}s"
+        )
+        await asyncio.sleep(0.01)
+
+
 @pytest.fixture
 def mock_settings():
     with patch("mnemo_mcp.server.settings") as m:
@@ -71,7 +89,7 @@ async def test_lifespan_happy_path_cloud(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await await_embedding_ready(ctx)
         assert ctx["embedding_model"] == "cloud-model"
         assert ctx["embedding_dims"] == 128
         assert ctx["db"] == mock_db.return_value
@@ -108,7 +126,7 @@ async def test_lifespan_local_backend_explicit(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await await_embedding_ready(ctx)
         assert ctx["embedding_model"] == "__local__"
         assert ctx["embedding_dims"] == 768  # Default for stored
 
