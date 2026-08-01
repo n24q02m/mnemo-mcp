@@ -493,6 +493,12 @@ def _checkpoint_wal(db_path: Path) -> bool:
     silently when a reader is around, and ``FULL`` leaves the frames in the
     WAL after copying them, so neither guarantees the state we need on disk.
 
+    ``TRUNCATE`` waits for readers to let go, and auto-sync runs while the
+    server holds its own connection to the same file, so the busy timeout is
+    set explicitly to match ``MemoryDB`` (``db.py``) instead of relying on
+    the sqlite3 driver default -- without it a reader that happens to be
+    mid-query would abort the push.
+
     Returns ``True`` when the whole WAL was folded in, ``False`` when it was
     not -- in which case the file is not safe to upload.
     """
@@ -502,6 +508,7 @@ def _checkpoint_wal(db_path: Path) -> bool:
 
     conn = sqlite3.connect(str(db_path))
     try:
+        conn.execute("PRAGMA busy_timeout = 5000")
         busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
         if busy:
             logger.error(

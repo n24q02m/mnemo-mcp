@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import threading
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -75,6 +77,46 @@ async def test_sync_push_uploads_a_db_the_wal_was_folded_into(tmp_path, upload_f
             )
         ]
         assert "memories" in tables
+        assert restored.execute("SELECT content FROM memories").fetchall() == [
+            ("xin chao",)
+        ]
+    finally:
+        restored.close()
+
+
+async def test_sync_push_waits_out_a_reader_that_lets_go(tmp_path, upload_file):
+    """A reader that finishes inside the busy timeout must not cost a push.
+
+    The server keeps its own connection to the same file while auto-sync
+    runs, so aborting on the first busy reply would trade "upload an empty
+    DB" for "never upload again".
+    """
+    db_path = tmp_path / "memories.db"
+    writer = _wal_db_with_one_row(db_path)
+    drive_copy = tmp_path / "drive_copy.db"
+    holding = threading.Event()
+
+    def hold_a_read_snapshot_briefly():
+        reader = sqlite3.connect(db_path)
+        reader.execute("BEGIN")
+        reader.execute("SELECT * FROM memories").fetchall()
+        holding.set()
+        time.sleep(0.5)
+        reader.close()
+
+    thread = threading.Thread(target=hold_a_read_snapshot_briefly)
+    thread.start()
+    assert holding.wait(5.0), "reader thread never took its snapshot"
+
+    try:
+        assert await sync_push(db_path, "folder") is True
+        shutil.copyfile(upload_file.await_args.args[1], drive_copy)
+    finally:
+        thread.join()
+        writer.close()
+
+    restored = sqlite3.connect(drive_copy)
+    try:
         assert restored.execute("SELECT content FROM memories").fetchall() == [
             ("xin chao",)
         ]
