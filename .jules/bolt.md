@@ -15,6 +15,21 @@
 
 **A thread-hammering test was tried here and dropped.** Driving `upsert_sync_state` from two threads in a loop raises `SystemError: error return without exception set` from the `sqlite3` module, intermittently, on both the old and new code. `MemoryDB` shares one connection opened with `check_same_thread=False`, and that connection is not safe under genuinely simultaneous use — a separate pre-existing problem this change narrows but does not solve. Do not add a concurrency test here until the connection itself is guarded.
 
+## 2026-08-01 - Supersede in one statement, and close the transaction on every exit
+
+**Learning:** `MemoryDB.update` read the row with a `SELECT ... WHERE valid_to IS NULL`, then closed it with a separate `UPDATE`. A competing writer that supersedes the same row between the two statements leaves two live rows and a supersession chain that points at the wrong successor; injecting that writer deterministically reproduces it. The `SELECT` also carried the `valid_to IS NULL` guard that made the loser of the race back off, so the guard has to move onto the write for the check and the write to be one decision.
+
+The connection is opened in legacy autocommit-by-statement mode (`isolation_level=""`), where the first DML statement implicitly opens a transaction that only `commit()`/`rollback()` closes, and `MemoryDB.update` had no `try`/`rollback` at all. Two consequences, both measured:
+
+- When the successor `INSERT` aborts, the predecessor stays closed with `superseded_by` pointing at a row that was never written, and the next unrelated `add()` commits that state. A fresh connection then finds the memory gone -- no live row, no successor. This is the pre-existing data-loss path and it is independent of how the row is read.
+- `UPDATE ... RETURNING` opens a write transaction **even when it matches zero rows**, so the not-found branch must `rollback()` before returning. Without it the transaction stays open across subsequent `get`/`search`/`list` traffic, a second connection's write fails with `database is locked`, and `PRAGMA wal_checkpoint(TRUNCATE)` fails with `database table is locked`. This branch is ordinary, not rare: `update` is id-changing, so calling it again with the previous id lands there.
+
+`RETURNING` yields the row **after** the update is applied ([sqlite.org/lang_returning](https://sqlite.org/lang_returning.html) §2), so `valid_to` and `superseded_by` must be reset on the successor row rather than carried forward. `RETURNING` also requires SQLite >= 3.35.0 and is unsupported on virtual tables, so `memories_vec` keeps its separate `SELECT`.
+
+**Action:** Supersede with a single `UPDATE memories SET valid_to = ?, superseded_by = ? WHERE id = ? AND valid_to IS NULL RETURNING *`; wrap the body in `try/except BaseException: self._conn.rollback(); raise`; `rollback()` before the not-found `return None`; and check `sqlite3.sqlite_version_info` at open so an old library fails with a named requirement instead of a syntax error at the first write. Regression cover is `tests/test_db_update_atomicity.py` -- the guard test fails if `AND valid_to IS NULL` is deleted, and the not-found tests fail against the `RETURNING` form without the rollback.
+
+**This is an atomicity change, not a speed change.** The removed `SELECT` was measured at 12.6us inside a ~350us call, and the run-to-run spread within a single branch (297-383us) is wider than the difference between branches. There is no throughput claim to make here, per the 2026-07-25 entry below.
+
 ## Rejected
 
 ### 2026-07-25 - Unmeasured speedup figures on `upsert_sync_state` (#1000, #1004)
