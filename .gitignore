@@ -38,8 +38,6 @@ temp/
 dist/
 build/
 
-# AI Agent
-
 # Code review knowledge graph
 .code-review-graph/
 
