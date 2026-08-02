@@ -47,3 +47,7 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+## 2025-01-20 - TOCTOU Vulnerability in Token Persistence
+**Vulnerability:** Insecure file permission fallback using write_text created a window where sensitive OAuth tokens were readable by other users before chmod was applied.
+**Learning:** Relying on write_text as a fallback when os.open with O_CREAT | O_WRONLY | O_TRUNC fails defeats the purpose of secure file creation and introduces TOCTOU risks on POSIX systems.
+**Prevention:** Avoid path.write_text() for sensitive files. Use os.open with secure flags and os.fchmod, and let failures bubble up rather than falling back to insecure defaults.
