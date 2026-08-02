@@ -99,21 +99,24 @@ class TestSaveTokenForSub:
             # Must not raise.
             save_token_for_sub("user-x", "google_drive", {"access_token": "tok"})
 
-    def test_fchmod_oserror_swallowed(self, data_dir):
+    def test_fchmod_oserror_propagates(self, data_dir):
+        """Unlike the directory chmod above, a file chmod failure is fatal.
+
+        The directory mode is defence in depth; the 0600 on the file is what
+        keeps the token private, so a save that cannot set it must not write.
+        """
         if os.name == "nt":
             pytest.skip("POSIX-only fchmod path")
         from mnemo_mcp.token_store import save_token_for_sub
 
-        original_fchmod = os.fchmod
-
         def mock_fchmod(fd, mode):
             raise OSError("not supported")
 
-        with patch.object(os, "fchmod", mock_fchmod):
+        with (
+            patch.object(os, "fchmod", mock_fchmod),
+            pytest.raises(OSError, match="not supported"),
+        ):
             save_token_for_sub("user-y", "google_drive", {"access_token": "tok"})
-
-        # Restore (defensive)
-        os.fchmod = original_fchmod  # noqa: SLF001
 
 
 class TestLoadTokenForSub:
