@@ -115,6 +115,7 @@ class TestSaveTokenForSub:
         # Restore (defensive)
         os.fchmod = original_fchmod  # noqa: SLF001
 
+
 class TestLoadTokenForSub:
     def test_returns_none_when_missing(self, data_dir):
         from mnemo_mcp.token_store import load_token_for_sub

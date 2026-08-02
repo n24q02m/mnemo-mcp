@@ -183,6 +183,7 @@ class TestSaveToken:
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "abc"
 
+
 class TestDeleteToken:
     def test_delete_existing(self, token_dir):
         from mnemo_mcp.token_store import delete_token
