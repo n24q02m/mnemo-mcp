@@ -173,12 +173,12 @@ class TestSaveToken:
         with (
             patch("mnemo_mcp.token_store.settings") as m,
             patch("mnemo_mcp.token_store.os.name", "nt"),
-            patch.object(Path, "chmod") as mock_chmod,
+            patch("mnemo_mcp.token_store.os.fchmod") as mock_fchmod,
         ):
             m.get_data_dir.return_value = token_dir.parent
-            # This should skip chmod completely on Windows
+            # This should skip fchmod completely on Windows
             save_token("drive", token)
-            mock_chmod.assert_not_called()
+            mock_fchmod.assert_not_called()
 
         saved = json.loads((token_dir / "drive.json").read_text())
         assert saved["access_token"] == "abc"

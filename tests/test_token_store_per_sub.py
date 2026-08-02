@@ -195,14 +195,18 @@ class TestAsyncTokenForSub:
 class TestNTBranch:
     """Cover Windows branch where POSIX hardening is skipped."""
 
-    def test_save_uses_write_text_on_nt(self, data_dir):
+    def test_save_uses_open_on_nt(self, data_dir):
         from mnemo_mcp.token_store import (
             get_token_path_for_sub,
             save_token_for_sub,
         )
 
-        with patch("mnemo_mcp.token_store.os.name", "nt"):
+        with (
+            patch("mnemo_mcp.token_store.os.name", "nt"),
+            patch("mnemo_mcp.token_store.os.fchmod") as mock_fchmod,
+        ):
             save_token_for_sub("nt-user", "google_drive", {"access_token": "ok"})
+            mock_fchmod.assert_not_called()
 
         path = get_token_path_for_sub("nt-user", "google_drive")
         assert path.exists()
