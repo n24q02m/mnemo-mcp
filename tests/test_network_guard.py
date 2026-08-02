@@ -42,22 +42,29 @@ def _listener():
 
 
 class TestBlocksOutbound:
+    # Asserted with startswith rather than `in`: the host has to be the one the
+    # caller asked for and it has to be where the message says it is. A
+    # containment check would also pass on a message that merely mentioned the
+    # host somewhere, and CodeQL reads that shape as URL sanitization.
     def test_getaddrinfo_of_a_remote_name_is_blocked(self):
         with pytest.raises(OutboundNetworkBlocked) as exc:
             socket.getaddrinfo("api.jina.ai", 443)
-        assert "api.jina.ai" in str(exc.value)
+        assert str(exc.value).startswith(
+            "Blocked outbound network access to api.jina.ai:443"
+        )
 
     def test_connect_to_a_remote_address_is_blocked(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             with pytest.raises(OutboundNetworkBlocked) as exc:
                 sock.connect(("140.82.121.4", 443))
-        assert "140.82.121.4" in str(exc.value)
+        assert str(exc.value).startswith(
+            "Blocked outbound network access to 140.82.121.4:443"
+        )
 
-    def test_message_names_the_host_and_how_to_fix_it(self):
+    def test_message_says_how_to_fix_it(self):
         with pytest.raises(OutboundNetworkBlocked) as exc:
-            socket.getaddrinfo("oauth2.googleapis.com", 443)
+            socket.getaddrinfo("dns.google", 443)
         message = str(exc.value)
-        assert "oauth2.googleapis.com:443" in message
         assert "patch(" in message
         assert "integration" in message
 
