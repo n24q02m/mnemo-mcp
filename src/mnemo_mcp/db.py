@@ -1744,7 +1744,9 @@ class MemoryDB:
         ) * (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0)))) > ?
         """
 
-        cursor.execute(query, (archive_ts, archive_ts, float(archive_after_days), score_threshold))
+        cursor.execute(
+            query, (archive_ts, archive_ts, float(archive_after_days), score_threshold)
+        )
         count = cursor.rowcount
 
         if count > 0:
