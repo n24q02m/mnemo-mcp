@@ -962,13 +962,18 @@ class MemoryDBCfBackend:
                 archive_after_days = 90
         archive_after_days = max(1, int(archive_after_days))
 
+        now = _now_iso()
+
+        # Bolt Performance Optimization:
+        # Replacing julianday('now') with julianday(?) avoids per-row evaluation of
+        # 'now' inside the Cloudflare D1 engine.
         rows = self._backend.fetchall(
             "UPDATE memories SET archived_at = ? "
             "WHERE archived_at IS NULL "
-            "AND ( MAX(0.0, julianday('now') - julianday(updated_at)) / ? ) "
+            "AND ( MAX(0.0, julianday(?) - julianday(updated_at)) / ? ) "
             "    * (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0)))) > ? "
             "RETURNING id",
-            [_now_iso(), float(archive_after_days), score_threshold],
+            [now, now, float(archive_after_days), score_threshold],
         )
         count = len(rows)
         if count > 0:
