@@ -41,7 +41,6 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
-### 2026-08-04 - Reject unmeasured `archive_by_score` speedup (#1061)
-**Reason:** Reject this PR. Its core performance claim is not measured in the repository, and the existing tests only establish functional behavior and parameter binding. That evidence does not establish a speedup on either SQLite or D1.
 
-**Action:** Do not merge speculative performance changes. Keep the archive query change out of main until a reproducible benchmark covers both backends and demonstrates a meaningful gain without changing time semantics.
+### 2026-08-03 - Unmeasured speedup figures on `archive_by_score` julianday optimization
+The proposed optimization replaced `julianday('now')` with `julianday(?)` and an application-bound ISO timestamp in `archive_by_score`. The PR was rejected during backlog review because the performance claim was not backed by a reproducible benchmark in the repository, and the change might have altered timestamp semantics. Only apply optimizations with measurable, verified impact backed by in-repo benchmarks.

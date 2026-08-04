@@ -1733,20 +1733,16 @@ class MemoryDB:
         # with a single native SQL UPDATE statement.
         # This completely bypasses Python's runtime overhead, leveraging SQLite's
         # julianday() to compute dates natively.
-        # Replacing julianday('now') with julianday(?) avoids per-row evaluation of
-        # 'now' inside the SQLite engine.
         query = """
         UPDATE memories
         SET archived_at = ?
         WHERE archived_at IS NULL
         AND (
-            MAX(0.0, julianday(?) - julianday(updated_at)) / ?
+            MAX(0.0, julianday('now') - julianday(updated_at)) / ?
         ) * (1.0 - MAX(0.0, MIN(1.0, COALESCE(importance, 0.0)))) > ?
         """
 
-        cursor.execute(
-            query, (archive_ts, archive_ts, float(archive_after_days), score_threshold)
-        )
+        cursor.execute(query, (archive_ts, float(archive_after_days), score_threshold))
         count = cursor.rowcount
 
         if count > 0:
