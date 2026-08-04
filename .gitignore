@@ -77,3 +77,4 @@ wrangler.deploy.jsonc
 scripts/.mnemo_cf_token
 node_modules/
 package-lock.json
+scripts/.wet_cf_token

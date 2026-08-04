@@ -56,9 +56,23 @@ def mock_sync():
         yield start, stop
 
 
+@pytest.fixture
+def background_tasks(monkeypatch):
+    tasks = []
+    create_task = asyncio.create_task
+
+    def capture_task(coro):
+        task = create_task(coro)
+        tasks.append(task)
+        return task
+
+    monkeypatch.setattr("mnemo_mcp.server.asyncio.create_task", capture_task)
+    return tasks
+
+
 @pytest.mark.asyncio
 async def test_lifespan_happy_path_cloud(
-    mock_settings, mock_db, mock_embedder, mock_sync
+    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
 ):
     """Test normal startup with cloud embedding."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -71,7 +85,7 @@ async def test_lifespan_happy_path_cloud(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await background_tasks[0]
         assert ctx["embedding_model"] == "cloud-model"
         assert ctx["embedding_dims"] == 128
         assert ctx["db"] == mock_db.return_value
@@ -96,7 +110,7 @@ async def test_lifespan_sync_enabled(mock_settings, mock_db, mock_embedder, mock
 
 @pytest.mark.asyncio
 async def test_lifespan_local_backend_explicit(
-    mock_settings, mock_db, mock_embedder, mock_sync
+    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
 ):
     """Test explicit local backend configuration."""
     mock_settings.resolve_embedding_backend.return_value = "local"
@@ -108,7 +122,7 @@ async def test_lifespan_local_backend_explicit(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await background_tasks[0]
         assert ctx["embedding_model"] == "__local__"
         assert ctx["embedding_dims"] == 768  # Default for stored
 
@@ -130,7 +144,7 @@ async def test_lifespan_api_keys_logging(
 
 @pytest.mark.asyncio
 async def test_lifespan_explicit_cloud_exception_no_local_fallback(
-    mock_settings, mock_db, mock_embedder, mock_sync
+    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
 ):
     """Test no local fallback when explicit cloud model init raises exception."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -142,14 +156,14 @@ async def test_lifespan_explicit_cloud_exception_no_local_fallback(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await background_tasks[0]
         # Model stays None since cloud failed and no local fallback
         assert ctx["embedding_model"] is None
 
 
 @pytest.mark.asyncio
 async def test_lifespan_all_backends_fail(
-    mock_settings, mock_db, mock_embedder, mock_sync
+    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
 ):
     """Test behavior when both cloud and local backends fail."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -160,7 +174,7 @@ async def test_lifespan_all_backends_fail(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await asyncio.sleep(0.01)
+        await background_tasks[0]
         assert ctx["embedding_model"] is None
         assert (
             ctx["embedding_dims"] == 768
