@@ -138,6 +138,92 @@ def test_d1_backend_cannot_read_another_subs_rows(tmp_path):
     )
 
 
+def test_d1_vector_search_rejects_foreign_vector_id_with_matching_metadata(tmp_path):
+    """A matching Vectorize tenant filter cannot authorize a foreign ID prefix."""
+    conn = sqlite3.connect(tmp_path / "d1.sqlite", isolation_level=None)
+    _apply_migrations(conn)
+    vectors = FakeVectorizeWorker()
+    db = _make_backend(conn, vectors, "sub-a")
+
+    assert (
+        db.import_jsonl(json.dumps(_memory_row("same-id", "alpha secret")))["imported"]
+        == 1
+    )
+    vectors.visible["sub-b:same-id"] = [1.0] + [0.0] * (DIMS - 1)
+    vectors.visible_metadata["sub-b:same-id"] = {"sub": "sub-a"}
+
+    assert (
+        db.search(
+            "unmatched vector query",
+            embedding=[1.0] + [0.0] * (DIMS - 1),
+            candidate_pool=1,
+        )
+        == []
+    )
+    conn.close()
+
+
+def test_d1_related_memory_ids_stay_within_sub(tmp_path):
+    """Recursive graph traversal must not follow another sub's same-ID edges."""
+    from mnemo_mcp.graph import (
+        create_relations,
+        find_related_memory_ids,
+        link_memory_entities,
+        upsert_entities,
+    )
+
+    conn = sqlite3.connect(tmp_path / "d1.sqlite", isolation_level=None)
+    _apply_migrations(conn)
+    sub_a = _make_backend(conn, FakeVectorizeWorker(), "sub-a")
+    sub_b = _make_backend(conn, FakeVectorizeWorker(), "sub-b")
+
+    for db, source_id, related_id in (
+        (sub_a, "a-source", "a-related"),
+        (sub_b, "b-source", "b-related"),
+    ):
+        assert (
+            db.import_jsonl(json.dumps(_memory_row(source_id, source_id)))["imported"]
+            == 1
+        )
+        assert (
+            db.import_jsonl(json.dumps(_memory_row(related_id, related_id)))["imported"]
+            == 1
+        )
+
+    entity_ids = upsert_entities(
+        sub_a._conn,
+        [
+            {"name": "Alice", "type": "person"},
+            {"name": "Mnemo", "type": "tool"},
+        ],
+    )
+    for entity_id, name, entity_type in zip(
+        entity_ids,
+        ("Alice", "Mnemo"),
+        ("person", "tool"),
+        strict=True,
+    ):
+        sub_b._conn.execute(
+            "INSERT INTO memory_entities "
+            "(id, name, entity_type, created_at, updated_at) "
+            "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
+            [entity_id, name, entity_type],
+        )
+
+    relations = [{"source": "Alice", "target": "Mnemo", "type": "uses"}]
+    entity_name_to_id = {"Alice": entity_ids[0], "Mnemo": entity_ids[1]}
+    create_relations(sub_a._conn, relations, entity_name_to_id)
+    create_relations(sub_b._conn, relations, entity_name_to_id)
+    link_memory_entities(sub_a._conn, "a-source", [entity_ids[0]])
+    link_memory_entities(sub_a._conn, "a-related", [entity_ids[1]])
+    link_memory_entities(sub_b._conn, "b-source", [entity_ids[0]])
+    link_memory_entities(sub_b._conn, "b-related", [entity_ids[1]])
+
+    assert find_related_memory_ids(sub_a._conn, "a-source") == ["a-related"]
+    assert find_related_memory_ids(sub_b._conn, "b-source") == ["b-related"]
+    conn.close()
+
+
 def test_server_binds_request_sub_to_a_fresh_backend(monkeypatch, tmp_path):
     """The HTTP request context, not Worker comments, chooses the D1 scope."""
     conn = sqlite3.connect(tmp_path / "d1.sqlite", isolation_level=None)
