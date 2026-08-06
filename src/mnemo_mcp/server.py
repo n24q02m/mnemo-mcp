@@ -2216,8 +2216,9 @@ async def _handle_config_export_passport(ctx: Context | None) -> dict[str, typin
         try:
             if os.name != "nt":
                 os.fchmod(fd, mode)
-        except OSError:
-            pass
+        except BaseException:
+            os.close(fd)
+            raise
         with os.fdopen(fd, "wb") as f:
             f.write(content)
 

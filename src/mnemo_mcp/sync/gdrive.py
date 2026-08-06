@@ -248,8 +248,9 @@ async def _save_folder_id(folder_name: str, folder_id: str) -> None:
         try:
             if os.name != "nt":
                 os.fchmod(fd, mode)
-        except OSError:
-            pass
+        except BaseException:
+            os.close(fd)
+            raise
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -463,8 +464,9 @@ async def _download_file(token: dict, file_id: str, dest_path: Path) -> bool:
             try:
                 if os.name != "nt":
                     os.fchmod(fd, mode)
-            except OSError:
-                pass
+            except BaseException:
+                os.close(fd)
+                raise
             with os.fdopen(fd, "wb") as f:
                 f.write(content)
 

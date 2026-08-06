@@ -318,8 +318,9 @@ def store_for_sub(sub: str, config: dict[str, str]) -> None:
     try:
         if os.name != "nt":
             os.fchmod(fd, mode)
-    except OSError:
-        pass
+    except BaseException:
+        os.close(fd)
+        raise
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(config_json)
 
