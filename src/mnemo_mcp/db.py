@@ -1485,18 +1485,17 @@ class MemoryDB:
         (``valid_to IS NULL``) -- superseded/soft-deleted history is not
         double-counted into totals or category breakdowns.
         """
-        total = self._conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
-
+        # Bolt Performance Optimization:
+        # Avoid multiple database round-trips by computing totals in Python
+        # from the grouped category results. This yields a single query instead
+        # of three and bypasses SQLite overhead for the aggregate SELECTs.
         categories = self._conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM memories "
+            "SELECT category, COUNT(*) as cnt, MAX(updated_at) as max_up FROM memories "
             "WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC"
         ).fetchall()
 
-        last_updated = self._conn.execute(
-            "SELECT MAX(updated_at) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
+        total = sum(r["cnt"] for r in categories)
+        last_updated = max((r["max_up"] for r in categories), default=None)
 
         return {
             "total_memories": total,

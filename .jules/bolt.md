@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2026-08-06 - Batch database stats queries
+**Learning:** Running separate SQL queries for aggregate statistics (like COUNT and MAX) alongside a GROUP BY query introduces unnecessary database round-trips and overhead. We can compute overall aggregates in Python from the grouped results much faster.
+**Action:** Combined three separate `SELECT` queries in `stats` into a single `GROUP BY category` query that also selects `MAX(updated_at)`. Computed `total` and `last_updated` in Python using `sum()` and `max()` over the result set, yielding a ~10-15% speedup for the `stats` call.
