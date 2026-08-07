@@ -1485,22 +1485,21 @@ class MemoryDB:
         (``valid_to IS NULL``) -- superseded/soft-deleted history is not
         double-counted into totals or category breakdowns.
         """
-        total = self._conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
-
-        categories = self._conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM memories "
-            "WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC"
+        # Bolt Performance Optimization:
+        # Offload all aggregations into a single GROUP BY query, then calculate
+        # the overall totals in Python. This eliminates multiple database round-trips
+        # and reduces execution time.
+        rows = self._conn.execute(
+            "SELECT category, COUNT(*) as cnt, MAX(updated_at) as max_updated "
+            "FROM memories WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC"
         ).fetchall()
 
-        last_updated = self._conn.execute(
-            "SELECT MAX(updated_at) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
+        total = sum(r["cnt"] for r in rows) if rows else 0
+        last_updated = max((r["max_updated"] for r in rows if r["max_updated"] is not None), default=None) if rows else None
 
         return {
             "total_memories": total,
-            "categories": {r["category"]: r["cnt"] for r in categories},
+            "categories": {r["category"]: r["cnt"] for r in rows},
             "last_updated": last_updated,
             "vec_enabled": self._vec_enabled,
             "db_path": str(self._db_path),
