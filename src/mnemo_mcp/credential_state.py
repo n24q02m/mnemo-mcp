@@ -312,14 +312,16 @@ def store_for_sub(sub: str, config: dict[str, str]) -> None:
     # SECURITY: Ensure the credential file is created with 0600 permissions
     # (read/write for owner only) to prevent unauthorized access by other
     # local users, mitigating a TOCTOU vulnerability from using write_text.
-    flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+    flags = os.O_CREAT | os.O_WRONLY
     mode = stat.S_IRUSR | stat.S_IWUSR
     fd = os.open(path, flags, mode)
     try:
         if os.name != "nt":
             os.fchmod(fd, mode)
-    except OSError:
-        pass
+        os.ftruncate(fd, 0)
+    except BaseException:
+        os.close(fd)
+        raise
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(config_json)
 

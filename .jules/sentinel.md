@@ -52,3 +52,7 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+## 2024-05-24 - File Permission Enforcement TOCTOU and FD Leaks
+**Vulnerability:** `os.fchmod` errors were being swallowed (`except OSError: pass`) after `os.open`, and `os.O_TRUNC` was used in `os.open` flags.
+**Learning:** Swallowing `os.fchmod` errors leaves the file with potentially insecure default permissions (TOCTOU). Using `os.O_TRUNC` destroys previous file contents before permissions are secured. If an exception occurs, the file descriptor can leak.
+**Prevention:** Do not use `os.O_TRUNC` in `os.open`. Call `os.ftruncate(fd, 0)` only after `os.fchmod` succeeds. Catch `BaseException`, call `os.close(fd)`, and re-raise the exception to prevent silent permission degradation and FD leaks.
