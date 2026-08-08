@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2026-08-01 - Consolidate memory stats queries in single GROUP BY
+**Learning:** `MemoryDB.stats` previously used three separate database round-trips to compute `total`, `categories`, and `last_updated` individually. We can compute these three values in a single pass over the table by using an aggregate function.
+**Action:** Replace separate SQLite queries with a single query `SELECT category, COUNT(*) as cnt, MAX(updated_at) as max_updated FROM memories WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC`. Calculate the total memory count and global max updated at date in Python via `sum()` and `max()` on the grouped result rows.
