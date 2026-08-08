@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-05 - File Descriptor Leaks and TOCTOU vulnerabilities in fchmod error handlers
+**Vulnerability:** In file creation paths (like `credential_state.py`, `server.py`, `gdrive.py`), the codebase used a pattern where `os.fchmod(fd, mode)` failures were caught with `except OSError: pass`, which silently skipped enforcing secure permissions and continued writing sensitive data with default permissions.
+**Learning:** Swallowing `OSError` exceptions when attempting to secure file permissions (e.g. `os.fchmod`) defeats the purpose of the security check and leads to Time-of-Check-to-Time-of-Use (TOCTOU) vulnerabilities, as sensitive files could be written with insecure permissions. Additionally, if an error occurred during or before the context manager (`with os.fdopen(fd, "w") as f:`), the raw file descriptor would not be explicitly closed, causing a resource leak.
+**Prevention:** Catch generic exceptions before the file is wrapped in a context manager, explicitly call `os.close(fd)`, and `raise` the exception to fail securely and prevent both TOCTOU vulnerabilities and file descriptor leaks.
