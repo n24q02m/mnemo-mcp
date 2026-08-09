@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-09 - Avoid Swallowing os.fchmod Exceptions
+**Vulnerability:** In `src/mnemo_mcp/credential_state.py`, `src/mnemo_mcp/server.py` and `src/mnemo_mcp/sync/gdrive.py`, failures in `os.fchmod(fd, mode)` were being swallowed with an empty `except OSError: pass` block after creating a file with `os.open()`.
+**Learning:** Swallowing exceptions during file permission enforcement allows the program to silently fall back to insecure default file permissions. This introduces a Time-Of-Check to Time-Of-Use (TOCTOU) vulnerability where sensitive files (like database backups, credentials, and token bundles) might become readable by other local users, and it also leaves the file descriptor open in the exception path, creating a resource leak.
+**Prevention:** Never swallow exceptions when enforcing secure file permissions on raw file descriptors. Instead, catch the exception, explicitly close the file descriptor with `os.close(fd)`, and re-raise the exception so the failure is properly handled by the caller without creating insecure files or leaking resources.
