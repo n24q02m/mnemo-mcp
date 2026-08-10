@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-10 - TOCTOU and File Descriptor Leaks via Swallowed fchmod Errors
+**Vulnerability:** Several utility functions (`_write_secure_bytes` in `server.py` and `gdrive.py`, `_write_secure` in `gdrive.py`, and `store_for_sub` in `credential_state.py`) swallowed `OSError` exceptions from `os.fchmod`. Combined with `os.O_TRUNC` in `os.open`, this created a race condition where a file could be created and truncated securely but fail to apply secure permissions, leaving sensitive files (like database exports, passports, or configurations) readable by other users. Swallowing the exception also leaked the file descriptor because `os.close(fd)` was not called in the error path.
+**Learning:** Relying on `try: ... except OSError: pass` for `os.fchmod` on raw file descriptors defeats the purpose of creating secure files and introduces TOCTOU vulnerabilities and file descriptor leaks on POSIX systems.
+**Prevention:** Avoid swallowing `os.fchmod` errors. Ensure `os.O_TRUNC` is not used in `os.open`. Instead, use `os.fchmod(fd, mode)` followed by `os.ftruncate(fd, 0)`, and catch exceptions using `except BaseException: os.close(fd); raise` to ensure file descriptors are not leaked and insecure files are not written.
