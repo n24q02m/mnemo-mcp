@@ -42,10 +42,46 @@ CLOUD_KEYS = [
     "COHERE_API_KEY",
     "ANTHROPIC_API_KEY",
     "XAI_API_KEY",
+    "GOOGLE_VERTEX_EXPRESS_API_KEY",
+    # Per-sub custom endpoints. They remain in the request config so the
+    # dispatch layer can pass them to mcp_core.llm, which vets them before I/O.
+    "EMBEDDING_API_BASE",
+    "RERANK_API_BASE",
+    "LLM_API_BASE",
 ]
 
-# All config keys that indicate a valid saved config (includes GDrive)
-ALL_CONFIG_KEYS = [*CLOUD_KEYS, "GOOGLE_DRIVE_CLIENT_ID"]
+# Model chains are request configuration rather than credentials. They are
+# deliberately not part of CLOUD_KEYS: a model-only value must not make the
+# credential state look configured, and stdio credential filtering historically
+# exposed only provider keys/endpoints.
+MODEL_CHAIN_KEYS = (
+    "EMBEDDING_MODELS",
+    "RERANK_MODELS",
+    "LLM_MODELS",
+)
+
+_TASK_MODEL_KEYS = {
+    "embedding": "EMBEDDING_MODELS",
+    "rerank": "RERANK_MODELS",
+    "llm": "LLM_MODELS",
+}
+
+# All config keys that indicate a valid saved config (includes GDrive and
+# request-scoped model chains).
+ALL_CONFIG_KEYS = [*CLOUD_KEYS, *MODEL_CHAIN_KEYS, "GOOGLE_DRIVE_CLIENT_ID"]
+
+# LLM-provider keys in the same order as the public dispatch priority. The
+# GOOGLE_API_KEY alias is intentionally kept separate from CLOUD_KEYS for
+# backward compatibility with the relay schema; it is still valid for LLM
+# detection and per-sub model resolution.
+LLM_PROVIDER_KEYS = (
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "XAI_API_KEY",
+    "GOOGLE_VERTEX_EXPRESS_API_KEY",
+)
 
 
 # Per-request JWT subject (HTTP multi-user remote mode only).
@@ -85,6 +121,99 @@ def credentials_for_current_request() -> dict[str, str]:
         return {k: v for k, v in os.environ.items() if k in CLOUD_KEYS and v}
     p = _sub_data_dir(sub) / "config.json"
     return json.loads(p.read_text()) if p.exists() else {}
+
+
+def detect_llm_provider_key() -> str | None:
+    """Return the first configured LLM provider key for this request.
+
+    A sub-scoped request reads only its own persisted config. Single-user and
+    stdio requests may read the process environment, including the historical
+    ``GOOGLE_API_KEY`` Gemini alias. Keeping this policy in one helper prevents
+    graph and LLM availability gates from diverging.
+    """
+    sub = _current_sub.get()
+    credentials = credentials_for_current_request()
+    for key in LLM_PROVIDER_KEYS:
+        if credentials.get(key):
+            return key
+        if sub is None and os.environ.get(key):
+            return key
+    return None
+
+
+def has_llm_provider() -> bool:
+    """Return whether an LLM provider is configured for this request."""
+    return detect_llm_provider_key() is not None
+
+
+def api_key_for_model(model: str) -> str | None:
+    """Resolve a model's API key without crossing request boundaries.
+
+    With a current JWT ``sub``, only that subject's config is consulted and
+    the result is passed explicitly to mcp_core. With no sub, ``None`` keeps
+    the existing litellm environment fallback for single-user/stdio mode.
+    """
+    if _current_sub.get() is None:
+        return None
+
+    from mcp_core.llm.providers import key_env_for_model
+
+    env_var = key_env_for_model(model)
+    credentials = credentials_for_current_request()
+    value = credentials.get(env_var) if env_var else None
+
+    # mcp-core routes ``gemini/...`` through GEMINI_API_KEY while existing
+    # relay clients may persist the equivalent GOOGLE_API_KEY alias.
+    if not value and env_var == "GEMINI_API_KEY":
+        value = credentials.get("GOOGLE_API_KEY")
+    return value or None
+
+
+def api_base_for_task(env_key: str) -> str | None:
+    """Resolve a task endpoint for the current request.
+
+    The multi-user path never falls back to process-global env, so two
+    concurrent subjects cannot share a gateway URL. Single-user/stdio keeps
+    the existing env-driven behavior because mcp-core does not know Mnemo's
+    ``*_API_BASE`` names by itself.
+    """
+    if _current_sub.get() is None:
+        return os.environ.get(env_key) or None
+    return credentials_for_current_request().get(env_key) or None
+
+
+def model_chain_for_task(task: str, fallback: str | None = None) -> list[str]:
+    """Return the ordered model chain for the current request.
+
+    ``task`` accepts either a short task name (``embedding``, ``rerank``, or
+    ``llm``) or the corresponding ``*_MODELS`` config key. A sub-scoped chain
+    is authoritative and never falls back to process-global env. Without a
+    sub, ``fallback`` is used after the environment, preserving callers that
+    receive the chain from Settings.
+    """
+    key = _TASK_MODEL_KEYS.get(task, task if task in MODEL_CHAIN_KEYS else None)
+    if key is None:
+        raise ValueError(f"Unknown model-chain task: {task}")
+
+    sub = _current_sub.get()
+    if sub is None:
+        raw: object = os.environ.get(key, "")
+        if not raw and fallback is not None:
+            raw = fallback
+    else:
+        raw = credentials_for_current_request().get(key, "")
+
+    if isinstance(raw, str):
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return []
+
+
+def model_for_task(task: str, fallback: str | None = None) -> str | None:
+    """Return the first model in the current request's task chain."""
+    chain = model_chain_for_task(task, fallback=fallback)
+    return chain[0] if chain else None
 
 
 class CredentialState(Enum):

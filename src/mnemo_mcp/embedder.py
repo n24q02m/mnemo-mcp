@@ -188,6 +188,10 @@ class CloudEmbeddingBackend:
         api_base: str | None = None,
         api_key: str | None = None,
     ):
+        if model is None:
+            from mnemo_mcp.credential_state import model_for_task
+
+            model = model_for_task("embedding")
         self.model = model or os.getenv("EMBEDDING_MODEL", "embed-multilingual-v3.0")
         self.api_key = api_key
         self.api_base = api_base
@@ -222,11 +226,15 @@ class CloudEmbeddingBackend:
         # Lazy import: litellm costs ~1-2s on first import.
         from mcp_core.llm import aembedding
 
+        from mnemo_mcp.credential_state import api_base_for_task, api_key_for_model
+
+        litellm_model = self._litellm_model()
+
         response = await aembedding(
-            model=self._litellm_model(),
+            model=litellm_model,
             input=texts,
-            api_base=self.api_base or os.getenv("EMBEDDING_API_BASE") or None,
-            api_key=self.api_key or None,
+            api_base=self.api_base or api_base_for_task("EMBEDDING_API_BASE"),
+            api_key=self.api_key or api_key_for_model(litellm_model),
             **self._build_kwargs(dimensions),
         )
         return _parse_embeddings(response)
@@ -242,11 +250,15 @@ class CloudEmbeddingBackend:
         """
         from mcp_core.llm import embedding
 
+        from mnemo_mcp.credential_state import api_base_for_task, api_key_for_model
+
+        litellm_model = self._litellm_model()
+
         response = embedding(
-            model=self._litellm_model(),
+            model=litellm_model,
             input=texts,
-            api_base=self.api_base or os.getenv("EMBEDDING_API_BASE") or None,
-            api_key=self.api_key or None,
+            api_base=self.api_base or api_base_for_task("EMBEDDING_API_BASE"),
+            api_key=self.api_key or api_key_for_model(litellm_model),
             **self._build_kwargs(dimensions),
         )
         return _parse_embeddings(response)

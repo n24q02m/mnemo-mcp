@@ -9,6 +9,7 @@ MCP Interface:
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -365,6 +366,112 @@ def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
     return lc["db"], lc["embedding_model"], lc["embedding_dims"]
 
 
+def _request_backend_cache(ctx: Context | None, name: str) -> dict:
+    """Return a per-lifespan cache for request-scoped cloud backends."""
+    if ctx is None:
+        return {}
+    lc = ctx.request_context.lifespan_context
+    return lc.setdefault(name, {})
+
+
+def _backend_cache_key(
+    task: str,
+    model: str,
+    api_base: str | None,
+    api_key: str,
+) -> tuple[str, str, str | None, str]:
+    """Build a cache key without retaining the raw credential in the key."""
+    key_digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    return task, model, api_base, key_digest
+
+
+def _get_request_embedding(
+    ctx: Context | None,
+    global_model: str | None,
+    _global_dims: int,
+):
+    """Resolve the embedding backend for the current authenticated subject.
+
+    The startup singleton is valid for stdio and single-user HTTP. Public
+    multi-user HTTP must instead construct a cloud backend from the current
+    subject's persisted model, endpoint, and key; otherwise one subject would
+    silently use the host process configuration.
+    """
+    from mnemo_mcp.credential_state import (
+        api_base_for_task,
+        api_key_for_model,
+        get_current_sub,
+        model_for_task,
+    )
+
+    if get_current_sub() is None:
+        from mnemo_mcp.embedder import get_backend
+
+        return global_model, get_backend()
+
+    model = model_for_task("embedding")
+    if not model:
+        return None, None
+
+    api_key = api_key_for_model(model)
+    if not api_key:
+        logger.debug("Embedding skipped: no key for current subject's model")
+        return None, None
+
+    api_base = api_base_for_task("EMBEDDING_API_BASE")
+    cache = _request_backend_cache(ctx, "request_embedding_backends")
+    cache_key = _backend_cache_key("embedding", model, api_base, api_key)
+    backend = cache.get(cache_key)
+    if backend is None:
+        from mnemo_mcp.embedder import CloudEmbeddingBackend
+
+        backend = CloudEmbeddingBackend(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+        )
+        cache[cache_key] = backend
+    return model, backend
+
+
+def _get_request_reranker(ctx: Context | None):
+    """Resolve the reranker without crossing authenticated-subject boundaries."""
+    from mnemo_mcp.credential_state import (
+        api_base_for_task,
+        api_key_for_model,
+        get_current_sub,
+        model_for_task,
+    )
+
+    if get_current_sub() is None:
+        from mnemo_mcp.reranker import get_reranker
+
+        return get_reranker()
+
+    model = model_for_task("rerank")
+    if not model:
+        return None
+    api_key = api_key_for_model(model)
+    if not api_key:
+        logger.debug("Reranking skipped: no key for current subject's model")
+        return None
+
+    api_base = api_base_for_task("RERANK_API_BASE")
+    cache = _request_backend_cache(ctx, "request_rerankers")
+    cache_key = _backend_cache_key("rerank", model, api_base, api_key)
+    backend = cache.get(cache_key)
+    if backend is None:
+        from mnemo_mcp.reranker import CloudReranker
+
+        backend = CloudReranker(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+        )
+        cache[cache_key] = backend
+    return backend
+
+
 def _json(obj: object) -> str:
     """Serialize to readable JSON."""
     return json.dumps(obj, indent=2)
@@ -412,7 +519,12 @@ def _format_memory(mem: dict) -> dict:
 
 
 async def _embed(
-    text: str, model: str | None, dims: int, is_query: bool = False
+    text: str,
+    model: str | None,
+    dims: int,
+    is_query: bool = False,
+    *,
+    backend=None,
 ) -> list[float] | None:
     """Embed text if embedding is available.
 
@@ -428,7 +540,7 @@ async def _embed(
 
     from mnemo_mcp.embedder import Qwen3EmbedBackend, get_backend
 
-    backend = get_backend()
+    backend = backend or get_backend()
     if backend is None:
         # Should not happen if model is set (implies init succeeded), but safe guard.
         logger.warning(f"Embedding backend not initialized despite model={model}")
@@ -450,6 +562,9 @@ async def _handle_add(
     tags: list[str] | None = None,
 ) -> str:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, embedding_backend = _get_request_embedding(
+        ctx, embedding_model, embedding_dims
+    )
 
     if not content:
         return _json(
@@ -473,7 +588,12 @@ async def _handle_add(
     except Exception as e:
         logger.warning(f"Dedup check failed (non-blocking): {e}")
 
-    embedding = await _embed(content, embedding_model, embedding_dims)
+    embedding = await _embed(
+        content,
+        embedding_model,
+        embedding_dims,
+        backend=embedding_backend,
+    )
     try:
         memory_id = await asyncio.to_thread(
             db.add,
@@ -599,19 +719,24 @@ async def _handle_search(
             }
         )
 
-    db, _, _ = _get_ctx(ctx)
-
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
 
-    embedding = await _embed(query, embedding_model, embedding_dims, is_query=True)
+    embedding_model, embedding_backend = _get_request_embedding(
+        ctx, embedding_model, embedding_dims
+    )
+    embedding = await _embed(
+        query,
+        embedding_model,
+        embedding_dims,
+        is_query=True,
+        backend=embedding_backend,
+    )
 
     # Spec section 4.2: rerank operates on a wider candidate pool
     # (top-50 -> top-N) so we ask db.search for ``max(50, limit*5)`` rows
     # when a reranker is active and otherwise stay at the LLM-requested limit.
-    from mnemo_mcp.reranker import get_reranker
-
-    reranker = get_reranker()
+    reranker = _get_request_reranker(ctx)
     rerank_pool = max(50, limit * 5) if reranker else None
 
     results = await asyncio.to_thread(
@@ -731,6 +856,9 @@ async def _handle_update(
 
     db, _, _ = _get_ctx(ctx)
     db, embedding_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, embedding_backend = _get_request_embedding(
+        ctx, embedding_model, embedding_dims
+    )
 
     if not memory_id:
         return _json(
@@ -743,7 +871,12 @@ async def _handle_update(
 
     embedding = None
     if content:
-        embedding = await _embed(content, embedding_model, embedding_dims)
+        embedding = await _embed(
+            content,
+            embedding_model,
+            embedding_dims,
+            backend=embedding_backend,
+        )
 
     try:
         ok = await asyncio.to_thread(
@@ -852,6 +985,7 @@ async def _handle_import(
 
 async def _handle_stats(ctx: Context | None) -> str:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, _ = _get_request_embedding(ctx, embedding_model, embedding_dims)
     s = await asyncio.to_thread(db.stats)
     s["embedding_model"] = embedding_model
     s["embedding_dims"] = embedding_dims
@@ -940,6 +1074,9 @@ async def _handle_capture(
     reaching into module-level globals.
     """
     db, embedding_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, embedding_backend = _get_request_embedding(
+        ctx, embedding_model, embedding_dims
+    )
 
     if not text:
         return _json(
@@ -955,7 +1092,12 @@ async def _handle_capture(
             }
         )
 
-    embedding = await _embed(text, embedding_model, embedding_dims)
+    embedding = await _embed(
+        text,
+        embedding_model,
+        embedding_dims,
+        backend=embedding_backend,
+    )
 
     from mnemo_mcp.capture import CONTEXT_TYPES
     from mnemo_mcp.capture import capture as _capture
@@ -1736,6 +1878,7 @@ async def config(
 
 async def _handle_config_status(ctx: Context | None) -> str:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, _ = _get_request_embedding(ctx, embedding_model, embedding_dims)
     s = await asyncio.to_thread(db.stats)
     return _json(
         {
@@ -1874,6 +2017,9 @@ async def _handle_config_setup_status() -> str:
     _providers = list(dict.fromkeys(_env_keys + _store_keys))
     _state = get_state()
 
+    # CONFIGURED is a cached lifecycle marker, not proof that credentials are
+    # still loadable.  Derive it only from the live env/store snapshot so a
+    # stale process state cannot mask a cleared or unreadable configuration.
     if _providers:
         _derived_state = "configured"
     elif _state == CredentialState.LOCAL:

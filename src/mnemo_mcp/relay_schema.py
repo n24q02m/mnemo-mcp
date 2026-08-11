@@ -47,6 +47,23 @@ def _key_field(key: str, label: str, ph: str, url: str) -> dict[str, Any]:
     }
 
 
+def _api_base_field(key: str, label: str, help_text: str) -> dict[str, Any]:
+    """Build an always-visible optional custom endpoint field.
+
+    Endpoint fields cannot be derived from a model chip because they are
+    task-level settings rather than provider key names. The downstream
+    mcp_core dispatch remains responsible for SSRF vetting before I/O.
+    """
+    return {
+        "key": key,
+        "label": label,
+        "type": "url",
+        "placeholder": "https://gateway.example/...",
+        "helpText": help_text,
+        "required": False,
+    }
+
+
 RELAY_SCHEMA: dict[str, Any] = {
     "server": "mnemo-mcp",
     "displayName": "Mnemo MCP",
@@ -65,6 +82,11 @@ RELAY_SCHEMA: dict[str, Any] = {
             "hasLocal": True,
             "placeholder": "add embedding model…",
         },
+        _api_base_field(
+            "EMBEDDING_API_BASE",
+            "Embedding endpoint",
+            "Custom endpoint / CF AI Gateway. Cohere: {gw}/cohere/v2/embed",
+        ),
         {
             "key": "RERANK_MODELS",
             "label": "Rerank models",
@@ -74,6 +96,11 @@ RELAY_SCHEMA: dict[str, Any] = {
             "hasLocal": True,
             "placeholder": "add rerank model…",
         },
+        _api_base_field(
+            "RERANK_API_BASE",
+            "Rerank endpoint",
+            "Custom endpoint / CF AI Gateway. Cohere: {gw}/cohere (litellm appends /v1/rerank)",
+        ),
         {
             "key": "LLM_MODELS",
             "label": "LLM models",
@@ -83,6 +110,11 @@ RELAY_SCHEMA: dict[str, Any] = {
             "hasLocal": False,
             "placeholder": "add LLM model…",
         },
+        _api_base_field(
+            "LLM_API_BASE",
+            "LLM endpoint",
+            "Custom endpoint / CF AI Gateway for graph/importance LLM calls.",
+        ),
         _key_field(
             "JINA_AI_API_KEY", "Jina AI API Key", "jina_...", "https://jina.ai/api-key"
         ),
@@ -111,6 +143,12 @@ RELAY_SCHEMA: dict[str, Any] = {
             "https://console.anthropic.com/settings/keys",
         ),
         _key_field("XAI_API_KEY", "xAI API Key", "xai-...", "https://console.x.ai/"),
+        _key_field(
+            "GOOGLE_VERTEX_EXPRESS_API_KEY",
+            "Vertex AI (Express) API Key",
+            "AQ...",
+            "https://cloud.google.com/vertex-ai/generative-ai/docs/start/express-mode/overview",
+        ),
     ],
     "capabilityInfo": [
         {
