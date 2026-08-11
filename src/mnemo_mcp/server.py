@@ -2814,6 +2814,11 @@ async def run_http(port: int = 0) -> None:
         setup_complete_hook=wire_gdrive_callbacks,
         auth_scope=_per_request_sub_scope if public_url else None,
         stable_sub_enabled=True,
+        # Cloudflare may route successive Streamable HTTP requests to
+        # different container instances. JSON request/response mode keeps the
+        # MCP session response in the request that owns it instead of relying
+        # on a long-lived SSE stream through the edge.
+        json_response=bool(public_url),
     )
 
 
