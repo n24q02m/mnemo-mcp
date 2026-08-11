@@ -1,6 +1,7 @@
 """Focused tests for the Cloudflare deployment harness."""
 
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -62,7 +63,7 @@ def test_wait_ready_passes_mapped_env_to_containers_list(monkeypatch) -> None:
         return_value=subprocess.CompletedProcess(
             args=["bunx", "wrangler", "containers", "list"],
             returncode=0,
-            stdout="mnemo ready",
+            stdout=json.dumps([{"name": "mnemo", "state": "ready", "instances": 1}]),
         )
     )
     monkeypatch.setattr(deploy_cf.subprocess, "run", run)
@@ -71,6 +72,36 @@ def test_wait_ready_passes_mapped_env_to_containers_list(monkeypatch) -> None:
 
     assert run.call_args.kwargs["env"]["CLOUDFLARE_API_TOKEN"] == "secret-token"
     assert "CF_DEV_TOKEN" not in run.call_args.kwargs["env"]
+    assert run.call_args.args[0][-1] == "--json"
+
+
+def test_wait_ready_does_not_accept_degraded_container(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CF_DEV_TOKEN", "secret-token")
+    run = MagicMock(
+        return_value=subprocess.CompletedProcess(
+            args=["bunx", "wrangler", "containers", "list", "--json"],
+            returncode=0,
+            stdout=json.dumps([{"name": "mnemo", "state": "degraded", "instances": 1}]),
+        )
+    )
+    monkeypatch.setattr(deploy_cf.subprocess, "run", run)
+    monkeypatch.setattr(deploy_cf.time, "monotonic", MagicMock(side_effect=[0, 0, 2]))
+    monkeypatch.setattr(deploy_cf.time, "sleep", MagicMock())
+
+    assert deploy_cf._wait_ready("mnemo", dry=False, timeout_s=1) is False
+
+    output = capsys.readouterr().out
+    assert "degraded" in output
+    assert "WARNING" in output
+
+
+def test_deploy_template_keeps_basic_instance_type() -> None:
+    template = (
+        _SCRIPT_PATH.parent.parent / "wrangler.deploy.template.jsonc"
+    ).read_text(encoding="utf-8")
+
+    assert '"instance_type": "basic"' in template
+    assert '"instance_type": "standard-1"' not in template
 
 
 def test_main_routes_push_and_deploy_through_wrangler_runner(monkeypatch) -> None:
