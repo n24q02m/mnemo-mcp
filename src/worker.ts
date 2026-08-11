@@ -75,6 +75,9 @@ export const CONTAINER_ENV_KEYS = [
   'MCP_D1_BASE_URL', 'MCP_VECTORIZE_BASE_URL', 'MCP_VECTORIZE_IDX',
   'EMBEDDING_MODELS', 'RERANK_MODELS', 'LLM_MODELS',
   'EMBEDDING_DIMS', 'REINDEX_ON_MODEL_CHANGE', 'RECENCY_HALF_LIFE_DAYS',
+    // Cloudflare is the post-cutover store; never start the legacy GDrive
+    // background sync task in the container.
+    'SYNC_ENABLED',
   'PUBLIC_URL', 'CREDENTIAL_SECRET',
   'JINA_AI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_VERTEX_EXPRESS_API_KEY',
   'MCP_RELAY_PASSWORD', 'MCP_DCR_SERVER_SECRET',

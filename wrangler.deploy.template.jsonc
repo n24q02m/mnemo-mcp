@@ -33,7 +33,10 @@
     "MEMORY_DB_BACKEND": "cf-d1",
     "MCP_D1_BASE_URL": "http://d1.internal",
     "MCP_VECTORIZE_BASE_URL": "http://vectorize.internal",
-    "MCP_VECTORIZE_IDX": "${CF_VECTORIZE_ID}"
+    "MCP_VECTORIZE_IDX": "${CF_VECTORIZE_ID}",
+    // Mnemo data is authoritative in Cloudflare after cutover; keep the
+    // legacy Google Drive DB sync disabled on this deployment.
+    "SYNC_ENABLED": "false"
     // Model, endpoint, and provider key are selected per authenticated
     // subject through the relay; keep no model/provider lock in Worker vars.
   },
