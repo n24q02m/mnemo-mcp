@@ -295,3 +295,9 @@ describe('CONTAINER_ENV_KEYS covers every wrangler `vars` key', () => {
     expect(missing).toEqual([])
   })
 })
+
+describe('container recovery controls', () => {
+  it('forwards the persisted-vector reindex gate into the Python process', () => {
+    expect(CONTAINER_ENV_KEYS).toContain('REINDEX_ON_MODEL_CHANGE')
+  })
+})
