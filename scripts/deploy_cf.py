@@ -408,11 +408,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Deploy {worker}: image {local} -> {full}")
     if not args.skip_build:
-        print("[1/4] docker build --target http")
+        print("[1/4] docker build --load --target http")
         _run(
             [
                 "docker",
                 "build",
+                "--load",
                 "--target",
                 "http",
                 "--build-arg",

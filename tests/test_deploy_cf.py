@@ -122,6 +122,56 @@ def test_main_routes_push_and_deploy_through_wrangler_runner(monkeypatch) -> Non
     )
 
 
+def test_main_loads_built_image_before_tagging(monkeypatch) -> None:
+    cfg = {
+        "name": "mnemo",
+        "containers": [
+            {"image": "registry.cloudflare.com/0123456789abcdef/mnemo:previous"}
+        ],
+        "vars": {"PUBLIC_URL": "https://mnemo.example"},
+    }
+    run = MagicMock()
+    wrangler = MagicMock()
+    wait_ready = MagicMock()
+
+    monkeypatch.setenv("CF_DEV_TOKEN", "secret-token")
+    monkeypatch.setattr(deploy_cf, "_load_deploy_config", lambda repo: cfg)
+    monkeypatch.setattr(deploy_cf, "_run", run)
+    monkeypatch.setattr(deploy_cf, "_run_wrangler", wrangler)
+    monkeypatch.setattr(deploy_cf, "_wait_ready", wait_ready)
+    monkeypatch.setattr(deploy_cf, "_set_image_tag", MagicMock())
+
+    assert deploy_cf.main(["--no-canary", "--tag", "b-test"]) == 0
+
+    assert run.call_args_list[:2] == [
+        call(
+            [
+                "docker",
+                "build",
+                "--load",
+                "--target",
+                "http",
+                "--build-arg",
+                "SLIM=1",
+                "-t",
+                "mnemo:b-test",
+                ".",
+            ],
+            dry=False,
+            cwd=deploy_cf.Path(__file__).resolve().parent.parent,
+        ),
+        call(
+            [
+                "docker",
+                "tag",
+                "mnemo:b-test",
+                "registry.cloudflare.com/0123456789abcdef/mnemo:b-test",
+            ],
+            dry=False,
+        ),
+    ]
+
+
 def test_rollback_routes_deploy_through_wrangler_runner(monkeypatch) -> None:
     set_image = MagicMock()
     wrangler = MagicMock()
