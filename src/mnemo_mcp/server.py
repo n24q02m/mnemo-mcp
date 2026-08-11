@@ -314,24 +314,27 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     # Per the 2026-05-14 Test B design: operator picks ONE backend at deploy
     # time. SYNC_S3_BUCKET set -> S3 (Method 2/3 docker); otherwise -> GDrive
     # (Method 1 local-relay). See ``docs/passport.md``.
-    from mnemo_mcp.sync import resolve_active_backend
-
-    sync_mode = resolve_active_backend()
-    if sync_mode == "s3":
-        logger.info("Sync mode: s3 (S3 operator-config) — GDrive auto-init skipped")
+    if not settings.sync_enabled:
+        logger.info("Sync mode: disabled (legacy Google Drive sync is off)")
     else:
-        logger.info("Sync mode: gdrive (GDrive user OAuth via relay)")
-        # Legacy GDrive DB-file copy path (Phase 1) — kept for backward compat
-        # with existing GDrive users. Phase 2 passport bundles still flow
-        # through the scheduler regardless of this background task.
-        if settings.google_drive_client_id:
-            from mnemo_mcp.sync import start_auto_sync
+        from mnemo_mcp.sync import resolve_active_backend
 
-            start_auto_sync(db)
-            logger.info(
-                f"Sync: Google Drive/{settings.sync_folder} "
-                f"(interval={settings.sync_interval}s)"
-            )
+        sync_mode = resolve_active_backend()
+        if sync_mode == "s3":
+            logger.info("Sync mode: s3 (S3 operator-config) — GDrive auto-init skipped")
+        else:
+            logger.info("Sync mode: gdrive (GDrive user OAuth via relay)")
+            # Legacy GDrive DB-file copy path (Phase 1) — kept for backward
+            # compat with existing GDrive users. Phase 2 passport bundles still
+            # flow through the scheduler regardless of this background task.
+            if settings.google_drive_client_id:
+                from mnemo_mcp.sync import start_auto_sync
+
+                start_auto_sync(db)
+                logger.info(
+                    f"Sync: Google Drive/{settings.sync_folder} "
+                    f"(interval={settings.sync_interval}s)"
+                )
 
     # Shared context -- embedding_model starts as None (not ready yet).
     # Background task updates it in-place once the backend is validated.

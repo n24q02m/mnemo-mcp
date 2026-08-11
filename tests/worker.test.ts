@@ -302,9 +302,16 @@ describe('container recovery controls', () => {
   })
 
   it('disables legacy Google Drive sync in every Cloudflare deploy vars file', () => {
-    for (const file of ['wrangler.jsonc', 'wrangler.deploy.jsonc', 'wrangler.deploy.template.jsonc']) {
+    for (const file of ['wrangler.jsonc', 'wrangler.deploy.template.jsonc']) {
       const parsed = JSON.parse(stripJsonComments(readFileSync(file, 'utf8'))) as { vars?: Record<string, unknown> }
       expect(parsed.vars?.SYNC_ENABLED, `${file}: SYNC_ENABLED`).toBe('false')
+    }
+  })
+
+  it('enables persisted-vector recovery in every Cloudflare deploy vars file', () => {
+    for (const file of ['wrangler.jsonc', 'wrangler.deploy.template.jsonc']) {
+      const parsed = JSON.parse(stripJsonComments(readFileSync(file, 'utf8'))) as { vars?: Record<string, unknown> }
+      expect(parsed.vars?.REINDEX_ON_MODEL_CHANGE, `${file}: REINDEX_ON_MODEL_CHANGE`).toBe('true')
     }
   })
 })

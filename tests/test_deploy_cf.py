@@ -141,7 +141,9 @@ def test_main_routes_push_and_deploy_through_wrangler_runner(monkeypatch) -> Non
             cwd=deploy_cf.Path(__file__).resolve().parent.parent,
         ),
     ]
-    wait_ready.assert_called_once_with("mnemo", dry=False)
+    wait_ready.assert_called_once_with(
+        "mnemo", dry=False, timeout_s=deploy_cf.DEFAULT_ROLLOUT_TIMEOUT_S
+    )
     run.assert_called_once_with(
         [
             "docker",

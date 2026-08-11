@@ -70,6 +70,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 DEPLOY_CONFIG = "wrangler.deploy.jsonc"
 TEMPLATE_CONFIG = "wrangler.deploy.template.jsonc"
+DEFAULT_ROLLOUT_TIMEOUT_S = 1800
 _WRANGLER_TOKEN = "CLOUDFLARE_API_TOKEN"
 _SKRET_TOKEN = "CF_DEV_TOKEN"
 
@@ -208,7 +209,9 @@ def _set_image_tag(repo: Path, full_ref: str) -> None:
     path.write_text(new, encoding="utf-8")
 
 
-def _wait_ready(worker: str, *, dry: bool, timeout_s: int = 600) -> bool:
+def _wait_ready(
+    worker: str, *, dry: bool, timeout_s: int = DEFAULT_ROLLOUT_TIMEOUT_S
+) -> bool:
     """Poll JSON container state until a healthy worker has a live instance."""
     if dry:
         print(f"  (dry-run) would poll containers list until {worker} STATE=ready")
@@ -411,6 +414,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="skip the post-deploy canary gate (and its auto-rollback)",
     )
+    p.add_argument(
+        "--rollout-timeout",
+        type=int,
+        default=DEFAULT_ROLLOUT_TIMEOUT_S,
+        help=(
+            "seconds to wait for a healthy live container "
+            f"(default: {DEFAULT_ROLLOUT_TIMEOUT_S})"
+        ),
+    )
     args = p.parse_args(argv)
 
     repo = Path(__file__).resolve().parent.parent
@@ -464,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print("Waiting for a healthy container rollout...")
-    if not _wait_ready(worker, dry=args.dry_run):
+    if not _wait_ready(worker, dry=args.dry_run, timeout_s=args.rollout_timeout):
         print(f"FAILED: {worker} has no healthy live container instance.")
         if prev_ref == full:
             print(

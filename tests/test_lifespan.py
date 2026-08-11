@@ -149,6 +149,22 @@ async def test_lifespan_sync_enabled(mock_settings, mock_db, mock_embedder, mock
 
 
 @pytest.mark.asyncio
+async def test_lifespan_sync_disabled_skips_legacy_auto_sync(
+    mock_settings, mock_db, mock_embedder, mock_sync
+):
+    """A Cloudflare cutover must not initialize the legacy Google Drive loop."""
+    mock_settings.sync_enabled = False
+    start_sync, stop_sync = mock_sync
+
+    server = MagicMock()
+    async with lifespan(server):
+        pass
+
+    start_sync.assert_not_called()
+    stop_sync.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_lifespan_local_backend_explicit(
     mock_settings, mock_db, mock_embedder, mock_sync
 ):
