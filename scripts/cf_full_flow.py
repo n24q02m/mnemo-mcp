@@ -9,19 +9,17 @@ Flow (authorization_code + PKCE, DCR public client; ported verbatim from the
 mnemo/imagine/email CF harnesses):
   1. DCR register   -- POST /register (RFC 7591) -> client_id
   2. password-grant -- GET /authorize -> POST /login (Gate A relay password) -> form
-  3. save creds     -- POST /authorize?nonce=... {provider key} (retry-on-500 for the
-                       E.1 outbound-interception race). wet's _require_credentials()
-                       gates every tool on the per-sub vault holding >=1 provider key
-                       (JINA/GEMINI/OPENAI/COHERE); it does NOT read the server-side
-                       forwarded JINA from os.environ, so a real user must submit one.
-                       The harness submits whatever key skret /wet-mcp/prod injects.
+  3. save creds     -- POST /authorize?nonce=... {provider key + routing} (retry-on-500
+                       for the E.1 outbound-interception race). Mnemo's credential
+                       gate requires >=1 provider key in the per-sub vault; the
+                       harness also submits the model and endpoint routing explicitly.
   4. token          -- POST /token (code + verifier) -> bearer JWT
   5. tool call      -- config(status) + unique add/search/delete round-trip over
                        the deployed D1/Vectorize path.
 
 Secrets from env: Gate A login password MCP_RELAY_PASSWORD (or RELAY_PW) from skret
 /oci-vm-prod/prod (infra-shared); >=1 provider key (JINA_AI_API_KEY preferred) from
-skret /wet-mcp/prod -- compose both namespaces.
+skret /mnemo-mcp/prod -- compose both namespaces.
 
 Run modes:
   (default)            full flow: config(status) + search, assert real results.
@@ -29,12 +27,14 @@ Run modes:
                        (recreate-gate setup half of the state-survives-recreate test).
   --auth-only          replay the SAME token (same sub) and search again WITHOUT
                        re-saving (recreate-gate verify: the sub vault survived KV).
+  --backfill           configure the sub through the relay, then run the bounded
+                       embedding backfill over the deployed D1/Vectorize path.
   --two-sub-isolation  two distinct subs; sub B must not find sub A's unique marker
                        before B creates and searches its own marker.
 
 Examples:
   skret run -e prod --path=/oci-vm-prod/prod -- \
-    skret run -e prod --path=/wet-mcp/prod -- \
+    skret run -e prod --path=/mnemo-mcp/prod -- \
       python scripts/cf_full_flow.py
   ... -- python scripts/cf_full_flow.py --endpoint https://mnemo.n24q02m.com
   ... -- python scripts/cf_full_flow.py --save-only
@@ -70,17 +70,13 @@ def _password() -> str:
         raise SystemExit(
             "MCP_RELAY_PASSWORD (or RELAY_PW) is required for the password-grant "
             "login gate. It lives in skret /oci-vm-prod/prod (infra-shared), NOT "
-            "/wet-mcp/prod -- compose both namespaces."
+            "/mnemo-mcp/prod -- compose both namespaces."
         )
     return pw
 
 
 def _creds() -> dict[str, str]:
-    """Per-sub credential form payload. wet's `_require_credentials()` gates every
-    tool on the per-sub vault holding at least one provider key (JINA / GEMINI /
-    OPENAI / COHERE) -- it does NOT read the server-side forwarded JINA from
-    os.environ. So a real user must submit a key; the harness submits whichever
-    provider key skret /wet-mcp/prod injects (JINA preferred)."""
+    """Build the per-sub provider and model-routing form payload."""
     creds: dict[str, str] = {}
     for env_name in (
         "JINA_AI_API_KEY",
@@ -92,11 +88,22 @@ def _creds() -> dict[str, str]:
         v = os.environ.get(env_name)
         if v:
             creds[env_name] = v
+    for env_name in (
+        "EMBEDDING_MODELS",
+        "EMBEDDING_API_BASE",
+        "RERANK_MODELS",
+        "RERANK_API_BASE",
+        "LLM_MODELS",
+        "LLM_API_BASE",
+    ):
+        v = os.environ.get(env_name)
+        if v:
+            creds[env_name] = v
     if not creds:
         raise SystemExit(
             "No provider key in env (JINA_AI_API_KEY / GEMINI_API_KEY / "
-            "OPENAI_API_KEY / COHERE_API_KEY). skret /wet-mcp/prod injects them; "
-            "wet's per-sub gate requires at least one to authorize tool calls."
+            "OPENAI_API_KEY / COHERE_API_KEY). Provide the relay-managed per-sub "
+            "provider key through skret."
         )
     return creds
 
@@ -109,7 +116,7 @@ def get_token(endpoint: str, creds: dict[str, str], *, save_retries: int = 8) ->
     """Run the full OAuth flow, retrying on a transient 500 at the credential save
     step (CF Containers outbound-interception race on cold-started instances; E.1).
     Each retry restarts from DCR so the nonce is fresh. ``creds`` is the /authorize
-    form payload (EMPTY for wet: search/extract + embed are server-side)."""
+    form payload (provider and routing settings are explicit for Mnemo)."""
     import httpx  # lazy: keep --help importable without httpx installed
 
     last: Exception | None = None
@@ -377,6 +384,29 @@ async def run_full(endpoint: str) -> None:
     print("FULL FLOW PASS.")
 
 
+async def run_backfill(endpoint: str, batch_size: int = 32) -> None:
+    """Run the deployed request-scoped embedding backfill through MCP."""
+    if not 1 <= batch_size <= 100:
+        raise SystemExit("--batch-size must be between 1 and 100")
+    token = get_token(endpoint, _creds())
+    print("TOKEN OK len=", len(token), "sub=", _sub_of(token))
+    transport, ClientSession = await _session(endpoint, token)
+    async with transport as (r, w, _), ClientSession(r, w) as s:
+        await s.initialize()
+        txt = await _call(
+            s,
+            "BACKFILL_EMBEDDINGS",
+            "config",
+            {"action": "backfill_embeddings", "batch_size": batch_size},
+            retries=5,
+            delay=2,
+        )
+    payload = _tool_payload(txt, "config(backfill_embeddings)")
+    assert payload.get("status") == "completed", payload
+    assert payload.get("failed") == 0, payload
+    print("BACKFILL PASS:", _json.dumps(payload, sort_keys=True))
+
+
 async def run_save_only(endpoint: str) -> None:
     token = get_token(endpoint, _creds())
     transport, ClientSession = await _session(endpoint, token)
@@ -457,13 +487,13 @@ async def run_two_sub_isolation(endpoint: str) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="CF wet-mcp live OAuth full-flow self-test harness.",
+        description="CF mnemo-mcp live OAuth full-flow self-test harness.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--endpoint",
         default=DEFAULT_ENDPOINT,
-        help=f"Deployed wet endpoint (default: {DEFAULT_ENDPOINT})",
+        help=f"Deployed mnemo endpoint (default: {DEFAULT_ENDPOINT})",
     )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument(
@@ -475,6 +505,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--auth-only",
         action="store_true",
         help="Replay the SAME token + search WITHOUT re-saving (recreate verify).",
+    )
+    mode.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Run the bounded request-scoped embedding backfill over deployed D1/Vectorize.",
+    )
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="Backfill batch size (1-100; default: 32).",
     )
     mode.add_argument(
         "--two-sub-isolation",
@@ -493,6 +534,8 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(run_save_only(args.endpoint))
     elif args.auth_only:
         asyncio.run(run_auth_only(args.endpoint))
+    elif args.backfill:
+        asyncio.run(run_backfill(args.endpoint, args.batch_size))
     elif args.two_sub_isolation:
         asyncio.run(run_two_sub_isolation(args.endpoint))
     else:

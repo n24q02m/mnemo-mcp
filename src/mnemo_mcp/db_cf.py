@@ -614,7 +614,13 @@ class MemoryDBCfBackend:
         self._require_schema()
         self._guard_embedding_identity()
 
-    def clone_for_sub(self, sub: str) -> MemoryDBCfBackend:
+    def clone_for_sub(
+        self,
+        sub: str,
+        *,
+        embedding_model: str | None = None,
+        embedding_dims: int | None = None,
+    ) -> MemoryDBCfBackend:
         """Return a request-scoped view sharing transport clients, not SQL scope."""
         if not isinstance(sub, str) or not sub.strip():
             raise ValueError("sub must be a non-empty string")
@@ -624,6 +630,10 @@ class MemoryDBCfBackend:
         clone.__dict__ = self.__dict__.copy()
         clone.sub = sub
         clone._conn = _D1Connection(self._backend, sub=sub)
+        if embedding_model is not None:
+            clone._embedding_model = embedding_model
+        if embedding_dims is not None:
+            clone._embedding_dims = embedding_dims
         clone.last_vector_cap = None
         return clone
 

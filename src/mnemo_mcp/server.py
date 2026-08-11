@@ -32,10 +32,27 @@ from mnemo_mcp.db_cf import MemoryDBCfBackend, open_memory_db
 # to avoid a circular import: ``mnemo_mcp/__init__`` imports ``server.main``.
 __version__ = _pkgver("mnemo-mcp")
 
-# Constant embedding dimensions for sqlite-vec.
-# All embeddings are truncated to this size so switching models never
-# breaks the vector table. Override via EMBEDDING_DIMS env var.
+# Constant embedding dimensions for sqlite-vec and the Cloudflare Vectorize
+# index. All embeddings are fitted to this size so switching models never
+# breaks the vector table. Override via EMBEDDING_DIMS env var when a backend
+# has an explicit dimension contract.
 _DEFAULT_EMBEDDING_DIMS = 768
+_DEFAULT_CF_EMBEDDING_DIMS = 1536
+
+
+def _default_embedding_dims() -> int:
+    """Return the storage width for the active backend.
+
+    Cohere ``embed-v4.0`` is the relay-managed CF deployment target and its
+    Vectorize index is 1536-dimensional. Keeping the CF default here means
+    removing deployment-level model/dimension locks does not silently revert
+    the D1 ledger and provider request to the old 768-width Jina contract.
+    SQLite/local deployments retain the historical 768 default.
+    """
+    if os.getenv("MEMORY_DB_BACKEND", "").strip().lower() == "cf-d1":
+        return _DEFAULT_CF_EMBEDDING_DIMS
+    return _DEFAULT_EMBEDDING_DIMS
+
 
 # --- Lifespan ---
 
@@ -141,7 +158,7 @@ async def _init_embedding_backend(
             native_dims = await asyncio.to_thread(backend.check_available)
             if native_dims > 0:
                 if embedding_dims == 0:
-                    embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                    embedding_dims = _default_embedding_dims()
                 logger.info(
                     f"Embedding: local {local_model} "
                     f"(native={native_dims}, stored={embedding_dims})"
@@ -162,7 +179,7 @@ async def _init_embedding_backend(
             native_dims = await asyncio.to_thread(backend.check_available)
             if native_dims > 0:
                 if embedding_dims == 0:
-                    embedding_dims = _DEFAULT_EMBEDDING_DIMS
+                    embedding_dims = _default_embedding_dims()
                 logger.info(
                     f"Embedding: {candidate} "
                     f"(native={native_dims}, stored={embedding_dims})"
@@ -259,7 +276,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     # 2. Resolve initial embedding dims (may be refined by background task)
     embedding_dims = settings.resolve_embedding_dims()
     if embedding_dims == 0:
-        embedding_dims = _DEFAULT_EMBEDDING_DIMS
+        embedding_dims = _default_embedding_dims()
 
     # 3. Initialize database (fast, no network)
     # Resolve the active embedding-model identity synchronously so the vector
@@ -373,7 +390,7 @@ def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
     lc = ctx.request_context.lifespan_context
     db = lc["db"]
     if isinstance(db, MemoryDBCfBackend):
-        from mnemo_mcp.credential_state import get_current_sub
+        from mnemo_mcp.credential_state import get_current_sub, model_for_task
 
         sub = get_current_sub()
         if sub is None:
@@ -381,7 +398,8 @@ def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
                 "JWT sub is required for Cloudflare D1 requests; refusing an "
                 "unscoped backend."
             )
-        db = db.clone_for_sub(sub)
+        request_model = model_for_task("embedding") or lc.get("embedding_model")
+        db = db.clone_for_sub(sub, embedding_model=request_model)
     return db, lc["embedding_model"], lc["embedding_dims"]
 
 
@@ -1892,7 +1910,8 @@ async def memory(
 
 @mcp.tool(
     description=(
-        "Server config, sync, and setup. Actions: status|sync|set|warmup|setup_sync.\n"
+        "Server config, sync, setup, and bounded vector backfill. Actions: "
+        "status|sync|set|warmup|setup_sync|backfill_embeddings.\n"
         "\n"
         "ACTION GUIDE — when to use each:\n"
         "- status: Show current configuration, setup status, and database stats.\n"
@@ -1901,6 +1920,8 @@ async def memory(
         "  Valid keys: 'sync_enabled' (true/false), 'sync_interval' (int), 'log_level' (str).\n"
         "  Example: action='set', key='sync_enabled', value='true'\n"
         "- warmup: Pre-download embedding model (~570 MB) to avoid delays later.\n"
+        "- backfill_embeddings: Embed active rows missing a current Vectorize ledger "
+        "entry; optional batch_size is bounded to 100.\n"
         "- setup_sync: Authenticate Google Drive via Device Code OAuth flow."
     ),
     annotations=ToolAnnotations(
@@ -1915,6 +1936,7 @@ async def config(
     action: str,
     key: str | None = None,
     value: str | None = None,
+    batch_size: int | None = None,
     ctx: Context | None = None,
 ) -> dict[str, typing.Any]:
     """Server configuration, sync control, and setup.
@@ -1924,6 +1946,7 @@ async def config(
     - sync: Trigger manual Google Drive sync (requires sync_enabled + google_drive_client_id)
     - set: Update setting (key + value required)
     - warmup: Pre-download embedding model (~570 MB) to avoid first-run delays
+    - backfill_embeddings: Embed active rows missing a current Vectorize ledger entry
     - setup_sync: Authenticate Google Drive via Device Code OAuth flow
     """
     match action:
@@ -1947,6 +1970,8 @@ async def config(
             return await _handle_config_setup_reset()
         case "setup_complete":
             return await _handle_config_setup_complete(ctx)
+        case "backfill_embeddings":
+            return await _handle_config_backfill(ctx, batch_size)
         case "setup_relay":
             return await _handle_config_setup_relay()
         case "sync_now":
@@ -1959,6 +1984,7 @@ async def config(
             valid_actions = [
                 "export_passport",
                 "import_passport",
+                "backfill_embeddings",
                 "set",
                 "setup_complete",
                 "setup_relay",
@@ -1989,6 +2015,115 @@ async def config(
                     f"Available actions are: {', '.join(valid_actions)}."
                 )
             return resp
+
+
+async def _handle_config_backfill(
+    ctx: Context | None,
+    batch_size: int | None,
+) -> dict[str, typing.Any]:
+    """Backfill active rows through the request-scoped store and embedder.
+
+    This is intentionally a bounded MCP operation rather than a laptop-side
+    D1 shortcut: the D1 and Vectorize transports are only available inside the
+    deployed container. The migration-0003 ledger makes each page idempotent,
+    while the authenticated subject selects the model, endpoint, and key.
+    """
+    if batch_size is None:
+        batch_size = 32
+    if (
+        not isinstance(batch_size, int)
+        or isinstance(batch_size, bool)
+        or not 1 <= batch_size <= 100
+    ):
+        return {
+            "error": "batch_size must be an integer between 1 and 100",
+            "suggestion": "Use a bounded batch_size such as 32.",
+        }
+
+    db, global_model, embedding_dims = _get_ctx(ctx)
+    embedding_model, backend = _get_request_embedding(ctx, global_model, embedding_dims)
+    if not embedding_model or backend is None:
+        return {
+            "status": "unavailable",
+            "error": "No embedding backend is configured for the current subject.",
+            "scanned": 0,
+            "embedded": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
+
+    scanned = embedded = skipped = failed = 0
+    seen_ids: set[str] = set()
+    while True:
+        try:
+            rows = await asyncio.to_thread(
+                db.rows_without_vectors,
+                batch_size,
+                exclude_ids=seen_ids,
+            )
+        except TypeError as exc:
+            if "exclude_ids" not in str(exc):
+                raise
+            rows = await asyncio.to_thread(db.rows_without_vectors, batch_size)
+
+        fresh_rows = [
+            dict(row) for row in rows if str(row.get("id", "")) not in seen_ids
+        ]
+        if not fresh_rows:
+            break
+        seen_ids.update(str(row.get("id", "")) for row in fresh_rows)
+        scanned += len(fresh_rows)
+
+        usable = [row for row in fresh_rows if str(row.get("content") or "").strip()]
+        skipped += len(fresh_rows) - len(usable)
+        if not usable:
+            if len(rows) < batch_size:
+                break
+            continue
+
+        try:
+            vectors = await backend.embed_texts(
+                [str(row["content"]) for row in usable],
+                embedding_dims,
+            )
+        except Exception as exc:
+            logger.warning(f"Embedding backfill batch failed: {exc}")
+            failed += len(usable)
+            break
+
+        if len(vectors) != len(usable):
+            failed += len(usable)
+            break
+
+        batch_failed = False
+        for row, vector in zip(usable, vectors, strict=True):
+            if not vector:
+                failed += 1
+                batch_failed = True
+                continue
+            try:
+                await asyncio.to_thread(db.write_vector, row["id"], list(vector))
+            except Exception as exc:
+                logger.warning(
+                    f"Embedding backfill write failed for {row['id']}: {exc}"
+                )
+                failed += 1
+                batch_failed = True
+                continue
+            embedded += 1
+
+        if batch_failed or len(rows) < batch_size:
+            break
+
+    return {
+        "status": "completed" if failed == 0 else "partial",
+        "model": embedding_model,
+        "dimensions": embedding_dims,
+        "scanned": scanned,
+        "embedded": embedded,
+        "skipped": skipped,
+        "failed": failed,
+    }
 
 
 async def _handle_config_status(ctx: Context | None) -> dict[str, typing.Any]:

@@ -24,6 +24,15 @@ class _FakeSession:
         self.next_id = 0
         self.memories: dict[str, str] = {}
         self.duplicate_warning = duplicate_warning
+        self.backfill_payload = {
+            "status": "completed",
+            "model": "cohere/embed-v4.0",
+            "dimensions": 1536,
+            "scanned": 267,
+            "embedded": 267,
+            "skipped": 0,
+            "failed": 0,
+        }
 
     async def initialize(self) -> None:
         return None
@@ -65,6 +74,12 @@ class _FakeSession:
             payload = {"status": "deleted", "id": memory_id}
             return SimpleNamespace(
                 content=[SimpleNamespace(text=json.dumps(payload))],
+            )
+
+        if name == "config":
+            assert arguments == {"action": "backfill_embeddings", "batch_size": 32}
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=json.dumps(self.backfill_payload))],
             )
 
         raise AssertionError(f"unexpected tool: {name}")
@@ -129,6 +144,44 @@ async def test_run_search_rejects_duplicate_warning_and_cleans_up_exact_memory()
         "delete_memory",
     ]
     assert session.calls[-1][1]["memory_id"] == "memory-1"
+
+
+@pytest.mark.asyncio
+async def test_run_backfill_uses_config_action_and_requires_zero_failures(monkeypatch):
+    session = _FakeSession()
+
+    monkeypatch.setattr(_HARNESS, "_creds", lambda: {"COHERE_API_KEY": "gateway"})
+    monkeypatch.setattr(_HARNESS, "get_token", lambda endpoint, creds: "token")
+    monkeypatch.setattr(_HARNESS, "_sub_of", lambda token: "sub-a")
+
+    async def fake_session(endpoint: str, token: str):
+        return _FakeTransport(), lambda read, write: _FakeClientSessionContext(session)
+
+    monkeypatch.setattr(_HARNESS, "_session", fake_session)
+
+    await _HARNESS.run_backfill("https://mnemo.test")
+
+    assert session.calls == [
+        ("config", {"action": "backfill_embeddings", "batch_size": 32}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_backfill_rejects_failures(monkeypatch):
+    session = _FakeSession()
+    session.backfill_payload["failed"] = 1
+
+    monkeypatch.setattr(_HARNESS, "_creds", lambda: {"COHERE_API_KEY": "gateway"})
+    monkeypatch.setattr(_HARNESS, "get_token", lambda endpoint, creds: "token")
+    monkeypatch.setattr(_HARNESS, "_sub_of", lambda token: "sub-a")
+
+    async def fake_session(endpoint: str, token: str):
+        return _FakeTransport(), lambda read, write: _FakeClientSessionContext(session)
+
+    monkeypatch.setattr(_HARNESS, "_session", fake_session)
+
+    with pytest.raises(AssertionError, match="failed"):
+        await _HARNESS.run_backfill("https://mnemo.test")
 
 
 def test_assert_search_absent_rejects_leaked_marker():

@@ -16,6 +16,7 @@ import pytest
 
 from mnemo_mcp.db import MemoryDB
 from mnemo_mcp.server import (
+    _default_embedding_dims,
     _embed,
     _format_memory,
     _json,
@@ -24,6 +25,15 @@ from mnemo_mcp.server import (
     memory,
     stats_resource,
 )
+
+
+def test_cloudflare_default_embedding_width_matches_vectorize_contract(monkeypatch):
+    """CF D1/Vectorize uses the relay Cohere 1536-width contract by default."""
+    monkeypatch.setenv("MEMORY_DB_BACKEND", "cf-d1")
+    assert _default_embedding_dims() == 1536
+
+    monkeypatch.setenv("MEMORY_DB_BACKEND", "sqlite")
+    assert _default_embedding_dims() == 768
 
 
 @pytest.fixture
@@ -59,16 +69,17 @@ class TestEmbed:
 
     async def test_embed_transient_exception_returns_none(self):
         """A transient embedding error degrades this call to None (FTS5-only)."""
-        from litellm.exceptions import RateLimitError
+
+        class TransientEmbeddingError(Exception):
+            pass
 
         mock_backend = MagicMock()
-        mock_backend.embed_single = AsyncMock(
-            side_effect=RateLimitError(
-                message="rate limit exceeded", llm_provider="cohere", model="m"
-            )
-        )
+        mock_backend.embed_single = AsyncMock(side_effect=TransientEmbeddingError())
 
-        with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
+        with (
+            patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend),
+            patch("mnemo_mcp.embedder._is_retryable", return_value=True),
+        ):
             result = await _embed("test text", "some-model", 768)
             assert result is None
 
@@ -174,6 +185,43 @@ class TestConfigSync:
         result = await config(action="set", key="log_level", value="INVALID", ctx=ctx)
         assert "error" in result
         assert "valid_levels" in result
+
+    async def test_config_backfill_embeddings_uses_request_backend(self):
+        """Backfill pages the store and writes vectors through the active backend."""
+        db = MagicMock()
+        db.rows_without_vectors.side_effect = [
+            [
+                {"id": "m-1", "content": "first memory"},
+                {"id": "m-2", "content": "second memory"},
+            ],
+            [],
+        ]
+        backend = MagicMock()
+        backend.embed_texts = AsyncMock(return_value=[[1.0] * 1536, [2.0] * 1536])
+        ctx = MagicMock()
+        ctx.request_context.lifespan_context = {
+            "db": db,
+            "embedding_model": None,
+            "embedding_dims": 1536,
+        }
+
+        with patch(
+            "mnemo_mcp.server._get_request_embedding",
+            return_value=("cohere/embed-v4.0", backend),
+        ):
+            result = await config(action="backfill_embeddings", batch_size=2, ctx=ctx)
+
+        assert result == {
+            "status": "completed",
+            "model": "cohere/embed-v4.0",
+            "dimensions": 1536,
+            "scanned": 2,
+            "embedded": 2,
+            "skipped": 0,
+            "failed": 0,
+        }
+        assert db.write_vector.call_count == 2
+        backend.embed_texts.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

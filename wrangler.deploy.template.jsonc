@@ -33,11 +33,9 @@
     "MEMORY_DB_BACKEND": "cf-d1",
     "MCP_D1_BASE_URL": "http://d1.internal",
     "MCP_VECTORIZE_BASE_URL": "http://vectorize.internal",
-    "MCP_VECTORIZE_IDX": "${CF_VECTORIZE_ID}",
-    "EMBEDDING_MODELS": "jina_ai/jina-embeddings-v5-text-small",
-    "RERANK_MODELS": "jina_ai/jina-reranker-v3",
-    "LLM_MODELS": "openrouter/minimax/minimax-m3",
-    "EMBEDDING_DIMS": "768"
+    "MCP_VECTORIZE_IDX": "${CF_VECTORIZE_ID}"
+    // Model, endpoint, and provider key are selected per authenticated
+    // subject through the relay; keep no model/provider lock in Worker vars.
   },
   "observability": { "enabled": true }
 }
