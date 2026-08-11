@@ -1,5 +1,6 @@
 """Tests for mnemo_mcp.sync -- Google Drive sync operations."""
 
+import sqlite3
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -84,7 +85,14 @@ class TestTokenManagement:
         mock_response.status_code = 401
         mock_response.text = "invalid_grant"
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
+        # client_id matches the mocked settings so this exercises the
+        # HTTP-failure branch, not the client-mismatch guard.
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("mnemo_mcp.sync.settings") as mock_settings,
+        ):
+            mock_settings.google_drive_client_id = "client123"
+            mock_settings.google_drive_client_secret = "secret123"
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -99,7 +107,12 @@ class TestTokenManagement:
         from mnemo_mcp.sync import _refresh_token
 
         token = {"access_token": "old", "client_id": "client123"}
-        result = await _refresh_token(token)
+        # client_id matches the mocked settings so this exercises the
+        # missing-refresh_token branch, not the client-mismatch guard.
+        with patch("mnemo_mcp.sync.settings") as mock_settings:
+            mock_settings.google_drive_client_id = "client123"
+            mock_settings.google_drive_client_secret = "secret123"
+            result = await _refresh_token(token)
         assert result is None
 
     async def test_get_valid_token_no_token(self):
@@ -326,7 +339,12 @@ class TestSyncPush:
 
     async def test_success(self, tmp_path):
         db_path = tmp_path / "test.db"
-        db_path.write_bytes(b"data")
+        # A real SQLite file: sync_push now checkpoints the WAL before the
+        # upload, which means it refuses anything that is not a database.
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
         token = {"access_token": "valid"}
 
         with (

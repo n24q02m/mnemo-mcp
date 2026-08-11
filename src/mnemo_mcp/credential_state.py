@@ -43,8 +43,9 @@ CLOUD_KEYS = [
     "ANTHROPIC_API_KEY",
     "XAI_API_KEY",
     "GOOGLE_VERTEX_EXPRESS_API_KEY",
-    # Per-sub custom endpoints. They remain in the request config so the
-    # dispatch layer can pass them to mcp_core.llm, which vets them before I/O.
+    # Per-sub custom endpoints (SSRF-vetted in mcp_core.llm dispatch). Listed
+    # here so credentials_for_current_request() keeps them through the
+    # os.environ filter and the per-sub config apply loop, same as the keys.
     "EMBEDDING_API_BASE",
     "RERANK_API_BASE",
     "LLM_API_BASE",

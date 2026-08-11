@@ -35,7 +35,7 @@ export interface Env {
   // forwarded into the container process via MnemoContainer.envVars.
   MCP_STORAGE_BACKEND: string
   MCP_KV_BASE_URL: string
-  DOCS_DB_BACKEND: string
+  MEMORY_DB_BACKEND: string
   MCP_D1_BASE_URL: string
   MCP_VECTORIZE_BASE_URL: string
   MCP_VECTORIZE_IDX: string
@@ -55,17 +55,29 @@ export interface Env {
 
 // Keys forwarded from the Worker env (wrangler vars + secrets) into the container
 // process. Unset/empty values are dropped so an unused optional secret never
-// injects a blank. MCP_RELAY_PASSWORD MUST stay here: the container's OAuth-AS
-// browser form (Gate A) is gated by it -- dropping it would open the relay form
-// to anyone. CREDENTIAL_SECRET + MCP_DCR_SERVER_SECRET enable per-sub multi-user.
-const CONTAINER_ENV_KEYS = [
-  'MCP_STORAGE_BACKEND', 'MCP_KV_BASE_URL', 'DOCS_DB_BACKEND',
+// injects a blank. Every key declared in any wrangler*.jsonc `vars` block MUST
+// be listed here too -- otherwise its value is silently dropped and the
+// container falls back to a default with no error. tests/worker.test.ts asserts
+// this coverage against all three wrangler files (wrangler.jsonc,
+// wrangler.deploy.jsonc, wrangler.deploy.template.jsonc), so it fails loudly
+// instead. The other 10 keys below are NOT declared as `vars` anywhere and are
+// loaded with `wrangler secret put`: RECENCY_HALF_LIFE_DAYS, CREDENTIAL_SECRET,
+// JINA_AI_API_KEY, GEMINI_API_KEY, GOOGLE_VERTEX_EXPRESS_API_KEY,
+// MCP_RELAY_PASSWORD, MCP_DCR_SERVER_SECRET, OPENROUTER_API_BASE,
+// OPENROUTER_API_KEY, JINA_AI_API_BASE. MCP_RELAY_PASSWORD MUST stay here: the
+// container's OAuth-AS browser form (Gate A) is gated by it -- dropping it would
+// open the relay form to anyone. CREDENTIAL_SECRET + MCP_DCR_SERVER_SECRET
+// enable per-sub multi-user.
+export const CONTAINER_ENV_KEYS = [
+  'MCP_STORAGE_BACKEND', 'MCP_KV_BASE_URL', 'MEMORY_DB_BACKEND',
   'MCP_D1_BASE_URL', 'MCP_VECTORIZE_BASE_URL', 'MCP_VECTORIZE_IDX',
   'EMBEDDING_MODELS', 'RERANK_MODELS', 'LLM_MODELS',
   'EMBEDDING_DIMS', 'RECENCY_HALF_LIFE_DAYS',
   'PUBLIC_URL', 'CREDENTIAL_SECRET',
   'JINA_AI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_VERTEX_EXPRESS_API_KEY',
   'MCP_RELAY_PASSWORD', 'MCP_DCR_SERVER_SECRET',
+  // CF AI Gateway (llm-main) litellm routing
+  'OPENROUTER_API_BASE', 'OPENROUTER_API_KEY', 'JINA_AI_API_BASE',
 ] as const
 
 function pickContainerEnv(env: Env): Record<string, string> {
@@ -152,6 +164,19 @@ export const OUTBOUND_BY_HOST: Record<string, OutboundHandler<Env>> = {
   'vectorize.internal': vectorizeOutbound,
 }
 
+// Bearer credential presence check. Structural only -- validity is the container's job.
+const BEARER = /^Bearer\s+\S/i
+
+function unauthenticated(request: Request): Response {
+  const { origin } = new URL(request.url)
+  return new Response(null, {
+    status: 401,
+    headers: {
+      'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    },
+  })
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Public entrypoint: ONLY routes inbound requests to the per-user container
@@ -162,6 +187,30 @@ export default {
     // reaches them via @cloudflare/containers' ContainerProxy + the
     // MnemoContainer.outboundByHost registry below; unit tests call the handlers
     // directly via the OUTBOUND_BY_HOST export.
+    // Edge auth gate. mcp-core's OAuth AS runs INSIDE the container, so before this
+    // gate every anonymous /mcp request started the container and reset its 5m idle
+    // timer -- an unauthenticated caller could pin it awake and bill GiB-s around the
+    // clock. Verified 2026-07-09: a python-httpx client POSTed /mcp with no
+    // Authorization header every ~20s for 12h+. The check is STRUCTURAL: it rejects
+    // requests carrying no bearer credential at all and reproduces the container's own
+    // 401 (empty body + RFC 9728 WWW-Authenticate). Token VALIDITY is never judged
+    // here -- the container remains the sole authority, so no mcp-core auth logic is
+    // duplicated at the edge.
+    const url = new URL(request.url)
+    if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+      if (!BEARER.test(request.headers.get('authorization') ?? '')) return unauthenticated(request)
+    }
+    // Standing GET /mcp = the streamable-HTTP server-push SSE stream. On a
+    // scale-to-zero container this is pure idle cost: @cloudflare/containers
+    // counts an open stream as an in-flight request forever (inflight > 0 =>
+    // activity never expires), so a single idle client pins the container
+    // awake 24/7. None of this stack's servers send server-initiated
+    // messages; request-scoped notifications ride the POST's own SSE
+    // response. The spec allows declining the stream: both official SDKs
+    // treat 405 as the optional-feature path and continue POST-only.
+    if (request.method === 'GET' && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/'))) {
+      return new Response(null, { status: 405, headers: { Allow: 'POST, DELETE' } })
+    }
     if (env.MNEMO) {
       const userId = await extractUserId(request)
       const stub = env.MNEMO.get(env.MNEMO.idFromName(userId))
@@ -199,16 +248,18 @@ async function extractUserId(_request: Request): Promise<string> {
 export class MnemoContainer extends Container<Env> {
   defaultPort = 8080
   sleepAfter = '5m'
-  // CF container readiness-probe override. Default 'ping' (URL http://ping/) does
-  // not resolve, so the health-check fetch throws and the container is marked
-  // unhealthy -> CF keeps it running 24/7 instead of sleeping on idle. 'localhost/'
-  // resolves to the container itself; the default route returns 200.
+  // Port-readiness probe used by @cloudflare/containers' waitForPort(): it does
+  // tcpPort.fetch('http://' + pingEndpoint) against the container's bound port, so the
+  // host segment is only a Host header (no DNS) and ANY HTTP response marks the port
+  // ready. core-py serves 200 at '/', so this points there. It does NOT drive the
+  // platform's `healthy` metric -- see the edge auth gate above for the real cause of
+  // containers never sleeping.
   pingEndpoint = 'localhost/'
   // The container reaches cloud model APIs (Jina, Vertex) over the public
   // internet; kv/d1/vectorize.internal stay intercepted (see outboundByHost).
   enableInternet = true
   // Forward Worker config (vars) + secrets into the container process. Without
-  // this the Python server defaults to MCP_STORAGE_BACKEND=local / DOCS_DB_BACKEND=sqlite
+  // this the Python server defaults to MCP_STORAGE_BACKEND=local / MEMORY_DB_BACKEND=sqlite
   // on the ephemeral container FS and downloads local ONNX models.
   envVars = pickContainerEnv(this.env)
 }

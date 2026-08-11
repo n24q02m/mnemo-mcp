@@ -6,7 +6,6 @@ and _init_reranker_backend AWAITING_SETUP paths, lifespan credential
 resolution exception.
 """
 
-import json
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -58,7 +57,7 @@ class TestSetupStatus:
                 return_value={"GEMINI_API_KEY": "test-key"},
             ),
         ):
-            result = json.loads(await config(action="setup_status", ctx=ctx))
+            result = await config(action="setup_status", ctx=ctx)
 
         assert result["state"] == "configured"
         assert result["setup_url"] == "https://setup.url"
@@ -70,7 +69,7 @@ class TestSetupStatus:
         monkeypatch.setenv("GEMINI_API_KEY", "test_key")
         set_state(CredentialState.CONFIGURED)
 
-        result = json.loads(await config(action="setup_status", ctx=ctx))
+        result = await config(action="setup_status", ctx=ctx)
 
         assert "GEMINI_API_KEY" in result["cloud_keys_in_env"]
 
@@ -86,7 +85,7 @@ class TestSetupStart:
         ctx, _ = ctx_with_db
         set_state(CredentialState.CONFIGURED)
 
-        result = json.loads(await config(action="setup_start", ctx=ctx))
+        result = await config(action="setup_start", ctx=ctx)
 
         assert result["status"] == "already_configured"
 
@@ -98,7 +97,7 @@ class TestSetupStart:
         ctx, _ = ctx_with_db
         set_state(CredentialState.CONFIGURED)
 
-        result = json.loads(await config(action="setup_start", key="force", ctx=ctx))
+        result = await config(action="setup_start", key="force", ctx=ctx)
 
         assert result["status"] == "stdio_unsupported"
         assert "--http" in result["message"]
@@ -108,7 +107,7 @@ class TestSetupStart:
         ctx, _ = ctx_with_db
         set_state(CredentialState.AWAITING_SETUP)
 
-        result = json.loads(await config(action="setup_start", ctx=ctx))
+        result = await config(action="setup_start", ctx=ctx)
 
         assert result["status"] == "stdio_unsupported"
         assert "JINA_AI_API_KEY" in result["message"]
@@ -125,7 +124,7 @@ class TestSetupSkip:
         ctx, _ = ctx_with_db
 
         with patch("mcp_core.set_local_mode") as mock_set:
-            result = json.loads(await config(action="setup_skip", ctx=ctx))
+            result = await config(action="setup_skip", ctx=ctx)
 
         assert result["status"] == "ok"
         assert get_state() == CredentialState.LOCAL
@@ -147,7 +146,7 @@ class TestSetupReset:
             patch("mcp_core.clear_mode"),
             patch("mcp_core.storage.config_file.delete_config"),
         ):
-            result = json.loads(await config(action="setup_reset", ctx=ctx))
+            result = await config(action="setup_reset", ctx=ctx)
 
         assert result["status"] == "ok"
         assert get_state() == CredentialState.AWAITING_SETUP
@@ -159,16 +158,26 @@ class TestSetupReset:
 
 
 class TestSetupComplete:
-    async def test_refreshes_state(self, ctx_with_db):
+    @patch("mnemo_mcp.embedder.init_backend")
+    async def test_refreshes_state(self, mock_init, ctx_with_db):
         """setup_complete re-resolves credential state."""
         ctx, _ = ctx_with_db
+
+        # A CONFIGURED state sends setup_complete through
+        # _init_embedding_backend, so init_backend has to be patched here for
+        # the same reason it is in test_reinits_embedding_when_configured
+        # below: unpatched, check_available issues a live HTTPS request to the
+        # first model of _DEFAULT_EMBEDDING_CHAIN.
+        mock_backend = MagicMock()
+        mock_backend.check_available.return_value = 768
+        mock_init.return_value = mock_backend
 
         with patch(
             "mnemo_mcp.credential_state.resolve_credential_state",
             return_value=CredentialState.CONFIGURED,
         ):
             set_state(CredentialState.CONFIGURED)
-            result = json.loads(await config(action="setup_complete", ctx=ctx))
+            result = await config(action="setup_complete", ctx=ctx)
 
         assert result["status"] == "ok"
         assert result["state"] == "configured"
@@ -201,7 +210,7 @@ class TestSetupComplete:
             mock_settings.resolve_embedding_dims.return_value = 768
             mock_settings.resolve_embedding_backend.return_value = "cloud"
 
-            result = json.loads(await config(action="setup_complete", ctx=ctx))
+            result = await config(action="setup_complete", ctx=ctx)
 
         assert result["status"] == "ok"
 
@@ -214,7 +223,7 @@ class TestSetupComplete:
             return_value=CredentialState.LOCAL,
         ):
             set_state(CredentialState.LOCAL)
-            result = json.loads(await config(action="setup_complete", ctx=ctx))
+            result = await config(action="setup_complete", ctx=ctx)
 
         assert result["status"] == "ok"
         assert result["state"] == "local"
@@ -231,10 +240,19 @@ class TestSetupRelay:
         the same stdio_unsupported pointer."""
         ctx, _ = ctx_with_db
 
-        result = json.loads(await config(action="setup_relay", ctx=ctx))
+        result = await config(action="setup_relay", ctx=ctx)
 
         assert result["status"] == "stdio_unsupported"
         assert "--http" in result["message"]
+
+    async def test_relay_alias_carries_deprecation_notice(self, ctx_with_db):
+        """setup_relay is deprecated in favor of setup_start (kept 1 cycle)."""
+        ctx, _ = ctx_with_db
+
+        result = await config(action="setup_relay", ctx=ctx)
+
+        assert result["_deprecation"]["use_instead"] == "setup_start"
+        assert "setup_start" in result["_deprecation"]["message"]
 
 
 # ---------------------------------------------------------------------------

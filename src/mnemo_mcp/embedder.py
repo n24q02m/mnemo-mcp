@@ -31,6 +31,18 @@ from loguru import logger
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0  # seconds, doubles each retry
 
+# Wall-clock bound on the availability probe (``check_available``).
+# ``config(action="setup_complete")`` awaits that probe before it returns, so
+# without a bound a slow or blackholed provider makes the user's tool call hang
+# for as long as the provider takes. CI run 30755522961 lost its windows-latest
+# job to exactly that: the probe stalled reading response headers for longer
+# than the 30s pytest-timeout. litellm's own default is 600s, which is not a
+# bound anyone waits through interactively -- a probe only has to answer
+# "reachable?", so it gets a short one.
+# This bounds one attempt, not the whole probe: some provider SDKs retry
+# underneath litellm and start the clock again for each try.
+PROBE_TIMEOUT = 10.0  # seconds
+
 
 # Bolt Performance Optimization: Use module-level constant tuple to avoid
 # redundant list allocations during frequent calls, resulting in ~15% faster execution.
@@ -54,9 +66,46 @@ _RETRYABLE_PATTERNS = (
 )
 
 
+# Patterns marking a PERMANENT client-side error (invalid request, unsupported
+# capability, auth). litellm frequently re-wraps these as APIConnectionError --
+# whose class name contains "connection" and whose status_code is a hardcoded
+# 500 -- so classification MUST look at the message semantics, not the exception
+# class or status code. Retrying a permanent error re-sends the same doomed
+# request and (worse) would block capability fallbacks such as dropping an
+# unsupported `dimensions` argument.
+_PERMANENT_PATTERNS = (
+    "not a valid",
+    "not support",
+    "unsupported",
+    "invalid request",
+    "invalid_request",
+    "invalid api key",
+    "output_dimension",
+    "unauthorized",
+    "forbidden",
+    "authentication",
+    "no such model",
+    "model not found",
+    "does not exist",
+    "401",
+    "403",
+    "404",
+    "422",
+)
+
+
 def _is_retryable(exc: Exception) -> bool:
-    """Check if an exception is transient and worth retrying."""
+    """Return True only for TRANSIENT errors worth retrying.
+
+    Classifies on error semantics, NOT the exception class name or a synthetic
+    status_code: litellm wraps a provider's permanent 4xx (e.g. a 422 "invalid
+    output_dimension") as ``APIConnectionError`` whose repr contains "connection"
+    and whose ``status_code`` is a hardcoded 500 -- matching either would wrongly
+    retry a request that can never succeed and skip the dimensions fallback.
+    """
     msg = str(exc).lower()
+    if any(p in msg for p in _PERMANENT_PATTERNS):
+        return False
     return any(p in msg for p in _RETRYABLE_PATTERNS)
 
 
@@ -245,8 +294,12 @@ class CloudEmbeddingBackend:
         """Sync cloud path for ``check_available`` (sync mirror).
 
         Keep in sync with :meth:`_call_provider`: same model/api_base/api_key
-        resolution + ``_build_kwargs`` + ``_parse_embeddings``; only the
-        sync ``embedding`` vs async ``aembedding`` call differs.
+        resolution + ``_build_kwargs`` + ``_parse_embeddings``; only the sync
+        ``embedding`` vs async ``aembedding`` call and the ``timeout`` differ.
+        The timeout is deliberately one-sided: this path only ever serves the
+        availability probe, which must answer within ``PROBE_TIMEOUT``, while
+        :meth:`_call_provider` carries real batches whose legitimate duration
+        scales with the payload.
         """
         from mcp_core.llm import embedding
 
@@ -257,8 +310,9 @@ class CloudEmbeddingBackend:
         response = embedding(
             model=litellm_model,
             input=texts,
-            api_base=self.api_base or api_base_for_task("EMBEDDING_API_BASE"),
-            api_key=self.api_key or api_key_for_model(litellm_model),
+            api_base=self.api_base or os.getenv("EMBEDDING_API_BASE") or None,
+            api_key=self.api_key or None,
+            timeout=PROBE_TIMEOUT,
             **self._build_kwargs(dimensions),
         )
         return _parse_embeddings(response)
@@ -286,16 +340,16 @@ class CloudEmbeddingBackend:
                     embeddings = [e[:dimensions] for e in embeddings]
                 return embeddings
             except Exception as e:
-                # If the provider rejects `dimensions`, retry without it
-                # and truncate locally instead.
-                if (
-                    use_dimensions
-                    and not _is_retryable(e)
-                    and _is_unsupported_param(e, "dimensions")
-                ):
-                    logger.debug(
-                        f"Provider does not support dimensions param, "
-                        f"will truncate locally: {e}"
+                # A dimensions rejection is PERMANENT -- retrying with the same
+                # dims can never succeed. Recover (drop `dimensions`, truncate
+                # locally) BEFORE the retryability check: litellm may wrap the
+                # provider's 422 as an APIConnectionError, so retry
+                # classification must not gate this capability fallback.
+                if use_dimensions and _is_unsupported_param(e, "dimensions"):
+                    logger.warning(
+                        f"Provider {self.model} rejected dimensions="
+                        f"{use_dimensions}; retrying without it and truncating "
+                        f"locally: {e}"
                     )
                     use_dimensions = None
                     continue

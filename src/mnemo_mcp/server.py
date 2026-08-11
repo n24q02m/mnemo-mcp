@@ -9,7 +9,7 @@ MCP Interface:
 """
 
 import asyncio
-import hashlib
+import difflib
 import json
 import os
 import sys
@@ -25,6 +25,7 @@ from mcp.types import ToolAnnotations
 
 from mnemo_mcp.config import settings
 from mnemo_mcp.db import MemoryDB
+from mnemo_mcp.db_cf import MemoryDBCfBackend, open_memory_db
 
 # Resolved via importlib.metadata (not ``from mnemo_mcp import __version__``)
 # to avoid a circular import: ``mnemo_mcp/__init__`` imports ``server.main``.
@@ -271,7 +272,10 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         embedding_model_identity = settings.embedding_primary() or ""
 
     db_path = settings.get_db_path()
-    db = MemoryDB(
+    # MEMORY_DB_BACKEND picks the store: the default SQLite file at db_path, or
+    # the Cloudflare D1 database when the Worker sets cf-d1. This is the only
+    # place that choice is made.
+    db = open_memory_db(
         db_path,
         embedding_dims=embedding_dims,
         recency_half_life_days=settings.recency_half_life_days,
@@ -279,8 +283,11 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         reindex_on_model_change=settings.reindex_on_model_change,
     )
     stats = db.stats()
+    # The store that answered, not the SQLite path the config asked for: the
+    # count beside it comes from whatever open_memory_db selected, so under
+    # cf-d1 db_path names a container file holding none of these memories.
     logger.info(
-        f"Database: {db_path} ({stats['total_memories']} memories, "
+        f"Database: {stats['db_path']} ({stats['total_memories']} memories, "
         f"vec={'on' if db.vec_enabled else 'off'})"
     )
 
@@ -361,9 +368,20 @@ mcp._mcp_server.version = __version__
 
 
 def _get_ctx(ctx: Context | None) -> tuple[MemoryDB, str | None, int]:
-    """Extract db, model, dims from context."""
+    """Extract request-scoped db, model, and dimensions from context."""
     lc = ctx.request_context.lifespan_context
-    return lc["db"], lc["embedding_model"], lc["embedding_dims"]
+    db = lc["db"]
+    if isinstance(db, MemoryDBCfBackend):
+        from mnemo_mcp.credential_state import get_current_sub
+
+        sub = get_current_sub()
+        if sub is None:
+            raise RuntimeError(
+                "JWT sub is required for Cloudflare D1 requests; refusing an "
+                "unscoped backend."
+            )
+        db = db.clone_for_sub(sub)
+    return db, lc["embedding_model"], lc["embedding_dims"]
 
 
 def _request_backend_cache(ctx: Context | None, name: str) -> dict:
@@ -473,8 +491,11 @@ def _get_request_reranker(ctx: Context | None):
 
 
 def _json(obj: object) -> str:
-    """Serialize to readable JSON."""
-    return json.dumps(obj, indent=2)
+    """Serialize to dense JSON."""
+    # Bolt Performance Optimization:
+    # Removing indent=2 drastically reduces payload size for large lists
+    # of memories, reducing serialization time and network/token overhead.
+    return json.dumps(obj, separators=(",", ":"))
 
 
 async def _maybe_include_setup_hint(result: dict) -> dict:
@@ -493,6 +514,44 @@ async def _maybe_include_setup_hint(result: dict) -> dict:
             "--http and visit /authorize to configure via browser form."
         )
     return result
+
+
+# W6.4: `memory` deprecation -- map each composite-tool action to its
+# granular single-purpose tool replacement, where one exists. Actions with
+# no entry (capture/archive_now/as_of/compress/entity_search/entity_graph/
+# history) are Phase 3 / typed-capture features not yet split out; callers
+# keep using the composite tool for those until a granular equivalent ships.
+_GRANULAR_TOOL_FOR_ACTION: dict[str, str] = {
+    "add": "add_memory",
+    "search": "search_memory",
+    "list": "list_memories",
+    "update": "update_memory",
+    "delete": "delete_memory",
+    "export": "export_memories",
+    "import": "import_memories",
+    "stats": "memory_stats",
+    "restore": "restore_memory",
+    "archived": "archived_memories",
+    "consolidate": "consolidate_memories",
+}
+
+
+def _deprecation_notice(action: str | None) -> dict[str, str | None]:
+    """Build the `_deprecation` field attached to every `memory()` response."""
+    granular_tool = _GRANULAR_TOOL_FOR_ACTION.get(action or "")
+    if granular_tool:
+        message = (
+            "The 'memory' composite tool is deprecated and will be removed "
+            f"in a future release. Use '{granular_tool}' instead of "
+            f"action={action!r}."
+        )
+    else:
+        message = (
+            "The 'memory' composite tool is deprecated and will be removed "
+            f"in a future release. No granular tool exists yet for "
+            f"action={action!r}."
+        )
+    return {"message": message, "use_instead": granular_tool}
 
 
 def _format_memory(mem: dict) -> dict:
@@ -551,8 +610,25 @@ async def _embed(
             return await backend.embed_single_query(text, dims)
         return await backend.embed_single(text, dims)
     except Exception as e:
-        logger.debug(f"Embedding failed: {e}")
-        return None
+        from mnemo_mcp.embedder import _is_retryable
+
+        if _is_retryable(e):
+            # Transient (rate-limit / network; the backend already exhausted
+            # its retries). Degrade THIS call to FTS5 -- the next may succeed.
+            logger.warning(
+                f"Embedding transiently unavailable ({model}); "
+                f"degrading to FTS5 for this call: {e}"
+            )
+            return None
+        # Permanent config/capability error (bad key, unknown model, dims the
+        # backend could not work around): every embed will fail. Surface it
+        # loudly instead of silently returning None and hiding a broken
+        # semantic search behind a FTS5 fallback.
+        logger.error(
+            f"Embedding permanently failing ({model}): {e}. "
+            "Check EMBEDDING_MODELS / EMBEDDING_DIMS / API key."
+        )
+        raise
 
 
 async def _handle_add(
@@ -560,20 +636,18 @@ async def _handle_add(
     content: str | None,
     category: str | None = None,
     tags: list[str] | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
     embedding_model, embedding_backend = _get_request_embedding(
         ctx, embedding_model, embedding_dims
     )
 
     if not content:
-        return _json(
-            {
-                "error": "content is required for add",
-                "example": "action='add', content='User prefers Python for data tasks', category='preference', tags=['python']",
-                "suggestion": "Provide the 'content' parameter to save a new memory.",
-            }
-        )
+        return {
+            "error": "content is required for add",
+            "example": "action='add', content='User prefers Python for data tasks', category='preference', tags=['python']",
+            "suggestion": "Provide the 'content' parameter to save a new memory.",
+        }
 
     # Dedup check before insert
     dedup_warning = None
@@ -603,20 +677,16 @@ async def _handle_add(
             embedding=embedding,
         )
     except ValueError as e:
-        return _json(
-            {
-                "error": str(e),
-                "suggestion": "Ensure input parameters meet validation rules.",
-            }
-        )
+        return {
+            "error": str(e),
+            "suggestion": "Ensure input parameters meet validation rules.",
+        }
     except Exception:
         logger.exception("Unexpected error in _handle_add")
-        return _json(
-            {
-                "error": "Internal error while adding memory",
-                "suggestion": "Check server logs for tracebacks or verify database permissions.",
-            }
-        )
+        return {
+            "error": "Internal error while adding memory",
+            "suggestion": "Check server logs for tracebacks or verify database permissions.",
+        }
 
     result: dict = {
         "id": memory_id,
@@ -630,7 +700,7 @@ async def _handle_add(
     # Background: score importance + extract entities (non-blocking)
     asyncio.create_task(_enrich_memory(db, memory_id, content))
 
-    return _json(result)
+    return result
 
 
 async def _enrich_memory(db: MemoryDB, memory_id: str, content: str) -> None:
@@ -707,17 +777,15 @@ async def _handle_search(
     until: str | None = None,
     min_importance: float = 0.0,
     include_archived: bool = False,
-) -> str:
+) -> dict[str, typing.Any]:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
 
     if not query:
-        return _json(
-            {
-                "error": "query is required for search",
-                "example": "action='search', query='user preferences for UI theme'",
-                "suggestion": "Provide the 'query' parameter to perform a search.",
-            }
-        )
+        return {
+            "error": "query is required for search",
+            "example": "action='search', query='user preferences for UI theme'",
+            "suggestion": "Provide the 'query' parameter to perform a search.",
+        }
 
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
@@ -810,14 +878,14 @@ async def _handle_search(
         )
 
     response = await _maybe_include_setup_hint(response)
-    return _json(response)
+    return response
 
 
 async def _handle_list(
     ctx: Context | None,
     category: str | None = None,
     limit: int = 5,
-) -> str:
+) -> dict[str, typing.Any]:
     db, _, _ = _get_ctx(ctx)
 
     if isinstance(limit, int):
@@ -841,7 +909,7 @@ async def _handle_list(
             response["suggestion"] = (
                 "No memories found. Use action='add' to create some!"
             )
-    return _json(response)
+    return response
 
 
 async def _handle_update(
@@ -852,7 +920,7 @@ async def _handle_update(
     tags: list[str] | None = None,
     source: str | None = None,
     importance: float | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
 
     db, _, _ = _get_ctx(ctx)
     db, embedding_model, embedding_dims = _get_ctx(ctx)
@@ -861,13 +929,11 @@ async def _handle_update(
     )
 
     if not memory_id:
-        return _json(
-            {
-                "error": "memory_id is required for update. Use action='search' or action='list' first to find the memory ID.",
-                "example": "action='update', memory_id='abc123', content='updated content'",
-                "suggestion": "Provide the 'memory_id' parameter to update a specific memory.",
-            }
-        )
+        return {
+            "error": "memory_id is required for update. Use action='search' or action='list' first to find the memory ID.",
+            "example": "action='update', memory_id='abc123', content='updated content'",
+            "suggestion": "Provide the 'memory_id' parameter to update a specific memory.",
+        }
 
     embedding = None
     if content:
@@ -879,7 +945,7 @@ async def _handle_update(
         )
 
     try:
-        ok = await asyncio.to_thread(
+        new_id = await asyncio.to_thread(
             db.update,
             memory_id=memory_id,
             content=content,
@@ -890,100 +956,100 @@ async def _handle_update(
             embedding=embedding,
         )
     except ValueError as e:
-        return _json(
-            {
-                "error": str(e),
-                "suggestion": "Check input parameters for invalid types or values.",
-            }
-        )
+        return {
+            "error": str(e),
+            "suggestion": "Check input parameters for invalid types or values.",
+        }
     except Exception:
         logger.exception("Unexpected error in _handle_update")
-        return _json(
-            {
-                "error": "Internal error while updating memory",
-                "suggestion": "Check server logs for tracebacks or verify database connection.",
-            }
-        )
-    if ok:
-        # Background: re-extract entities if content changed
-        if content:
-            asyncio.create_task(_enrich_memory(db, memory_id, content))
-        return _json({"status": "updated", "id": memory_id})
-    return _json(
-        {
-            "error": f"Memory {memory_id} not found",
-            "suggestion": "Verify the memory_id using action='search' or action='list'.",
+        return {
+            "error": "Internal error while updating memory",
+            "suggestion": "Check server logs for tracebacks or verify database connection.",
         }
-    )
+    if new_id:
+        # Background: re-extract entities if content changed. Bitemporal
+        # supersession (mem_003) means memory_id no longer resolves after
+        # this update -- enrichment must target the new row.
+        if content:
+            asyncio.create_task(_enrich_memory(db, new_id, content))
+        return {"status": "updated", "id": new_id}
+    return {
+        "error": f"Memory {memory_id} not found",
+        "suggestion": "Verify the memory_id using action='search' or action='list'.",
+    }
 
 
 async def _handle_delete(
     ctx: Context | None,
     memory_id: str | None,
-) -> str:
+) -> dict[str, typing.Any]:
 
     db, _, _ = _get_ctx(ctx)
 
     if not memory_id:
-        return _json(
-            {
-                "error": "memory_id is required for delete. Use action='search' or action='list' first to find the memory ID.",
-                "example": "action='delete', memory_id='abc123'",
-                "suggestion": "Provide the 'memory_id' parameter to delete a specific memory.",
-            }
-        )
+        return {
+            "error": "memory_id is required for delete. Use action='search' or action='list' first to find the memory ID.",
+            "example": "action='delete', memory_id='abc123'",
+            "suggestion": "Provide the 'memory_id' parameter to delete a specific memory.",
+        }
 
     ok = await asyncio.to_thread(db.delete, memory_id)
     if ok:
-        return _json({"status": "deleted", "id": memory_id})
-    return _json(
-        {
-            "error": f"Memory {memory_id} not found",
-            "suggestion": "Verify the memory_id using action='search' or action='list'.",
-        }
-    )
+        return {"status": "deleted", "id": memory_id}
+    return {
+        "error": f"Memory {memory_id} not found",
+        "suggestion": "Verify the memory_id using action='search' or action='list'.",
+    }
 
 
-async def _handle_export(ctx: Context | None) -> str:
+async def _handle_export(ctx: Context | None) -> dict[str, typing.Any]:
     db, _, _ = _get_ctx(ctx)
     jsonl, count = await asyncio.to_thread(db.export_jsonl)
-    return _json(
-        {
-            "format": "jsonl",
-            "data": jsonl,
-            "count": count,
-        }
-    )
+    return {
+        "format": "jsonl",
+        "data": jsonl,
+        "count": count,
+    }
 
 
 async def _handle_import(
     ctx: Context | None,
     data: str | list | None,
     mode: str = "merge",
-) -> str:
+) -> dict[str, typing.Any]:
     db, _, _ = _get_ctx(ctx)
 
     if not data:
-        return _json(
-            {
-                "error": "data (JSONL string or list of objects) is required for import",
-                "suggestion": "Provide the 'data' parameter containing the JSONL data or a list of JSON objects to import.",
-            }
-        )
+        return {
+            "error": "data (JSONL string or list of objects) is required for import",
+            "suggestion": "Provide the 'data' parameter containing the JSONL data or a list of JSON objects to import.",
+        }
+
+    _VALID_MODES = ["merge", "replace"]
+    if mode is not None and mode not in _VALID_MODES:
+        closest = difflib.get_close_matches(str(mode), _VALID_MODES, n=1)
+        resp = {
+            "error": f"Invalid mode '{mode}'.",
+            "valid_modes": _VALID_MODES,
+        }
+        if closest:
+            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = f"Pick a mode from {_VALID_MODES}."
+        return resp
 
     # Bolt Performance Optimization: Pass raw list/dict directly to database layer.
     # Avoids unnecessary JSON serialization and deserialization cycles for parsed inputs.
-    assert data is not None  # guarded above
+    if data is None:
+        raise ValueError("data is required")
     result = await asyncio.to_thread(db.import_jsonl, data, mode=mode)
-    return _json(
-        {
-            "status": "imported",
-            **result,
-        }
-    )
+    return {
+        "status": "imported",
+        **result,
+    }
 
 
-async def _handle_stats(ctx: Context | None) -> str:
+async def _handle_stats(ctx: Context | None) -> dict[str, typing.Any]:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
     embedding_model, _ = _get_request_embedding(ctx, embedding_model, embedding_dims)
     s = await asyncio.to_thread(db.stats)
@@ -991,40 +1057,36 @@ async def _handle_stats(ctx: Context | None) -> str:
     s["embedding_dims"] = embedding_dims
     s["sync_enabled"] = settings.sync_enabled
     s["sync_folder"] = settings.sync_folder
-    return _json(s)
+    return s
 
 
 async def _handle_restore(
     ctx: Context | None,
     memory_id: str | None,
-) -> str:
+) -> dict[str, typing.Any]:
 
     db, _, _ = _get_ctx(ctx)
 
     if not memory_id:
-        return _json(
-            {
-                "error": "memory_id is required for restore. Use action='archived' first to find archived memory IDs.",
-                "example": "action='restore', memory_id='abc123'",
-                "suggestion": "Provide the 'memory_id' parameter to restore a specific memory.",
-            }
-        )
+        return {
+            "error": "memory_id is required for restore. Use action='archived' first to find archived memory IDs.",
+            "example": "action='restore', memory_id='abc123'",
+            "suggestion": "Provide the 'memory_id' parameter to restore a specific memory.",
+        }
 
     ok = await asyncio.to_thread(db.restore_memory, memory_id)
     if ok:
-        return _json({"status": "restored", "id": memory_id})
-    return _json(
-        {
-            "error": f"Archived memory {memory_id} not found",
-            "suggestion": "Verify the memory_id using action='archived'.",
-        }
-    )
+        return {"status": "restored", "id": memory_id}
+    return {
+        "error": f"Archived memory {memory_id} not found",
+        "suggestion": "Verify the memory_id using action='archived'.",
+    }
 
 
 async def _handle_archived(
     ctx: Context | None,
     limit: int = 5,
-) -> str:
+) -> dict[str, typing.Any]:
     db, _, _ = _get_ctx(ctx)
 
     if isinstance(limit, int):
@@ -1039,7 +1101,7 @@ async def _handle_archived(
         response["suggestion"] = (
             "No archived memories found. Use action='list' to view active memories."
         )
-    return _json(response)
+    return response
 
 
 _CAPTURE_COUNTER: dict[str, int] = {"calls": 0}
@@ -1066,7 +1128,7 @@ async def _handle_capture(
     source: str | None = None,
     importance: float | None = None,
     auto: bool = False,
-) -> str:
+) -> dict[str, typing.Any]:
     """Handle ``memory(action="capture")`` -- typed capture with dedup.
 
     Wraps :func:`mnemo_mcp.capture.capture` with the shared lifespan ctx so
@@ -1079,18 +1141,14 @@ async def _handle_capture(
     )
 
     if not text:
-        return _json(
-            {
-                "error": "text is required for capture",
-                "example": (
-                    "action='capture', text='User prefers dark mode', "
-                    "context_type='preference'"
-                ),
-                "suggestion": (
-                    "Provide the 'text' parameter to capture a typed memory."
-                ),
-            }
-        )
+        return {
+            "error": "text is required for capture",
+            "example": (
+                "action='capture', text='User prefers dark mode', "
+                "context_type='preference'"
+            ),
+            "suggestion": ("Provide the 'text' parameter to capture a typed memory."),
+        }
 
     embedding = await _embed(
         text,
@@ -1117,26 +1175,29 @@ async def _handle_capture(
     except ValueError as e:
         msg = str(e)
         if "context_type" in msg:
-            return _json(
-                {
-                    "error": msg,
-                    "valid_context_types": sorted(CONTEXT_TYPES),
-                    "suggestion": (
-                        f"Pick a context_type from {sorted(CONTEXT_TYPES)}."
-                    ),
-                }
+            closest = (
+                difflib.get_close_matches(str(context_type), list(CONTEXT_TYPES), n=1)
+                if context_type is not None
+                else []
             )
-        return _json(
-            {"error": msg, "suggestion": "Check payload length and constraints."}
-        )
+            resp = {
+                "error": msg,
+                "valid_context_types": sorted(CONTEXT_TYPES),
+            }
+            if closest:
+                resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+            else:
+                resp["suggestion"] = (
+                    f"Pick a context_type from {sorted(CONTEXT_TYPES)}."
+                )
+            return resp
+        return {"error": msg, "suggestion": "Check payload length and constraints."}
     except Exception:
         logger.exception("Unexpected error in _handle_capture")
-        return _json(
-            {
-                "error": "Internal error while capturing memory",
-                "suggestion": "Check server logs for tracebacks.",
-            }
-        )
+        return {
+            "error": "Internal error while capturing memory",
+            "suggestion": "Check server logs for tracebacks.",
+        }
 
     # Background enrichment only when we actually inserted a new row.
     if not result.get("deduplicated"):
@@ -1156,43 +1217,39 @@ async def _handle_capture(
                 )
             )
 
-    return _json(
-        {
-            "status": "deduplicated" if result.get("deduplicated") else "captured",
-            "id": result["memory_id"],
-            "context_type": result.get("context_type", context_type),
-            "deduplicated": bool(result.get("deduplicated")),
-            "auto": bool(result.get("auto")),
-            "semantic": embedding is not None,
-            **(
-                {
-                    "similarity": result["similarity"],
-                    "existing_content": result.get("existing_content"),
-                }
-                if result.get("deduplicated")
-                else {}
-            ),
-        }
-    )
+    return {
+        "status": "deduplicated" if result.get("deduplicated") else "captured",
+        "id": result["memory_id"],
+        "context_type": result.get("context_type", context_type),
+        "deduplicated": bool(result.get("deduplicated")),
+        "auto": bool(result.get("auto")),
+        "semantic": embedding is not None,
+        **(
+            {
+                "similarity": result["similarity"],
+                "existing_content": result.get("existing_content"),
+            }
+            if result.get("deduplicated")
+            else {}
+        ),
+    }
 
 
 async def _handle_archive_now(
     ctx: Context | None,
-) -> str:
+) -> dict[str, typing.Any]:
     """Trigger ``archive_by_score`` on demand using current settings."""
     db, _, _ = _get_ctx(ctx)
     archive_after_days = int(settings.archive_after_days)
     count = await asyncio.to_thread(
         db.archive_by_score, archive_after_days=archive_after_days
     )
-    return _json(
-        {
-            "status": "archived",
-            "count": count,
-            "archive_after_days": archive_after_days,
-            "scoring": "recency_factor * (1 - importance) > 1.0",
-        }
-    )
+    return {
+        "status": "archived",
+        "count": count,
+        "archive_after_days": archive_after_days,
+        "scoring": "recency_factor * (1 - importance) > 1.0",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1205,33 +1262,51 @@ async def _handle_entity_search(
     name: str | None,
     entity_type: str | None,
     limit: int = 20,
-) -> str:
+) -> dict[str, typing.Any]:
     """``memory(action="entity_search")`` -- find memories by entity name."""
     db, _, _ = _get_ctx(ctx)
     if not name:
-        return _json(
-            {
-                "error": "name is required for entity_search",
-                "example": "action='entity_search', name='FastAPI'",
-                "suggestion": (
-                    "Pass 'name' (entity name, case-insensitive) and "
-                    "optionally 'entity_type' (person/project/tool/concept/"
-                    "org/location/event)."
-                ),
-            }
-        )
+        return {
+            "error": "name is required for entity_search",
+            "example": "action='entity_search', name='FastAPI'",
+            "suggestion": (
+                "Pass 'name' (entity name, case-insensitive) and "
+                "optionally 'entity_type' (person/project/tool/concept/"
+                "org/location/event)."
+            ),
+        }
+
+    _VALID_ENTITY_TYPES = [
+        "person",
+        "project",
+        "tool",
+        "concept",
+        "org",
+        "location",
+        "event",
+    ]
+    if entity_type is not None and entity_type not in _VALID_ENTITY_TYPES:
+        closest = difflib.get_close_matches(str(entity_type), _VALID_ENTITY_TYPES, n=1)
+        resp = {
+            "error": f"Invalid entity_type '{entity_type}'.",
+            "valid_entity_types": _VALID_ENTITY_TYPES,
+        }
+        if closest:
+            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = f"Pick an entity_type from {_VALID_ENTITY_TYPES}."
+        return resp
+
     from mnemo_mcp.temporal.queries import entity_search
 
     rows = await asyncio.to_thread(
         entity_search, db, name=name, entity_type=entity_type, limit=limit
     )
-    return _json(
-        {
-            "count": len(rows),
-            "results": [_format_memory(r) for r in rows],
-            "matched_name": name,
-        }
-    )
+    return {
+        "count": len(rows),
+        "results": [_format_memory(r) for r in rows],
+        "matched_name": name,
+    }
 
 
 async def _handle_entity_graph(
@@ -1240,86 +1315,97 @@ async def _handle_entity_graph(
     name: str | None,
     depth: int = 2,
     limit: int = 50,
-) -> str:
+) -> dict[str, typing.Any]:
     """``memory(action="entity_graph")`` -- KG neighbourhood subgraph."""
     db, _, _ = _get_ctx(ctx)
     if not entity_id and not name:
-        return _json(
-            {
-                "error": "entity_id or name required for entity_graph",
-                "example": "action='entity_graph', name='Python', depth=2",
-                "suggestion": "Provide either 'entity_id' or 'name' to specify the root of the graph.",
-            }
-        )
+        return {
+            "error": "entity_id or name required for entity_graph",
+            "example": "action='entity_graph', name='Python', depth=2",
+            "suggestion": "Provide either 'entity_id' or 'name' to specify the root of the graph.",
+        }
     from mnemo_mcp.temporal.queries import entity_graph
 
     result = await asyncio.to_thread(
         entity_graph, db, entity_id=entity_id, name=name, depth=depth, limit=limit
     )
-    return _json(result)
+    return result
+
+
+async def _handle_as_of(
+    ctx: Context | None,
+    as_of: str | None,
+    limit: int = 5,
+) -> dict[str, typing.Any]:
+    """``memory(action="as_of")`` -- point-in-time view of memories valid at
+    ``as_of`` (ISO timestamp). Delegates to ``temporal.queries.memories_as_of``.
+    """
+    db, _, _ = _get_ctx(ctx)
+
+    if isinstance(limit, int):
+        limit = max(1, min(limit, 100))
+
+    from mnemo_mcp.temporal.queries import memories_as_of
+
+    rows = await asyncio.to_thread(memories_as_of, db, as_of, limit)
+    return {
+        "memories": [_format_memory(m) for m in rows],
+        "count": len(rows),
+        "as_of": as_of,
+    }
 
 
 async def _handle_history(
     ctx: Context | None,
     entity_id: str | None,
-) -> str:
+) -> dict[str, typing.Any]:
     """``memory(action="history")`` -- timeline of memories linked to an entity."""
     db, _, _ = _get_ctx(ctx)
     if not entity_id:
-        return _json(
-            {
-                "error": "entity_id required for history",
-                "example": "action='history', entity_id='<uuid>'",
-                "suggestion": (
-                    "Get an entity_id from entity_graph or entity_search results."
-                ),
-            }
-        )
+        return {
+            "error": "entity_id required for history",
+            "example": "action='history', entity_id='<uuid>'",
+            "suggestion": (
+                "Get an entity_id from entity_graph or entity_search results."
+            ),
+        }
     from mnemo_mcp.temporal.queries import history_for_entity
 
     timeline = await asyncio.to_thread(history_for_entity, db, entity_id)
-    return _json(
-        {
-            "entity_id": entity_id,
-            "count": len(timeline),
-            "timeline": [_format_memory(m) for m in timeline],
-        }
-    )
+    return {
+        "entity_id": entity_id,
+        "count": len(timeline),
+        "timeline": [_format_memory(m) for m in timeline],
+    }
 
 
 async def _handle_consolidate(
     ctx: Context | None,
     category: str | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     """Consolidate similar memories in a category using LLM summarization."""
     db, _, _ = _get_ctx(ctx)
     from mnemo_mcp.graph import _has_llm_provider
 
     mode = settings.resolve_provider_mode()
     if mode == "local" and not _has_llm_provider():
-        return _json(
-            {
-                "error": "Consolidation requires LLM (SDK mode with API keys)",
-                "suggestion": "Run the setup flow or provide API keys via environment variables (e.g. GEMINI_API_KEY).",
-            }
-        )
+        return {
+            "error": "Consolidation requires LLM (SDK mode with API keys)",
+            "suggestion": "Run the setup flow or provide API keys via environment variables (e.g. GEMINI_API_KEY).",
+        }
 
     if not category:
-        return _json(
-            {
-                "error": "category is required for consolidate",
-                "suggestion": "Provide the 'category' parameter to specify which memories to consolidate.",
-            }
-        )
+        return {
+            "error": "category is required for consolidate",
+            "suggestion": "Provide the 'category' parameter to specify which memories to consolidate.",
+        }
 
     memories = await asyncio.to_thread(db.list_memories, category=category, limit=50)
     if len(memories) < 2:
-        return _json(
-            {
-                "error": f"Need at least 2 memories in '{category}' to consolidate",
-                "suggestion": f"Use action='list' with category='{category}' to see existing memories.",
-            }
-        )
+        return {
+            "error": f"Need at least 2 memories in '{category}' to consolidate",
+            "suggestion": f"Use action='list' with category='{category}' to see existing memories.",
+        }
 
     try:
         from mnemo_mcp.graph import _llm_completion, _resolve_llm_model
@@ -1346,22 +1432,19 @@ async def _handle_consolidate(
             max_tokens=1000,
         )
 
-        return _json(
-            {
-                "status": "consolidated",
-                "category": category,
-                "original_count": len(memories),
-                "summary": summary.strip(),
-                "note": "Review the summary and use add/delete to apply changes.",
-            }
-        )
-    except Exception as e:
-        return _json(
-            {
-                "error": f"Consolidation failed: {e}",
-                "suggestion": "Check LLM provider configuration and network connectivity.",
-            }
-        )
+        return {
+            "status": "consolidated",
+            "category": category,
+            "original_count": len(memories),
+            "summary": summary.strip(),
+            "note": "Review the summary and use add/delete to apply changes.",
+        }
+    except Exception:
+        logger.exception("Consolidation failed")
+        return {
+            "error": "Consolidation failed: internal error",
+            "suggestion": "Check LLM provider configuration and network connectivity.",
+        }
 
 
 # --- Tools ---
@@ -1386,7 +1469,7 @@ async def add_memory(
     category: str | None = None,
     tags: list[str] | None = None,
     ctx: Context | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     return await _handle_add(ctx, content, category, tags)
 
 
@@ -1410,7 +1493,7 @@ async def search_memory(
     tags: list[str] | None = None,
     limit: int = 5,
     ctx: Context | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     return await _handle_search(ctx, query, category, tags, limit)
 
 
@@ -1430,7 +1513,7 @@ async def search_memory(
 )
 async def list_memories(
     category: str | None = None, limit: int = 5, ctx: Context | None = None
-) -> str:
+) -> dict[str, typing.Any]:
     return await _handle_list(ctx, category, limit)
 
 
@@ -1456,7 +1539,7 @@ async def update_memory(
     source: str | None = None,
     importance: float | None = None,
     ctx: Context | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     return await _handle_update(
         ctx, memory_id, content, category, tags, source, importance
     )
@@ -1476,7 +1559,9 @@ async def update_memory(
         destructiveHint=True,
     ),
 )
-async def delete_memory(memory_id: str, ctx: Context | None = None) -> str:
+async def delete_memory(
+    memory_id: str, ctx: Context | None = None
+) -> dict[str, typing.Any]:
     return await _handle_delete(ctx, memory_id)
 
 
@@ -1493,7 +1578,7 @@ async def delete_memory(memory_id: str, ctx: Context | None = None) -> str:
         destructiveHint=False,
     ),
 )
-async def export_memories(ctx: Context | None = None) -> str:
+async def export_memories(ctx: Context | None = None) -> dict[str, typing.Any]:
     return await _handle_export(ctx)
 
 
@@ -1513,7 +1598,7 @@ async def export_memories(ctx: Context | None = None) -> str:
 )
 async def import_memories(
     data: str | list, mode: str = "merge", ctx: Context | None = None
-) -> str:
+) -> dict[str, typing.Any]:
     return await _handle_import(ctx, data, mode)
 
 
@@ -1530,7 +1615,7 @@ async def import_memories(
         destructiveHint=False,
     ),
 )
-async def memory_stats(ctx: Context | None = None) -> str:
+async def memory_stats(ctx: Context | None = None) -> dict[str, typing.Any]:
     return await _handle_stats(ctx)
 
 
@@ -1548,7 +1633,9 @@ async def memory_stats(ctx: Context | None = None) -> str:
         destructiveHint=False,
     ),
 )
-async def restore_memory(memory_id: str, ctx: Context | None = None) -> str:
+async def restore_memory(
+    memory_id: str, ctx: Context | None = None
+) -> dict[str, typing.Any]:
     return await _handle_restore(ctx, memory_id)
 
 
@@ -1565,7 +1652,9 @@ async def restore_memory(memory_id: str, ctx: Context | None = None) -> str:
         destructiveHint=False,
     ),
 )
-async def archived_memories(limit: int = 5, ctx: Context | None = None) -> str:
+async def archived_memories(
+    limit: int = 5, ctx: Context | None = None
+) -> dict[str, typing.Any]:
     return await _handle_archived(ctx, limit)
 
 
@@ -1583,12 +1672,16 @@ async def archived_memories(limit: int = 5, ctx: Context | None = None) -> str:
         destructiveHint=False,
     ),
 )
-async def consolidate_memories(category: str, ctx: Context | None = None) -> str:
+async def consolidate_memories(
+    category: str, ctx: Context | None = None
+) -> dict[str, typing.Any]:
     return await _handle_consolidate(ctx, category)
 
 
 @mcp.tool(
     description=(
+        "[DEPRECATED — use the granular tools (add_memory, search_memory, ...) "
+        "instead; this composite tool will be removed in a future release]\n\n"
         "Legacy dispatcher for backward compatibility. Use specialized tools (add_memory, search_memory, etc.) instead.\n\nPersistent memory store. Actions: add|search|list|update|delete|export|import|stats|restore|archived|consolidate.\n"
         "\n"
         "ACTION GUIDE — when to use each:\n"
@@ -1642,7 +1735,7 @@ async def memory(
     depth: int = 2,
     as_of: str | None = None,
     ctx: Context | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     """Execute a memory action.
 
     Actions:
@@ -1660,17 +1753,32 @@ async def memory(
     - restore: Restore archived memory (memory_id required)
     - archived: List archived memories (limit optional)
     - consolidate: LLM summarize similar memories (category required)
+    - as_of: Point-in-time view of memories valid at a given ISO timestamp
+      (as_of required, limit optional). Only combinable with action='as_of';
+      passing as_of with any other action is an error, not a silent no-op.
     """
     # Clamp limit to reasonable bounds to prevent DoS
 
     if isinstance(limit, int):
         limit = max(1, min(limit, 100))
 
+    if as_of is not None and action != "as_of":
+        result: dict[str, typing.Any] = {
+            "error": (
+                f"as_of is only supported with action='as_of' (got action={action!r}). "
+                "Point-in-time filtering for search/list is not implemented; "
+                "refusing to silently return current-state results."
+            ),
+            "suggestion": "Use action='as_of' with the as_of parameter, or drop as_of for current-state results.",
+        }
+        result["_deprecation"] = _deprecation_notice(action)
+        return result
+
     match action:
         case "add":
-            return await _handle_add(ctx, content, category, tags)
+            result = await _handle_add(ctx, content, category, tags)
         case "capture":
-            return await _handle_capture(
+            result = await _handle_capture(
                 ctx,
                 text or content,
                 context_type=context_type,
@@ -1685,7 +1793,7 @@ async def memory(
             # the capture branch above; here we treat it as a search filter
             # only when caller did not leave it at the conversation default.
             ctype_filter = context_type if context_type != "conversation" else None
-            return await _handle_search(
+            result = await _handle_search(
                 ctx,
                 query,
                 category,
@@ -1698,36 +1806,38 @@ async def memory(
                 include_archived=include_archived,
             )
         case "list":
-            return await _handle_list(ctx, category, limit)
+            result = await _handle_list(ctx, category, limit)
+        case "as_of":
+            result = await _handle_as_of(ctx, as_of, limit)
         case "update":
-            return await _handle_update(
+            result = await _handle_update(
                 ctx, memory_id, content, category, tags, source, importance
             )
         case "delete":
-            return await _handle_delete(ctx, memory_id)
+            result = await _handle_delete(ctx, memory_id)
         case "export":
-            return await _handle_export(ctx)
+            result = await _handle_export(ctx)
         case "import":
-            return await _handle_import(ctx, data, mode)
+            result = await _handle_import(ctx, data, mode)
         case "stats":
-            return await _handle_stats(ctx)
+            result = await _handle_stats(ctx)
         case "restore":
-            return await _handle_restore(ctx, memory_id)
+            result = await _handle_restore(ctx, memory_id)
         case "archived":
-            return await _handle_archived(ctx, limit)
+            result = await _handle_archived(ctx, limit)
         case "archive_now":
-            return await _handle_archive_now(ctx)
+            result = await _handle_archive_now(ctx)
         case "consolidate":
-            return await _handle_consolidate(ctx, category)
+            result = await _handle_consolidate(ctx, category)
         case "compress":
-            return await _handle_memory_compress(ctx, memory_id)
+            result = await _handle_memory_compress(ctx, memory_id)
         case "entity_search":
             ent_type = context_type if context_type != "conversation" else None
-            return await _handle_entity_search(
+            result = await _handle_entity_search(
                 ctx, name=name or query, entity_type=ent_type, limit=limit
             )
         case "entity_graph":
-            return await _handle_entity_graph(
+            result = await _handle_entity_graph(
                 ctx,
                 entity_id=entity_id,
                 name=name or query,
@@ -1735,14 +1845,13 @@ async def memory(
                 limit=limit,
             )
         case "history":
-            return await _handle_history(ctx, entity_id=entity_id or memory_id)
+            result = await _handle_history(ctx, entity_id=entity_id or memory_id)
         case _:
-            import difflib
-
             valid_actions = [
                 "add",
                 "archive_now",
                 "archived",
+                "as_of",
                 "capture",
                 "compress",
                 "consolidate",
@@ -1759,7 +1868,9 @@ async def memory(
                 "update",
             ]
             closest = (
-                difflib.get_close_matches(action, valid_actions, n=1) if action else []
+                difflib.get_close_matches(str(action), valid_actions, n=1)
+                if action is not None
+                else []
             )
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
@@ -1772,7 +1883,10 @@ async def memory(
                 resp["suggestion"] = (
                     f"Available actions are: {', '.join(valid_actions)}."
                 )
-            return _json(resp)
+            result = resp
+
+    result["_deprecation"] = _deprecation_notice(action)
+    return result
 
 
 @mcp.tool(
@@ -1801,7 +1915,7 @@ async def config(
     key: str | None = None,
     value: str | None = None,
     ctx: Context | None = None,
-) -> str:
+) -> dict[str, typing.Any]:
     """Server configuration, sync control, and setup.
 
     Actions:
@@ -1841,8 +1955,6 @@ async def config(
         case "import_passport":
             return await _handle_config_import_passport(ctx, key)
         case _:
-            import difflib
-
             valid_actions = [
                 "export_passport",
                 "import_passport",
@@ -1860,7 +1972,9 @@ async def config(
                 "warmup",
             ]
             closest = (
-                difflib.get_close_matches(action, valid_actions, n=1) if action else []
+                difflib.get_close_matches(str(action), valid_actions, n=1)
+                if action is not None
+                else []
             )
             resp: dict[str, typing.Any] = {
                 "error": f"Unknown action '{action}'.",
@@ -1873,52 +1987,54 @@ async def config(
                 resp["suggestion"] = (
                     f"Available actions are: {', '.join(valid_actions)}."
                 )
-            return _json(resp)
+            return resp
 
 
-async def _handle_config_status(ctx: Context | None) -> str:
+async def _handle_config_status(ctx: Context | None) -> dict[str, typing.Any]:
     db, embedding_model, embedding_dims = _get_ctx(ctx)
     embedding_model, _ = _get_request_embedding(ctx, embedding_model, embedding_dims)
     s = await asyncio.to_thread(db.stats)
-    return _json(
-        {
-            "database": {
-                "path": str(settings.get_db_path()),
-                "total_memories": s["total_memories"],
-                "categories": s["categories"],
-                "vec_enabled": s["vec_enabled"],
-            },
-            "embedding": {
-                "model": embedding_model,
-                "dims": embedding_dims,
-                "available": embedding_model is not None,
-            },
-            "sync": {
-                "enabled": settings.sync_enabled,
-                "provider": "google_drive",
-                "folder": settings.sync_folder,
-                "interval": settings.sync_interval,
-            },
-        }
-    )
+    return {
+        "database": {
+            # The store that answered, not the SQLite path config would use:
+            # under MEMORY_DB_BACKEND=cf-d1 the counts below come from D1 and
+            # settings.get_db_path() names a container file holding none of
+            # them. Same source as memory_stats, so the two cannot disagree.
+            "path": s["db_path"],
+            "total_memories": s["total_memories"],
+            "categories": s["categories"],
+            "vec_enabled": s["vec_enabled"],
+        },
+        "embedding": {
+            "model": embedding_model,
+            "dims": embedding_dims,
+            "available": embedding_model is not None,
+        },
+        "sync": {
+            "enabled": settings.sync_enabled,
+            "provider": "google_drive",
+            "folder": settings.sync_folder,
+            "interval": settings.sync_interval,
+        },
+    }
 
 
-async def _handle_config_sync(ctx: Context | None) -> str:
+async def _handle_config_sync(ctx: Context | None) -> dict[str, typing.Any]:
     db, _, _ = _get_ctx(ctx)
     from mnemo_mcp.sync import sync_full
 
     result = await sync_full(db)
-    return _json(result)
+    return result
 
 
-async def _handle_config_set(key: str | None, value: str | None) -> str:
+async def _handle_config_set(
+    key: str | None, value: str | None
+) -> dict[str, typing.Any]:
     if not key or value is None:
-        return _json(
-            {
-                "error": "key and value are required for set",
-                "suggestion": "Provide both 'key' and 'value' parameters to update a configuration setting.",
-            }
-        )
+        return {
+            "error": "key and value are required for set",
+            "suggestion": "Provide both 'key' and 'value' parameters to update a configuration setting.",
+        }
 
     valid_keys = {
         "sync_enabled",
@@ -1926,12 +2042,20 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
         "log_level",
     }
     if key not in valid_keys:
-        return _json(
-            {
-                "error": f"Invalid key: {key}",
-                "valid_keys": sorted(valid_keys),
-            }
+        closest = (
+            difflib.get_close_matches(str(key), list(valid_keys), n=1)
+            if key is not None
+            else []
         )
+        resp: dict[str, typing.Any] = {
+            "error": f"Invalid key: {key}",
+            "valid_keys": sorted(valid_keys),
+        }
+        if closest:
+            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = f"Available keys are: {', '.join(sorted(valid_keys))}."
+        return resp
 
     # Apply setting
     if key == "sync_enabled":
@@ -1950,12 +2074,22 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
             "CRITICAL",
         }
         if level not in valid_levels:
-            return _json(
-                {
-                    "error": f"Invalid log level: {value}",
-                    "valid_levels": sorted(valid_levels),
-                }
+            closest = (
+                difflib.get_close_matches(str(level), list(valid_levels), n=1)
+                if level is not None
+                else []
             )
+            resp = {
+                "error": f"Invalid log level: {value}",
+                "valid_levels": sorted(valid_levels),
+            }
+            if closest:
+                resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+            else:
+                resp["suggestion"] = (
+                    f"Available log levels are: {', '.join(sorted(valid_levels))}."
+                )
+            return resp
 
         settings.log_level = level
         logger.remove()
@@ -1964,30 +2098,28 @@ async def _handle_config_set(key: str | None, value: str | None) -> str:
             level=settings.log_level,
         )
 
-    return _json(
-        {
-            "status": "updated",
-            "key": key,
-            "value": getattr(settings, key),
-        }
-    )
+    return {
+        "status": "updated",
+        "key": key,
+        "value": getattr(settings, key),
+    }
 
 
-async def _handle_config_warmup() -> str:
+async def _handle_config_warmup() -> dict[str, typing.Any]:
     from mnemo_mcp.setup_tool import run_warmup
 
     result = await run_warmup()
-    return _json(result)
+    return result
 
 
-async def _handle_config_setup_sync() -> str:
+async def _handle_config_setup_sync() -> dict[str, typing.Any]:
     from mnemo_mcp.setup_tool import run_setup_sync
 
     result = await run_setup_sync()
-    return _json(result)
+    return result
 
 
-async def _handle_config_setup_status() -> str:
+async def _handle_config_setup_status() -> dict[str, typing.Any]:
     from mcp_core.storage.per_plugin_store import PerPluginStore
 
     from mnemo_mcp.credential_state import (
@@ -2028,72 +2160,62 @@ async def _handle_config_setup_status() -> str:
         _derived_state = "setup_in_progress"
     else:
         _derived_state = "awaiting_setup"
-    return _json(
-        {
-            "state": _derived_state,
-            "setup_url": get_setup_url(),
-            "cloud_keys_in_env": [k for k in _env_keys if k in CLOUD_KEYS],
-            "providers_configured": _providers,
-        }
-    )
+    return {
+        "state": _derived_state,
+        "setup_url": get_setup_url(),
+        "cloud_keys_in_env": [k for k in _env_keys if k in CLOUD_KEYS],
+        "providers_configured": _providers,
+    }
 
 
-async def _handle_config_setup_start(key: str | None) -> str:
+async def _handle_config_setup_start(key: str | None) -> dict[str, typing.Any]:
     from mnemo_mcp.credential_state import CredentialState, get_state
 
     if get_state() == CredentialState.CONFIGURED and not (
         key and key.lower() == "force"
     ):
-        return _json(
-            {
-                "status": "already_configured",
-                "message": "Already configured. Use key='force' to reconfigure.",
-            }
-        )
-    return _json(
-        {
-            "status": "stdio_unsupported",
-            "message": (
-                "Setup form is only available in HTTP mode. Run mnemo-mcp "
-                "with --http (or MCP_TRANSPORT=http) and visit /authorize to "
-                "configure API keys via browser. In stdio mode, set env vars "
-                "directly (JINA_AI_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY, "
-                "COHERE_API_KEY, GOOGLE_DRIVE_CLIENT_ID)."
-            ),
+        return {
+            "status": "already_configured",
+            "message": "Already configured. Use key='force' to reconfigure.",
         }
-    )
+    return {
+        "status": "stdio_unsupported",
+        "message": (
+            "Setup form is only available in HTTP mode. Run mnemo-mcp "
+            "with --http (or MCP_TRANSPORT=http) and visit /authorize to "
+            "configure API keys via browser. In stdio mode, set env vars "
+            "directly (JINA_AI_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY, "
+            "COHERE_API_KEY, GOOGLE_DRIVE_CLIENT_ID)."
+        ),
+    }
 
 
-async def _handle_config_setup_skip() -> str:
+async def _handle_config_setup_skip() -> dict[str, typing.Any]:
     from mcp_core import set_local_mode
 
     from mnemo_mcp.credential_state import CredentialState, set_state
 
     set_local_mode("mnemo-mcp")
     set_state(CredentialState.LOCAL)
-    return _json(
-        {
-            "status": "ok",
-            "message": "Local mode set. Relay will not trigger on restart.",
-        }
-    )
+    return {
+        "status": "ok",
+        "message": "Local mode set. Relay will not trigger on restart.",
+    }
 
 
-async def _handle_config_setup_reset() -> str:
+async def _handle_config_setup_reset() -> dict[str, typing.Any]:
     from mnemo_mcp.credential_state import reset_state
 
     reset_state()
-    return _json(
-        {
-            "status": "ok",
-            "message": "Credentials cleared. Next tool call will offer setup.",
-        }
-    )
+    return {
+        "status": "ok",
+        "message": "Credentials cleared. Next tool call will offer setup.",
+    }
 
 
 async def _handle_config_setup_complete(
     ctx: Context | None,
-) -> str:
+) -> dict[str, typing.Any]:
     from mnemo_mcp.credential_state import (
         CredentialState,
         get_state,
@@ -2111,18 +2233,24 @@ async def _handle_config_setup_complete(
         mode = settings.setup_providers()
         await _init_embedding_backend(mode, lc)
 
-    return _json(
-        {
-            "status": "ok",
-            "state": state.value,
-            "message": "Credential state refreshed.",
-        }
-    )
+    return {
+        "status": "ok",
+        "state": state.value,
+        "message": "Credential state refreshed.",
+    }
 
 
-async def _handle_config_setup_relay() -> str:
-    # Backward compat alias for setup_start.
-    return await _handle_config_setup_start(key="force")
+async def _handle_config_setup_relay() -> dict[str, typing.Any]:
+    """Deprecated alias for setup_start (removed in a future release)."""
+    result = await _handle_config_setup_start(key="force")
+    result["_deprecation"] = {
+        "message": (
+            "setup_relay is deprecated and will be removed in a future "
+            "release. Use setup_start instead."
+        ),
+        "use_instead": "setup_start",
+    }
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -2165,61 +2293,55 @@ def _resolve_default_backend() -> str:
     return resolve_active_backend()
 
 
-async def _handle_config_sync_now(ctx: Context | None, backend: str | None) -> str:
+async def _handle_config_sync_now(
+    ctx: Context | None, backend: str | None
+) -> dict[str, typing.Any]:
     """``config(action="sync_now")`` - delta push (or full-pull-push on gap)."""
     db, _, _ = _get_ctx(ctx)
     passphrase = _resolve_sync_passphrase()
     if not passphrase:
-        return _json(
-            {
-                "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var (stdio mode) or submit "
-                    "the relay form passphrase field (HTTP mode) before "
-                    "triggering passport sync."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
-            }
-        )
+        return {
+            "error": "SYNC_PASSPHRASE not set",
+            "hint": (
+                "Set SYNC_PASSPHRASE env var (stdio mode) or submit "
+                "the relay form passphrase field (HTTP mode) before "
+                "triggering passport sync."
+            ),
+            "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+        }
 
     target = (backend or _resolve_default_backend()).strip()
     try:
         from mnemo_mcp.sync.delta import sync_now
 
         result = await sync_now(db, target, passphrase)
-        return _json({"backend": target, **result})
+        return {"backend": target, **result}
     except KeyError as e:
-        return _json(
-            {
-                "error": str(e),
-                "suggestion": "Check if backend configuration is complete.",
-            }
-        )
-    except Exception as e:
+        return {
+            "error": str(e),
+            "suggestion": "Check if backend configuration is complete.",
+        }
+    except Exception:
         logger.exception("sync_now failed")
-        return _json(
-            {
-                "error": f"sync_now failed: {e}",
-                "suggestion": "Check network connectivity and provider credentials.",
-            }
-        )
+        return {
+            "error": "sync_now failed: internal error",
+            "suggestion": "Check network connectivity and provider credentials.",
+        }
 
 
-async def _handle_config_export_passport(ctx: Context | None) -> str:
+async def _handle_config_export_passport(ctx: Context | None) -> dict[str, typing.Any]:
     """``config(action="export_passport")`` - write encrypted passport file."""
     db, _, _ = _get_ctx(ctx)
     passphrase = _resolve_sync_passphrase()
     if not passphrase:
-        return _json(
-            {
-                "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var or submit the relay form "
-                    "passphrase before exporting a passport."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
-            }
-        )
+        return {
+            "error": "SYNC_PASSPHRASE not set",
+            "hint": (
+                "Set SYNC_PASSPHRASE env var or submit the relay form "
+                "passphrase before exporting a passport."
+            ),
+            "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+        }
 
     from mnemo_mcp.sync.delta import build_full_bundle
 
@@ -2227,27 +2349,42 @@ async def _handle_config_export_passport(ctx: Context | None) -> str:
     out_dir = settings.get_data_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"passport-{int(__import__('time').time())}.mnemo"
-    await asyncio.to_thread(path.write_bytes, bundle)
-    return _json({"status": "exported", "path": str(path), "size": len(bundle)})
+
+    def _write_secure_bytes(file_path: typing.Any, content: bytes) -> None:
+        import os
+        import stat
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        mode = stat.S_IRUSR | stat.S_IWUSR
+        fd = os.open(file_path, flags, mode)
+        try:
+            if os.name != "nt":
+                os.fchmod(fd, mode)
+        except OSError:
+            pass
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+
+    await asyncio.to_thread(_write_secure_bytes, path, bundle)
+    return {"status": "exported", "path": str(path), "size": len(bundle)}
 
 
 async def _handle_config_import_passport(
     ctx: Context | None, source: str | None
-) -> str:
+) -> dict[str, typing.Any]:
     """``config(action="import_passport", from="s3"|"gdrive")``."""
     db, _, _ = _get_ctx(ctx)
     passphrase = _resolve_sync_passphrase()
     if not passphrase:
-        return _json(
-            {
-                "error": "SYNC_PASSPHRASE not set",
-                "hint": (
-                    "Set SYNC_PASSPHRASE env var or submit the relay form "
-                    "passphrase before importing a passport."
-                ),
-                "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
-            }
-        )
+        return {
+            "error": "SYNC_PASSPHRASE not set",
+            "hint": (
+                "Set SYNC_PASSPHRASE env var or submit the relay form "
+                "passphrase before importing a passport."
+            ),
+            "suggestion": "Provide the SYNC_PASSPHRASE environment variable or use the HTTP setup form.",
+        }
 
     target = (source or _resolve_default_backend()).strip()
     try:
@@ -2257,46 +2394,40 @@ async def _handle_config_import_passport(
         backend = get_backend(target)
         bundle = await backend.pull(sequence=None)
     except KeyError as e:
-        return _json(
-            {
-                "error": str(e),
-                "suggestion": "Ensure the specified backend is properly configured.",
-            }
-        )
-    except Exception as e:
+        return {
+            "error": str(e),
+            "suggestion": "Ensure the specified backend is properly configured.",
+        }
+    except Exception:
         logger.exception("import_passport: backend pull failed")
-        return _json(
-            {
-                "error": f"backend pull failed: {e}",
-                "suggestion": "Verify remote backend access and network connectivity.",
-            }
-        )
+        return {
+            "error": "backend pull failed: internal error",
+            "suggestion": "Verify remote backend access and network connectivity.",
+        }
 
     if not bundle:
-        return _json(
-            {
-                "status": "no_passport",
-                "backend": target,
-                "message": "No passport bundle found on backend.",
-            }
-        )
+        return {
+            "status": "no_passport",
+            "backend": target,
+            "message": "No passport bundle found on backend.",
+        }
 
     try:
         result = await apply_bundle(db, bundle, passphrase)
-    except Exception as e:
+    except Exception:
         logger.exception("import_passport: apply_bundle failed")
-        return _json(
-            {
-                "error": "Passphrase mismatch or tampered bundle",
-                "detail": f"{type(e).__name__}: {e}",
-                "backend": target,
-            }
-        )
+        return {
+            "error": "Passphrase mismatch or tampered bundle",
+            "backend": target,
+            "suggestion": "Verify the passphrase matches the one used to export the passport bundle and that the bundle has not been modified.",
+        }
 
-    return _json({"status": "imported", "backend": target, **result})
+    return {"status": "imported", "backend": target, **result}
 
 
-async def _handle_memory_compress(ctx: Context | None, memory_id: str | None) -> str:
+async def _handle_memory_compress(
+    ctx: Context | None, memory_id: str | None
+) -> dict[str, typing.Any]:
     """``memory(action="compress", memory_id=...)`` - manual compression.
 
     Reruns the LLM compression pipeline against an existing row whose
@@ -2307,41 +2438,33 @@ async def _handle_memory_compress(ctx: Context | None, memory_id: str | None) ->
     """
     db, _, _ = _get_ctx(ctx)
     if not memory_id:
-        return _json(
-            {
-                "error": "memory_id required for compress",
-                "suggestion": "Pass memory_id from search/list results.",
-            }
-        )
+        return {
+            "error": "memory_id required for compress",
+            "suggestion": "Pass memory_id from search/list results.",
+        }
 
     row = await asyncio.to_thread(db.get, memory_id)
     if not row:
-        return _json(
-            {
-                "error": f"Memory {memory_id} not found",
-                "suggestion": "Verify the memory_id using action='search' or action='list'.",
-            }
-        )
+        return {
+            "error": f"Memory {memory_id} not found",
+            "suggestion": "Verify the memory_id using action='search' or action='list'.",
+        }
     if row.get("compressed"):
-        return _json(
-            {
-                "status": "already_compressed",
-                "id": memory_id,
-                "compression_provider": row.get("compression_provider"),
-            }
-        )
+        return {
+            "status": "already_compressed",
+            "id": memory_id,
+            "compression_provider": row.get("compression_provider"),
+        }
 
     from mnemo_mcp.compression import compress
 
     result = await compress(row["content"])
     if not result["compressed"]:
-        return _json(
-            {
-                "status": "skipped",
-                "id": memory_id,
-                "reason": "no LLM provider available or compression disabled",
-            }
-        )
+        return {
+            "status": "skipped",
+            "id": memory_id,
+            "reason": "no LLM provider available or compression disabled",
+        }
 
     cursor = db._conn.cursor()
     cursor.execute(
@@ -2356,15 +2479,13 @@ async def _handle_memory_compress(ctx: Context | None, memory_id: str | None) ->
         ),
     )
     db._conn.commit()
-    return _json(
-        {
-            "status": "compressed",
-            "id": memory_id,
-            "compression_provider": result["compression_provider"],
-            "tokens_in": result["tokens_in"],
-            "tokens_out": result["tokens_out"],
-        }
-    )
+    return {
+        "status": "compressed",
+        "id": memory_id,
+        "compression_provider": result["compression_provider"],
+        "tokens_in": result["tokens_in"],
+        "tokens_out": result["tokens_out"],
+    }
 
 
 @mcp.tool(
@@ -2393,11 +2514,9 @@ async def help(topic: str = "memory") -> str:
 
     filename = valid_topics.get(topic)
     if not filename:
-        import difflib
-
         closest = (
-            difflib.get_close_matches(topic, list(valid_topics.keys()), n=1)
-            if topic
+            difflib.get_close_matches(str(topic), list(valid_topics.keys()), n=1)
+            if topic is not None
             else []
         )
         resp: dict[str, typing.Any] = {
@@ -2433,7 +2552,7 @@ register_open_relay_tool(mcp, "mnemo-mcp", os.environ.get("PUBLIC_URL"))
 @mcp.resource("mnemo://stats")
 async def stats_resource(ctx: Context | None = None) -> str:
     """Database statistics and server status."""
-    return await _handle_stats(ctx)
+    return _json(await _handle_stats(ctx))
 
 
 # --- Prompts ---
@@ -2558,6 +2677,7 @@ async def run_http(port: int = 0) -> None:
         # "Waiting for authorization..." forever. Accepts legacy 1-arg core.
         setup_complete_hook=wire_gdrive_callbacks,
         auth_scope=_per_request_sub_scope if public_url else None,
+        stable_sub_enabled=True,
     )
 
 

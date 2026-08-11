@@ -52,11 +52,7 @@ async def test_obtain_jwt_handles_relay_login_redirect(
             if "mcp_relay_session=fixture-session" not in request.headers.get(
                 "cookie", ""
             ):
-                next_url = quote(
-                    request.url.path
-                    + (f"?{request.url.query.decode()}" if request.url.query else ""),
-                    safe="",
-                )
+                next_url = quote(str(request.url), safe="")
                 return _response(
                     request,
                     302,
@@ -102,16 +98,18 @@ async def test_obtain_jwt_handles_relay_login_redirect(
 
     transport = httpx.MockTransport(handler)
     client_class = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: client_class(transport=transport, **kwargs),
-    )
-    monkeypatch.setattr(
-        "mcp_core.storage.config_file.read_config",
-        lambda _server_name: {"JINA_AI_API_KEY": "fixture-key"},
-    )
-    assert await harness.obtain_jwt() == "fixture-jwt"
+    with monkeypatch.context() as ctx:
+        ctx.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **kwargs: client_class(transport=transport, **kwargs),
+        )
+        with pytest.MonkeyPatch.context() as config_patch:
+            config_patch.setattr(
+                "mcp_core.storage.config_file.read_config",
+                lambda _server_name: {"JINA_AI_API_KEY": "fixture-key"},
+            )
+            assert await harness.obtain_jwt() == "fixture-jwt"
 
     assert [(request.method, request.url.path) for request in requests] == [
         ("GET", "/authorize"),
@@ -156,16 +154,18 @@ async def test_obtain_jwt_preserves_direct_authorize_response(
 
     transport = httpx.MockTransport(handler)
     client_class = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: client_class(transport=transport, **kwargs),
-    )
-    monkeypatch.setattr(
-        "mcp_core.storage.config_file.read_config",
-        lambda _server_name: {"JINA_AI_API_KEY": "fixture-key"},
-    )
-    assert await harness.obtain_jwt() == "fixture-jwt"
+    with monkeypatch.context() as ctx:
+        ctx.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **kwargs: client_class(transport=transport, **kwargs),
+        )
+        with pytest.MonkeyPatch.context() as config_patch:
+            config_patch.setattr(
+                "mcp_core.storage.config_file.read_config",
+                lambda _server_name: {"JINA_AI_API_KEY": "fixture-key"},
+            )
+            assert await harness.obtain_jwt() == "fixture-jwt"
 
     assert [request.url.path for request in requests] == [
         "/authorize",

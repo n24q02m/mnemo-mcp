@@ -1,11 +1,29 @@
 """Tests for server lifespan management."""
 
 import asyncio
+import pathlib
+import sqlite3
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from loguru import logger
+
+# The Cloudflare doubles live with the suites that pin them against
+# ``src/worker.ts``; importing them here keeps one description of the Worker.
+from test_db_cf import FakeD1Worker
+from test_db_cf_vectors import FakeVectorizeWorker
 
 from mnemo_mcp.server import lifespan
+
+_MIGRATION = (
+    pathlib.Path(__file__).resolve().parent.parent / "migrations" / "0001_init.sql"
+)
+_MIGRATION_2 = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "migrations"
+    / "0002_per_sub_isolation.sql"
+)
 
 
 @pytest.fixture
@@ -25,9 +43,18 @@ def mock_settings():
 
 @pytest.fixture
 def mock_db():
-    with patch("mnemo_mcp.server.MemoryDB") as m:
+    # lifespan builds the store through open_memory_db, which picks SQLite or
+    # Cloudflare D1 from MEMORY_DB_BACKEND; that factory is the construction
+    # site to intercept.
+    with patch("mnemo_mcp.server.open_memory_db") as m:
         db_instance = MagicMock()
-        db_instance.stats.return_value = {"total_memories": 10, "vec_enabled": True}
+        # db_path is part of what stats() always returns, on both backends; the
+        # startup banner reads it, so a stub without it describes no real store.
+        db_instance.stats.return_value = {
+            "total_memories": 10,
+            "vec_enabled": True,
+            "db_path": "test.db",
+        }
         db_instance.vec_enabled = True
         m.return_value = db_instance
         yield m
@@ -56,18 +83,26 @@ def mock_sync():
         yield start, stop
 
 
-@pytest.fixture
-def background_tasks(monkeypatch):
-    tasks = []
-    create_task = asyncio.create_task
+async def _settle_background_init() -> None:
+    """Wait for the background init tasks ``lifespan`` starts.
 
-    def capture_task(coro):
-        task = create_task(coro)
-        tasks.append(task)
-        return task
-
-    monkeypatch.setattr("mnemo_mcp.server.asyncio.create_task", capture_task)
-    return tasks
+    ``lifespan`` kicks off embedding and reranker init with
+    ``asyncio.create_task`` and keeps the handles to itself, so these tests
+    had no signal to wait on and slept a fixed 10ms instead. Each task makes
+    several ``asyncio.to_thread`` hops, which do not reliably finish inside
+    10ms on a loaded machine, so the assertions could read the context before
+    the task had written to it. ``start_auto_sync`` is mocked out here, so
+    those two are the only tasks on this loop and draining them is exact.
+    """
+    current = asyncio.current_task()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 10.0
+    while loop.time() < deadline:
+        pending = {task for task in asyncio.all_tasks() if task is not current}
+        if not pending:
+            return
+        await asyncio.wait(pending, timeout=deadline - loop.time())
+    raise AssertionError("background lifespan init did not finish within 10s")
 
 
 @pytest.mark.asyncio
@@ -85,7 +120,7 @@ async def test_lifespan_happy_path_cloud(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await background_tasks[0]
+        await _settle_background_init()
         assert ctx["embedding_model"] == "cloud-model"
         assert ctx["embedding_dims"] == 128
         assert ctx["db"] == mock_db.return_value
@@ -122,7 +157,7 @@ async def test_lifespan_local_backend_explicit(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await background_tasks[0]
+        await _settle_background_init()
         assert ctx["embedding_model"] == "__local__"
         assert ctx["embedding_dims"] == 768  # Default for stored
 
@@ -156,7 +191,7 @@ async def test_lifespan_explicit_cloud_exception_no_local_fallback(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await background_tasks[0]
+        await _settle_background_init()
         # Model stays None since cloud failed and no local fallback
         assert ctx["embedding_model"] is None
 
@@ -174,7 +209,7 @@ async def test_lifespan_all_backends_fail(
 
     server = MagicMock()
     async with lifespan(server) as ctx:
-        await background_tasks[0]
+        await _settle_background_init()
         assert ctx["embedding_model"] is None
         assert (
             ctx["embedding_dims"] == 768
@@ -182,3 +217,117 @@ async def test_lifespan_all_backends_fail(
 
     # Should still init DB
     mock_db.return_value.stats.assert_called()
+
+
+@pytest.fixture
+def startup_logs() -> Generator[list[str]]:
+    """Collect loguru messages; loguru does not route through pytest's caplog."""
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]),
+        level="INFO",
+        format="{message}",
+    )
+    yield messages
+    logger.remove(sink_id)
+
+
+@pytest.fixture
+def real_store_settings(mock_settings):
+    """``mock_settings`` with the values ``open_memory_db`` really consumes.
+
+    The other tests here never build a store, so the MagicMock defaults are
+    enough for them; a real one divides by ``recency_half_life_days`` and
+    stamps ``embedding_primary()`` into the store, neither of which survives
+    being a MagicMock.
+    """
+    mock_settings.recency_half_life_days = 7.0
+    mock_settings.reindex_on_model_change = False
+    mock_settings.embedding_primary.return_value = "test-model"
+    return mock_settings
+
+
+def _banner(messages: list[str]) -> str:
+    return next(m for m in messages if m.startswith("Database: "))
+
+
+class TestStartupLogNamesTheStoreItRead:
+    """The startup banner must name the store its memory count came from.
+
+    It printed ``settings.get_db_path()`` next to counts read from whichever
+    backend ``MEMORY_DB_BACKEND`` selected, so a D1 deployment announced a
+    SQLite file inside its container. This is the first line anyone reads when
+    asking "where is my data", which is the worst place to be wrong.
+
+    Both tests let ``open_memory_db`` run for real -- a mocked ``stats()`` would
+    only prove the log prints whatever the mock was told to say.
+    """
+
+    @pytest.fixture
+    def cf_d1_store(self, tmp_path, monkeypatch) -> Generator[None]:
+        """Point ``MEMORY_DB_BACKEND=cf-d1`` at the in-process D1 double."""
+        from mcp_core.storage.d1 import D1Backend
+        from mcp_core.storage.vectorize import VectorizeBackend
+
+        conn = sqlite3.connect(
+            tmp_path / "d1.sqlite", isolation_level=None, check_same_thread=False
+        )
+        conn.executescript(_MIGRATION.read_text(encoding="utf-8"))
+        conn.executescript(_MIGRATION_2.read_text(encoding="utf-8"))
+        monkeypatch.setenv("MEMORY_DB_BACKEND", "cf-d1")
+        monkeypatch.setattr(
+            "mnemo_mcp.db_cf.d1_backend_from_env",
+            lambda: D1Backend(base_url="http://d1.internal", http=FakeD1Worker(conn)),
+        )
+        monkeypatch.setattr(
+            "mnemo_mcp.db_cf._vectorize_from_env",
+            lambda: VectorizeBackend(
+                base_url="http://vectorize.internal",
+                idx="mnemo-test",
+                http=FakeVectorizeWorker(),
+            ),
+        )
+        yield
+        conn.close()
+
+    async def test_cf_d1_startup_log_does_not_name_the_sqlite_file(
+        self,
+        real_store_settings,
+        cf_d1_store,
+        mock_embedder,
+        mock_sync,
+        startup_logs,
+    ):
+        # The path the Cloudflare container is configured with and never opens.
+        sqlite_path = pathlib.Path("/data/memories.db")
+        real_store_settings.get_db_path.return_value = sqlite_path
+
+        async with lifespan(MagicMock()):
+            pass
+
+        banner = _banner(startup_logs)
+        assert "cf-d1:http://d1.internal" in banner
+        assert str(sqlite_path) not in banner
+
+    async def test_sqlite_startup_log_names_the_sqlite_file(
+        self,
+        real_store_settings,
+        tmp_path,
+        monkeypatch,
+        mock_embedder,
+        mock_sync,
+        startup_logs,
+    ):
+        """The other half of the guard: SQLite must still name its file.
+
+        Reading the store's own answer has to stay honest in both directions --
+        a fix that only ever printed the D1 URL would pass the test above.
+        """
+        monkeypatch.delenv("MEMORY_DB_BACKEND", raising=False)
+        sqlite_path = tmp_path / "memories.db"
+        real_store_settings.get_db_path.return_value = sqlite_path
+
+        async with lifespan(MagicMock()):
+            pass
+
+        assert str(sqlite_path) in _banner(startup_logs)

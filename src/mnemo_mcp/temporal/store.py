@@ -80,6 +80,7 @@ def store_kg_with_memory_id(
     # have NULL memory_id / NULL valid_from -- so an edge already attached
     # to an earlier capture is left alone.
     edge_count = 0
+    params = []
     if relations:
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%S")
         for rel in relations:
@@ -90,14 +91,21 @@ def store_kg_with_memory_id(
             tgt_id = name_to_id.get(tgt_name)
             if not (src_id and tgt_id and rtype):
                 continue
-            cursor = conn.execute(
-                "UPDATE memory_edges SET "
-                "  memory_id = COALESCE(memory_id, ?), "
-                "  valid_from = COALESCE(valid_from, ?) "
-                "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
-                (memory_id, now_iso, src_id, tgt_id, rtype),
-            )
-            edge_count += cursor.rowcount or 0
+            params.append((memory_id, now_iso, src_id, tgt_id, rtype))
+
+    if params:
+        cursor = conn.executemany(
+            "UPDATE memory_edges SET "
+            "  memory_id = COALESCE(memory_id, ?), "
+            "  valid_from = COALESCE(valid_from, ?) "
+            "WHERE source_id = ? AND target_id = ? AND relation_type = ?",
+            params,
+        )
+        # SQLite exposes affected-row count; D1 /query does not. The D1 adapter
+        # returns the unknown sentinel, so the prepared relation count is the
+        # safe contract for this idempotent update batch.
+        rowcount = getattr(cursor, "rowcount", -1)
+        edge_count = rowcount if rowcount != -1 else len(params)
         conn.commit()
 
     logger.debug(

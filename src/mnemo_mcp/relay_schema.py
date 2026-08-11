@@ -48,17 +48,16 @@ def _key_field(key: str, label: str, ph: str, url: str) -> dict[str, Any]:
 
 
 def _api_base_field(key: str, label: str, help_text: str) -> dict[str, Any]:
-    """Build an always-visible optional custom endpoint field.
-
-    Endpoint fields cannot be derived from a model chip because they are
-    task-level settings rather than provider key names. The downstream
-    mcp_core dispatch remains responsible for SSRF vetting before I/O.
-    """
+    # Always-visible (not derived): the renderer only reveals a derived field
+    # when a model chip derives that exact provider ENV key, and no model
+    # derives *_API_BASE, so a derived endpoint field would stay hidden. The
+    # optional badge comes from required:false. Value is SSRF-vetted per-sub in
+    # mcp_core.llm dispatch before any request.
     return {
         "key": key,
         "label": label,
         "type": "url",
-        "placeholder": "https://gateway.example/...",
+        "placeholder": "https://gateway.example/…",
         "helpText": help_text,
         "required": False,
     }

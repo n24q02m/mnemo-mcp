@@ -1,16 +1,16 @@
 [project]
 name = "mnemo-mcp"
-version = "2.3.0-beta.9"
+version = "2.8.0-beta.2"
 description = "Open-source MCP Server for persistent AI memory with embedded sync"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "n24q02m", email = "quangminh2422004@gmail.com" }]
 keywords = ["mcp", "mcp-server", "model-context-protocol", "memory", "ai-memory", "sqlite", "embeddings", "claude", "cursor", "copilot", "antigravity", "codex", "opencode"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
@@ -30,16 +30,31 @@ dependencies = [
     # SQLite vector search
     "sqlite-vec",
     # Local ONNX embedding (auto-fallback when no cloud API)
-    "qwen3-embed>=1.12.0b3",
-    # Zero-env-config credential relay + LLM/embed/rerank via litellm passthrough
-    "n24q02m-mcp-core[llm]>=1.18.0b2,<2",
+    "qwen3-embed>=1.12.1",
+    # 1.19.0 ships mcp_core.cli's argument-spec extra subcommand
+    # support ((configure, handler) tuples) this repo's cli.py auth
+    # subcommand consumes. 1.20.0b2 fixes build_cli's `config`/`doctor`
+    # PerPluginStore key (#666): it defaulted to the display
+    # server_name ("mnemo-mcp") instead of the plugin slug ("mnemo")
+    # this server actually saves credentials under, so `mnemo-mcp
+    # config status` always reported "not configured".
+    "n24q02m-mcp-core[llm]>=1.22.0,<2",
+    # Transitive pin: fastmcp reaches us only through mcp-core, which requires
+    # it unbounded -- so nothing in this repo constrained it and Renovate's
+    # lockFileMaintenance (`uv lock --upgrade`, automerge on) locked the
+    # 4.0.0b1 beta in #1022. fastmcp 4 reshapes the ToolAnnotations model:
+    # `readOnlyHint`/`destructiveHint` are no longer fields, so Pydantic
+    # silently discards them and all 14 annotated tools in server.py lose
+    # their hints. Cap at <4 until mcp-core itself moves to fastmcp 4 and
+    # this repo's annotations are ported.
+    "fastmcp>=3.4.4,<4",
     # Pin Pygments to fix ReDoS (CVE in <2.20.0)
     "Pygments>=2.20.0",
     "alembic>=1.18.5",
     # Phase 2: token counting for LLM compression pipeline
     "tiktoken>=0.13.0",
     # Phase 2: S3 / R2 / B2 / MinIO passport-sync backend
-    "boto3>=1.43.29",
+    "boto3>=1.43.56",
     # Phase 2: AES-256-GCM bundle encryption + Argon2id KDF
     "cryptography>=49.0.0",
     # Transitive pin: urllib3 < 2.7.0 has 2 HIGH CVEs (GHSA-qccp-gfcp-xxvc
@@ -62,14 +77,14 @@ dev = [
     "pre-commit",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
-    "syrupy>=5.3.4",
+    "syrupy>=5.5.3",
     # Phase 2: in-memory S3 fixture for sync backend tests
     "moto[s3]>=5.2.2",
     "bandit>=1.9.4",
 ]
 
 [project.scripts]
-mnemo-mcp = "mnemo_mcp.server:main"
+mnemo-mcp = "mnemo_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/n24q02m/mnemo-mcp"

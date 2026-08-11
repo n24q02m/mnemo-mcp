@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from loguru import logger
+from mcp_core.auth import token_client_mismatch
 
 from mnemo_mcp.config import settings
 from mnemo_mcp.sync.base import SyncBackend
@@ -92,6 +94,13 @@ async def _save_token(token: dict) -> None:
     await async_save_token(_TOKEN_PROVIDER, token)
 
 
+async def _clear_token() -> None:
+    """Delete the stored Google Drive OAuth token from local storage."""
+    from mnemo_mcp.token_store import async_delete_token
+
+    await async_delete_token(_TOKEN_PROVIDER)
+
+
 async def _has_token_available() -> bool:
     """Check if a Google Drive token is available."""
     return await _load_token() is not None
@@ -102,6 +111,14 @@ async def _refresh_token(token: dict) -> dict | None:
 
     Returns updated token dict, or None if refresh failed.
     """
+    if token_client_mismatch(token, settings.google_drive_client_id):
+        logger.warning(
+            "Stored Google Drive token was minted by a different client_id; "
+            "clearing it -- re-run setup_sync to authorize with the current client"
+        )
+        await _clear_token()
+        return None
+
     refresh_token = token.get("refresh_token")
     client_id = token.get("client_id", settings.google_drive_client_id)
     client_secret = settings.google_drive_client_secret
@@ -219,6 +236,23 @@ async def _load_folder_id(folder_name: str) -> str | None:
 async def _save_folder_id(folder_name: str, folder_id: str) -> None:
     """Persist folder ID to disk."""
     path = settings.get_data_dir() / "sync_folder_ids.json"
+
+    def _write_secure(file_path: Path, content: str) -> None:
+        import os
+        import stat
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        mode = stat.S_IRUSR | stat.S_IWUSR
+        fd = os.open(file_path, flags, mode)
+        try:
+            if os.name != "nt":
+                os.fchmod(fd, mode)
+        except OSError:
+            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+
     async with _folder_id_disk_lock:
         data: dict[str, str] = {}
         try:
@@ -228,8 +262,7 @@ async def _save_folder_id(folder_name: str, folder_id: str) -> None:
         except (json.JSONDecodeError, OSError):
             pass
         data[folder_name] = folder_id
-        await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(path.write_text, json.dumps(data), encoding="utf-8")
+        await asyncio.to_thread(_write_secure, path, json.dumps(data))
 
 
 async def _verify_folder_exists(token: dict, folder_id: str) -> bool:
@@ -418,8 +451,24 @@ async def _download_file(token: dict, file_id: str, dest_path: Path) -> bool:
     )
 
     if response.status_code == 200:
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(dest_path.write_bytes, response.content)
+
+        def _write_secure_bytes(file_path: Path, content: bytes) -> None:
+            import os
+            import stat
+
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+            mode = stat.S_IRUSR | stat.S_IWUSR
+            fd = os.open(file_path, flags, mode)
+            try:
+                if os.name != "nt":
+                    os.fchmod(fd, mode)
+            except OSError:
+                pass
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+
+        await asyncio.to_thread(_write_secure_bytes, dest_path, response.content)
         return True
 
     logger.error(f"Download failed ({response.status_code}): {response.text[:100]}")
@@ -431,11 +480,56 @@ async def _download_file(token: dict, file_id: str, dest_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _checkpoint_wal(db_path: Path) -> bool:
+    """Fold the ``-wal`` side file back into ``db_path`` before it is read.
+
+    In WAL mode SQLite keeps freshly committed pages in ``<db>-wal`` until a
+    checkpoint runs, so ``db_path`` on its own is a page-allocated shell with
+    an empty ``sqlite_master``. Drive stores the single ``.db`` object and
+    nothing else, hence the checkpoint has to happen before the upload.
+
+    ``TRUNCATE`` is the level that makes the file self-contained: it writes
+    every frame back *and* resets the WAL to zero bytes. ``PASSIVE`` gives up
+    silently when a reader is around, and ``FULL`` leaves the frames in the
+    WAL after copying them, so neither guarantees the state we need on disk.
+
+    ``TRUNCATE`` waits for readers to let go, and auto-sync runs while the
+    server holds its own connection to the same file, so the busy timeout is
+    set explicitly to match ``MemoryDB`` (``db.py``) instead of relying on
+    the sqlite3 driver default -- without it a reader that happens to be
+    mid-query would abort the push.
+
+    Returns ``True`` when the whole WAL was folded in, ``False`` when it was
+    not -- in which case the file is not safe to upload.
+    """
+    if not db_path.exists():
+        logger.error(f"Cannot checkpoint {db_path}: database file does not exist")
+        return False
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA busy_timeout = 5000")
+        busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if busy:
+            logger.error(
+                f"WAL checkpoint of {db_path.name} was blocked (busy); "
+                "recent writes are still in the -wal file"
+            )
+            return False
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"WAL checkpoint of {db_path.name} failed: {e}")
+        return False
+    finally:
+        conn.close()
+
+
 async def sync_push(db_path: Path, folder_name: str) -> bool:
     """Push local database to Google Drive folder.
 
-    Uploads the SQLite database file to Google Drive.
-    Updates existing file or creates new one.
+    Checkpoints the WAL so the uploaded file is self-contained, then uploads
+    the SQLite database file to Google Drive. Updates existing file or
+    creates new one.
     """
     token = await _get_valid_token()
     if not token:
@@ -447,6 +541,12 @@ async def sync_push(db_path: Path, folder_name: str) -> bool:
     folder_id = await _find_or_create_folder(token, folder_name)
     if not folder_id:
         logger.error("Failed to find/create sync folder")
+        return False
+
+    # Never upload a database whose WAL has not been folded in: the remote
+    # copy would be a shell with no tables, silently replacing a good backup.
+    if not await asyncio.to_thread(_checkpoint_wal, db_path):
+        logger.error("Push aborted: local DB is not in a state safe to upload")
         return False
 
     existing = await _find_file_in_folder(token, folder_id, db_path.name)
@@ -556,9 +656,12 @@ async def sync_full(db: MemoryDB) -> dict:
             if import_result.get("imported", 0) > 0:
                 logger.info(f"Merged {import_result['imported']} memories from remote")
 
-        except Exception as e:
-            logger.error(f"Merge failed: {e}")
-            result["pull"] = {"error": str(e)}
+        except Exception:
+            logger.exception("Merge failed")
+            result["pull"] = {
+                "error": "Merge failed: internal error",
+                "suggestion": "Check remote database consistency and sync credentials.",
+            }
         finally:
             # Cleanup temp file and directory
             remote_db_path.unlink(missing_ok=True)
@@ -708,16 +811,23 @@ async def _poll_for_token(
 async def setup_google_auth(
     relay_url: str | None = None,
     session_id: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
 ) -> bool:
     """Interactive Google OAuth setup via Device Code flow.
 
     If relay_url + session_id provided, send device code via relay messaging.
     Otherwise print to stderr.
 
+    ``client_id``/``client_secret`` optionally override the OAuth client
+    identity used for the device-code request, token poll, and saved token
+    payload; both default to ``None``, which falls back to
+    ``settings.google_drive_client_id/secret`` exactly as before.
+
     Returns True on success, False on failure.
     """
-    client_id = settings.google_drive_client_id
-    client_secret = settings.google_drive_client_secret
+    client_id = client_id or settings.google_drive_client_id
+    client_secret = client_secret or settings.google_drive_client_secret
     if not client_id or not client_secret:
         logger.error("GOOGLE_DRIVE_CLIENT_ID or CLIENT_SECRET not configured")
         return False

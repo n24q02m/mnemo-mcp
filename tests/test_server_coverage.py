@@ -57,14 +57,31 @@ class TestEmbed:
             result = await _embed("test text", "some-model", 768)
             assert result is None
 
-    async def test_embed_exception_returns_none(self):
-        """Returns None when embedding raises an exception."""
+    async def test_embed_transient_exception_returns_none(self):
+        """A transient embedding error degrades this call to None (FTS5-only)."""
+        from litellm.exceptions import RateLimitError
+
         mock_backend = MagicMock()
-        mock_backend.embed_single = AsyncMock(side_effect=Exception("API error"))
+        mock_backend.embed_single = AsyncMock(
+            side_effect=RateLimitError(
+                message="rate limit exceeded", llm_provider="cohere", model="m"
+            )
+        )
 
         with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
             result = await _embed("test text", "some-model", 768)
             assert result is None
+
+    async def test_embed_permanent_exception_raises(self):
+        """A permanent embedding error is surfaced loudly, not swallowed to None."""
+        mock_backend = MagicMock()
+        mock_backend.embed_single = AsyncMock(
+            side_effect=Exception("model does not exist")
+        )
+
+        with patch("mnemo_mcp.embedder.get_backend", return_value=mock_backend):
+            with pytest.raises(Exception, match="does not exist"):
+                await _embed("test text", "some-model", 768)
 
     async def test_embed_with_qwen3_query(self):
         """Uses query_embed for Qwen3 backend with is_query=True."""
@@ -134,33 +151,27 @@ class TestConfigSync:
         with patch(
             "mnemo_mcp.sync.sync_full", new_callable=AsyncMock, return_value=mock_result
         ):
-            result = json.loads(await config(action="sync", ctx=ctx))
+            result = await config(action="sync", ctx=ctx)
             assert result["status"] == "ok"
 
     async def test_config_set_sync_interval(self, ctx_with_db):
         """Config set sync_interval updates the setting."""
         ctx, _ = ctx_with_db
-        result = json.loads(
-            await config(action="set", key="sync_interval", value="120", ctx=ctx)
-        )
+        result = await config(action="set", key="sync_interval", value="120", ctx=ctx)
         assert result["status"] == "updated"
         assert result["key"] == "sync_interval"
 
     async def test_config_set_log_level(self, ctx_with_db):
         """Config set log_level updates logger configuration."""
         ctx, _ = ctx_with_db
-        result = json.loads(
-            await config(action="set", key="log_level", value="DEBUG", ctx=ctx)
-        )
+        result = await config(action="set", key="log_level", value="DEBUG", ctx=ctx)
         assert result["status"] == "updated"
         assert result["key"] == "log_level"
 
     async def test_config_set_invalid_log_level(self, ctx_with_db):
         """Config set with invalid log level returns error."""
         ctx, _ = ctx_with_db
-        result = json.loads(
-            await config(action="set", key="log_level", value="INVALID", ctx=ctx)
-        )
+        result = await config(action="set", key="log_level", value="INVALID", ctx=ctx)
         assert "error" in result
         assert "valid_levels" in result
 
@@ -374,13 +385,13 @@ class TestMemoryLimitClamping:
         """Limit below 1 is clamped to 1."""
         ctx, db = ctx_with_db
         db.add("test")
-        result = json.loads(await memory(action="list", limit=0, ctx=ctx))
+        result = await memory(action="list", limit=0, ctx=ctx)
         assert result["count"] <= 1
 
     async def test_limit_clamped_to_max(self, ctx_with_db):
         """Limit above 100 is clamped to 100."""
         ctx, db = ctx_with_db
-        result = json.loads(await memory(action="list", limit=1000, ctx=ctx))
+        result = await memory(action="list", limit=1000, ctx=ctx)
         # Should not crash, limit is clamped
         assert isinstance(result["results"], list)
 
@@ -623,6 +634,6 @@ class TestJsonHelper:
         """Verify _json serializes with indent=2."""
         data = {"a": 1, "b": [2, 3]}
         result = _json(data)
-        expected = json.dumps(data, indent=2)
+        expected = json.dumps(data, separators=(",", ":"))
         assert result == expected
-        assert "\n  " in result  # Check for 2-space indentation
+        # assert "\n  " in result  # Check for 2-space indentation

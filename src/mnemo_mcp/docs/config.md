@@ -27,7 +27,8 @@ Returns database stats, embedding model info, and sync status.
 **Parameters:** None
 
 **Returns:**
-- `db_path`: Path to SQLite database
+- `path`: The store the counts were read from -- the SQLite file, or
+  `cf-d1:<base-url>` when `MEMORY_DB_BACKEND=cf-d1`
 - `total_memories`: Total memory count
 - `categories`: Memory count by category
 - `embedding`: Model name, dimensions, availability
@@ -169,9 +170,11 @@ backend if needed. Returns the updated `state` value.
 
 **Parameters:** None (uses request `ctx`)
 
-### `setup_relay` - Backward-compatible alias for `setup_start`
+### `setup_relay` - DEPRECATED, use `setup_start` instead
 
-Equivalent to `setup_start(key="force")`. Kept for older clients.
+Equivalent to `setup_start(key="force")`. Kept for one release cycle for
+older clients; the response carries a `_deprecation` field pointing at
+`setup_start`. Will be removed in a future release.
 
 **Parameters:** None
 

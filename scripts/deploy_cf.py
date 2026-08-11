@@ -8,14 +8,18 @@ managed registry, deploys, waits for the container rollout to finish
 (STATE=ready) so you never verify against a half-rolled old image, then runs a
 **credential-free canary gate** and **auto-rolls-back** if it fails.
 
-Run from the repo root, with the CF dev token injected by skret:
+Set CLOUDFLARE_API_TOKEN in the environment (any secret manager works), then run
+from the repo root:
 
-    MSYS_NO_PATHCONV=1 skret run -e dev --path=/n24q02m/dev -- \\
-        python scripts/deploy_cf.py            # tag defaults to b-<short-sha>
-    ... python scripts/deploy_cf.py --tag b10-abc1234   # explicit tag
-    ... python scripts/deploy_cf.py --skip-build         # reuse a built image
-    ... python scripts/deploy_cf.py --dry-run            # print the plan only
-    ... python scripts/deploy_cf.py --no-canary          # skip the post-deploy gate
+    export CLOUDFLARE_API_TOKEN=...                       # however you store secrets
+    python scripts/deploy_cf.py                           # tag defaults to b-<short-sha>
+    ... python scripts/deploy_cf.py --tag b10-abc1234     # explicit tag
+    ... python scripts/deploy_cf.py --skip-build          # reuse a built image
+    ... python scripts/deploy_cf.py --dry-run             # print the plan only
+    ... python scripts/deploy_cf.py --no-canary           # skip the post-deploy gate
+
+The maintainer injects the token via ``skret`` (one option), e.g.:
+    MSYS_NO_PATHCONV=1 skret run -e dev --path=/n24q02m/dev -- python scripts/deploy_cf.py
 
 Requires: the CF token injected by skret as ``CF_DEV_TOKEN`` (or an existing
 ``CLOUDFLARE_API_TOKEN``), docker, and ``bunx wrangler``. The harness maps the
@@ -64,8 +68,30 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 DEPLOY_CONFIG = "wrangler.deploy.jsonc"
+TEMPLATE_CONFIG = "wrangler.deploy.template.jsonc"
 _WRANGLER_TOKEN = "CLOUDFLARE_API_TOKEN"
 _SKRET_TOKEN = "CF_DEV_TOKEN"
+
+
+def render_template(path: str) -> str:
+    """Substitute ``${VAR}`` tokens in the committed deploy template from the
+    environment.
+
+    CI runs ``deploy_cf.py --from-template`` to reconstruct the gitignored
+    ``wrangler.deploy.jsonc`` from the committed placeholder template plus the
+    real IDs, which arrive as env vars (GitHub Actions secrets synced from
+    skret). Fails loudly if a referenced var is missing so a half-substituted
+    config never reaches ``wrangler deploy``.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+
+    def _sub(m: re.Match[str]) -> str:
+        val = os.environ.get(m.group(1))
+        if val is None:
+            raise SystemExit(f"template var ${{{m.group(1)}}} not set in environment")
+        return val
+
+    return re.sub(r"\$\{([A-Z0-9_]+)\}", _sub, text)
 
 
 def _strip_jsonc(text: str) -> str:
@@ -355,6 +381,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")
     p.add_argument(
+        "--from-template",
+        action="store_true",
+        help="reconstruct wrangler.deploy.jsonc from the committed template + env (CI)",
+    )
+    p.add_argument(
         "--no-canary",
         action="store_true",
         help="skip the post-deploy canary gate (and its auto-rollback)",
@@ -362,6 +393,11 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     repo = Path(__file__).resolve().parent.parent
+    if args.from_template:
+        (repo / DEPLOY_CONFIG).write_text(
+            render_template(str(repo / TEMPLATE_CONFIG)), encoding="utf-8"
+        )
+        print(f"Rendered {DEPLOY_CONFIG} from {TEMPLATE_CONFIG} (CI mode).")
     cfg = _load_deploy_config(repo)
     worker = cfg["name"]
     base, _account, name = _image_parts(cfg)
@@ -374,7 +410,17 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_build:
         print("[1/4] docker build --target http")
         _run(
-            ["docker", "build", "--target", "http", "-t", local, "."],
+            [
+                "docker",
+                "build",
+                "--target",
+                "http",
+                "--build-arg",
+                "SLIM=1",
+                "-t",
+                local,
+                ".",
+            ],
             dry=args.dry_run,
             cwd=repo,
         )
