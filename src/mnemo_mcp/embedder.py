@@ -303,8 +303,6 @@ class CloudEmbeddingBackend:
         """
         from mcp_core.llm import embedding
 
-        from mnemo_mcp.credential_state import api_base_for_task, api_key_for_model
-
         litellm_model = self._litellm_model()
 
         response = embedding(
@@ -313,6 +311,10 @@ class CloudEmbeddingBackend:
             api_base=self.api_base or os.getenv("EMBEDDING_API_BASE") or None,
             api_key=self.api_key or None,
             timeout=PROBE_TIMEOUT,
+            # Availability probes must own their deadline. Provider SDK retry
+            # loops otherwise multiply the timeout and make a stalled endpoint
+            # hold startup open far beyond PROBE_TIMEOUT.
+            num_retries=0,
             **self._build_kwargs(dimensions),
         )
         return _parse_embeddings(response)

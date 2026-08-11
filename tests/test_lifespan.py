@@ -24,6 +24,11 @@ _MIGRATION_2 = (
     / "migrations"
     / "0002_per_sub_isolation.sql"
 )
+_MIGRATION_3 = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "migrations"
+    / "0003_vector_state.sql"
+)
 
 
 @pytest.fixture
@@ -107,7 +112,7 @@ async def _settle_background_init() -> None:
 
 @pytest.mark.asyncio
 async def test_lifespan_happy_path_cloud(
-    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
+    mock_settings, mock_db, mock_embedder, mock_sync
 ):
     """Test normal startup with cloud embedding."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -145,7 +150,7 @@ async def test_lifespan_sync_enabled(mock_settings, mock_db, mock_embedder, mock
 
 @pytest.mark.asyncio
 async def test_lifespan_local_backend_explicit(
-    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
+    mock_settings, mock_db, mock_embedder, mock_sync
 ):
     """Test explicit local backend configuration."""
     mock_settings.resolve_embedding_backend.return_value = "local"
@@ -179,7 +184,7 @@ async def test_lifespan_api_keys_logging(
 
 @pytest.mark.asyncio
 async def test_lifespan_explicit_cloud_exception_no_local_fallback(
-    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
+    mock_settings, mock_db, mock_embedder, mock_sync
 ):
     """Test no local fallback when explicit cloud model init raises exception."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -198,7 +203,7 @@ async def test_lifespan_explicit_cloud_exception_no_local_fallback(
 
 @pytest.mark.asyncio
 async def test_lifespan_all_backends_fail(
-    mock_settings, mock_db, mock_embedder, mock_sync, background_tasks
+    mock_settings, mock_db, mock_embedder, mock_sync
 ):
     """Test behavior when both cloud and local backends fail."""
     mock_settings.resolve_embedding_backend.return_value = "cloud"
@@ -274,6 +279,7 @@ class TestStartupLogNamesTheStoreItRead:
         )
         conn.executescript(_MIGRATION.read_text(encoding="utf-8"))
         conn.executescript(_MIGRATION_2.read_text(encoding="utf-8"))
+        conn.executescript(_MIGRATION_3.read_text(encoding="utf-8"))
         monkeypatch.setenv("MEMORY_DB_BACKEND", "cf-d1")
         monkeypatch.setattr(
             "mnemo_mcp.db_cf.d1_backend_from_env",

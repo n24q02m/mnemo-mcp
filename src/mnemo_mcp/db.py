@@ -651,7 +651,7 @@ class MemoryDB:
             SELECT m.id, m.content
             FROM memories AS m
             LEFT JOIN memories_vec AS v ON v.id = m.id
-            WHERE {where}
+            WHERE m.valid_to IS NULL AND {where}
             ORDER BY m.created_at ASC, m.id ASC
             LIMIT ?
             """,
