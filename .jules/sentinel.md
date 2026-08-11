@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-04 - TOCTOU Vulnerability in File Sync Persistence
+**Vulnerability:** In `src/mnemo_mcp/sync/gdrive.py`, functions persisting local credential/file state (`_write_secure` and `_write_secure_bytes`) used `os.O_TRUNC` with `os.open()`. This truncates the file immediately upon opening, creating a Time-of-Check to Time-of-Use (TOCTOU) window where the file content could be replaced before secure permissions (`os.fchmod`) are applied, and silently swallowing `OSError` left file descriptors open if the permission setting failed.
+**Learning:** Using `O_TRUNC` defeats the purpose of securely creating files with restricted permissions, as an attacker could access the briefly unprotected truncated file state. Swallowing the OS error creates an exposure where we write to an insecure file without knowing.
+**Prevention:** Avoid `os.O_TRUNC` in `os.open()` flags for sensitive files. Instead, use `os.open` with `os.O_CREAT | os.O_WRONLY`, apply permissions with `os.fchmod(fd, mode)`, and only *then* explicitly call `os.ftruncate(fd, 0)`. Always explicitly close the file descriptor (`os.close(fd)`) and re-raise the exception if the permission setting fails.

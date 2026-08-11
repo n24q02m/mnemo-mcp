@@ -242,14 +242,16 @@ async def _save_folder_id(folder_name: str, folder_id: str) -> None:
         import stat
 
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+        flags = os.O_CREAT | os.O_WRONLY
         mode = stat.S_IRUSR | stat.S_IWUSR
         fd = os.open(file_path, flags, mode)
         try:
             if os.name != "nt":
                 os.fchmod(fd, mode)
-        except OSError:
-            pass
+            os.ftruncate(fd, 0)
+        except BaseException:
+            os.close(fd)
+            raise
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -457,14 +459,16 @@ async def _download_file(token: dict, file_id: str, dest_path: Path) -> bool:
             import stat
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+            flags = os.O_CREAT | os.O_WRONLY
             mode = stat.S_IRUSR | stat.S_IWUSR
             fd = os.open(file_path, flags, mode)
             try:
                 if os.name != "nt":
                     os.fchmod(fd, mode)
-            except OSError:
-                pass
+                os.ftruncate(fd, 0)
+            except BaseException:
+                os.close(fd)
+                raise
             with os.fdopen(fd, "wb") as f:
                 f.write(content)
 
