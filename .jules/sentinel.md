@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-12 - TOCTOU Vulnerability in File Permissions Enforcement
+**Vulnerability:** Insecure file permission enforcement using `os.O_TRUNC` with `os.O_CREAT` and swallowing `os.fchmod` errors in `src/mnemo_mcp/server.py`, `src/mnemo_mcp/sync/gdrive.py`, and `src/mnemo_mcp/credential_state.py`.
+**Learning:** Swallowing `os.fchmod` errors allows sensitive files to be written with insecure permissions if `fchmod` fails. Using `os.O_TRUNC` with `os.O_CREAT` destroys existing file contents before permissions are verified.
+**Prevention:** Avoid `os.O_TRUNC` in open flags for sensitive files. Use `os.open` with `os.O_CREAT | os.O_WRONLY`. Do not swallow `os.fchmod` errors; catch the exception, close the file descriptor, and re-raise it. Then use `os.ftruncate(fd, 0)` after permissions are explicitly enforced.
