@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -10,7 +11,10 @@ from mnemo_mcp.credential_state import (
     _current_sub,
     api_base_for_task,
     api_key_for_model,
+    detect_llm_provider_key,
+    has_llm_provider,
     model_chain_for_task,
+    model_for_task,
     store_for_sub,
 )
 from mnemo_mcp.embedder import CloudEmbeddingBackend
@@ -86,6 +90,68 @@ def test_single_user_endpoint_uses_env_but_key_stays_litellm_managed(
 
     assert api_base_for_task("EMBEDDING_API_BASE") == "https://env.example/embed"
     assert api_key_for_model("cohere/embed-v4.0") is None
+
+
+def test_model_chain_parser_supports_alias_list_and_fallback(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODELS", " first , ,second ")
+    assert model_chain_for_task("embedding") == ["first", "second"]
+    assert model_for_task("EMBEDDING_MODELS") == "first"
+
+    monkeypatch.delenv("EMBEDDING_MODELS")
+    assert model_chain_for_task("embedding", fallback="fallback") == ["fallback"]
+
+
+def test_model_chain_parser_handles_sequence_invalid_task_and_non_string_value(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("MNEMO_DATA_DIR", str(tmp_path))
+    token = _current_sub.set("alice")
+    try:
+        store_for_sub(
+            "alice",
+            cast(dict[str, str], {"EMBEDDING_MODELS": ["one", "", 2]}),
+        )
+        assert model_chain_for_task("embedding") == ["one", "2"]
+        store_for_sub(
+            "alice",
+            cast(dict[str, str], {"EMBEDDING_MODELS": 42}),
+        )
+        assert model_chain_for_task("embedding") == []
+    finally:
+        _current_sub.reset(token)
+
+    with pytest.raises(ValueError, match="Unknown model-chain task"):
+        model_chain_for_task("unknown")
+
+
+def test_llm_provider_detection_and_gemini_alias(tmp_path, monkeypatch):
+    monkeypatch.setenv("MNEMO_DATA_DIR", str(tmp_path))
+    for key in (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GOOGLE_VERTEX_EXPRESS_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "global-google-key")
+    assert detect_llm_provider_key() == "GOOGLE_API_KEY"
+    assert has_llm_provider() is True
+
+    store_for_sub(
+        "alice",
+        {
+            "LLM_MODELS": "gemini/gemini-2.5-flash",
+            "GOOGLE_API_KEY": "alice-google-key",
+        },
+    )
+    token = _current_sub.set("alice")
+    try:
+        assert detect_llm_provider_key() == "GOOGLE_API_KEY"
+        assert api_key_for_model("gemini/gemini-2.5-flash") == "alice-google-key"
+    finally:
+        _current_sub.reset(token)
 
 
 async def test_embedder_forwards_current_sub_key_and_endpoint(monkeypatch, tmp_path):

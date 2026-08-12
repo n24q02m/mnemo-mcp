@@ -199,6 +199,27 @@ async def test_lifespan_api_keys_logging(
 
 
 @pytest.mark.asyncio
+async def test_lifespan_continues_when_credential_resolution_fails(
+    mock_settings, mock_db, mock_embedder, mock_sync
+):
+    """A transient credential-state failure must not prevent server startup."""
+    with (
+        patch(
+            "mnemo_mcp.credential_state.resolve_credential_state",
+            side_effect=RuntimeError("credential probe failed"),
+        ) as resolve_state,
+        patch("mnemo_mcp.server.logger") as mock_logger,
+    ):
+        async with lifespan(MagicMock()):
+            pass
+
+    resolve_state.assert_called_once_with()
+    mock_logger.debug.assert_any_call(
+        "Credential resolution not available: credential probe failed"
+    )
+
+
+@pytest.mark.asyncio
 async def test_lifespan_explicit_cloud_exception_no_local_fallback(
     mock_settings, mock_db, mock_embedder, mock_sync
 ):
