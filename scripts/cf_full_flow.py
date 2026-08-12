@@ -14,15 +14,17 @@ mnemo/imagine/email CF harnesses):
                        gate requires >=1 provider key in the per-sub vault; the
                        harness also submits the model and endpoint routing explicitly.
   4. token          -- POST /token (code + verifier) -> bearer JWT
-  5. tool call      -- config(status) + unique add/search/delete round-trip over
-                       the deployed D1/Vectorize path.
+  5. tool call      -- config(status) + unique add/search/delete round-trip and a
+                       multi-candidate semantic/rerank probe over D1/Vectorize.
 
 Secrets from env: Gate A login password MCP_RELAY_PASSWORD (or RELAY_PW) from skret
-/oci-vm-prod/prod (infra-shared); >=1 provider key (JINA_AI_API_KEY preferred) from
-skret /mnemo-mcp/prod -- compose both namespaces.
+/oci-vm-prod/prod (infra-shared); default provider values come from the configured
+per-sub relay. With --cohere-cf-gateway, CF_AIG_BASE and CF_AIG_TOKEN come from the
+existing /n24q02m/dev namespace and are mapped to the approved Cohere gateway route.
 
 Run modes:
-  (default)            full flow: config(status) + search, assert real results.
+  (default)            full flow: config(status) + search and multi-candidate
+                       semantic/rerank probe, asserting real results.
   --save-only          configure one sub (submit provider key) + dump the token
                        (recreate-gate setup half of the state-survives-recreate test).
   --auth-only          replay the SAME token (same sub) and search again WITHOUT
@@ -62,6 +64,49 @@ DEFAULT_ENDPOINT = "https://mnemo.n24q02m.com"
 # Stable prefix retained for recognizable harness data; each probe appends a
 # cryptographically random suffix so independent runs cannot deduplicate.
 MARKER = "cf-canary-probe-mnemo"
+
+
+def _configure_cohere_cf_gateway() -> None:
+    """Configure the approved Cohere-through-CF-AI-Gateway BYOK route.
+
+    The deployed relay must receive the gateway token as ``COHERE_API_KEY`` so
+    LiteLLM sends it as the gateway ``Authorization`` credential.  The
+    gateway then selects Cohere from the explicit endpoint paths.  Clear
+    competing provider/model values first so a stale local or skret export
+    cannot silently route the probe to Jina or another provider.
+    """
+    base = os.environ.get("CF_AIG_BASE", "").strip().rstrip("/")
+    token = os.environ.get("CF_AIG_TOKEN", "").strip()
+    if not base or not token:
+        raise SystemExit(
+            "--cohere-cf-gateway requires non-empty CF_AIG_BASE and CF_AIG_TOKEN "
+            "from the existing skret namespace."
+        )
+
+    for env_name in (
+        "JINA_AI_API_KEY",
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "XAI_API_KEY",
+        "COHERE_API_KEY",
+        "EMBEDDING_MODELS",
+        "EMBEDDING_API_BASE",
+        "RERANK_MODELS",
+        "RERANK_API_BASE",
+        "LLM_MODELS",
+        "LLM_API_BASE",
+    ):
+        os.environ.pop(env_name, None)
+
+    os.environ.update(
+        {
+            "COHERE_API_KEY": token,
+            "EMBEDDING_MODELS": "cohere/embed-v4.0",
+            "EMBEDDING_API_BASE": f"{base}/cohere/v2/embed",
+            "RERANK_MODELS": "cohere/rerank-v4.0-fast",
+            "RERANK_API_BASE": f"{base}/cohere",
+        }
+    )
 
 
 def _password() -> str:
@@ -299,6 +344,31 @@ def _assert_search_absent(txt: str | None, marker: str) -> None:
     print("ASSERT OK: sub B search did not return sub A marker.")
 
 
+def _assert_rerank_payload(txt: str | None, memory_ids: list[str]) -> None:
+    """Require a multi-result search to use both embedding and reranking."""
+    payload = _tool_payload(txt, "search_memory(rerank)")
+    assert payload.get("semantic") is True, (
+        "multi-candidate search did not report semantic=true: "
+        f"{_json.dumps(payload, ensure_ascii=False)[:400]}"
+    )
+    assert payload.get("reranked") is True, (
+        "multi-candidate search did not report reranked=true: "
+        f"{_json.dumps(payload, ensure_ascii=False)[:400]}"
+    )
+    results = _search_results(txt)
+    result_ids = {result.get("id") or result.get("memory_id") for result in results}
+    missing = [memory_id for memory_id in memory_ids if memory_id not in result_ids]
+    assert not missing, (
+        "multi-candidate search omitted exact probe ids: "
+        f"{missing}; results={_json.dumps(results, ensure_ascii=False)[:400]}"
+    )
+    assert len(results) >= 2, "rerank probe returned fewer than two results"
+    print(
+        "ASSERT OK: multi-candidate search reported semantic=true and "
+        f"reranked=true for {len(results)} results."
+    )
+
+
 async def _session(endpoint: str, token: str):
     from mcp import ClientSession  # lazy: keep --help importable without mcp installed
     from mcp.client.streamable_http import streamablehttp_client
@@ -366,6 +436,46 @@ async def _run_search(
             await _delete_memory(s, memory_id)
 
 
+async def _run_rerank(s) -> None:
+    """Exercise semantic retrieval and reranking with three related memories."""
+    marker = _new_marker("rerank")
+    query = "enterprise multi-user team deployment backlog"
+    contents = (
+        f"{query} {marker}: tenant isolation and OAuth relay configuration.",
+        f"{query} {marker}: Cloudflare container cold-start and cost controls "
+        "for an MCP team.",
+        f"{query} {marker}: per-sub credentials, D1 and Vectorize retrieval "
+        "for an enterprise rollout.",
+    )
+    memory_ids: list[str] = []
+    try:
+        for index, content in enumerate(contents, start=1):
+            add_txt = await _call(
+                s,
+                f"ADD_RERANK_{index}",
+                "add_memory",
+                {"content": content},
+            )
+            add_payload = _tool_payload(add_txt, "add_memory(rerank)")
+            memory_id = _memory_id(add_payload, "add_memory(rerank)")
+            assert add_payload.get("status") in {"saved", "created"}, add_payload
+            memory_ids.append(memory_id)
+
+        search_txt = await _call(
+            s,
+            "SEARCH_RERANK",
+            "search_memory",
+            {
+                "query": query,
+                "limit": 8,
+            },
+        )
+        _assert_rerank_payload(search_txt, memory_ids)
+    finally:
+        for memory_id in reversed(memory_ids):
+            await _delete_memory(s, memory_id)
+
+
 def _token_file() -> Path:
     return Path(__file__).with_name(".wet_cf_token")
 
@@ -381,6 +491,7 @@ async def run_full(endpoint: str) -> None:
         await _call(s, "CONFIG_STATUS", "config", {"action": "status"})
         probe = await _run_search(s)
         _assert_search_resolved(probe.search_text, probe.marker, probe.memory_id)
+        await _run_rerank(s)
     print("FULL FLOW PASS.")
 
 
@@ -495,6 +606,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ENDPOINT,
         help=f"Deployed mnemo endpoint (default: {DEFAULT_ENDPOINT})",
     )
+    p.add_argument(
+        "--cohere-cf-gateway",
+        action="store_true",
+        help=(
+            "Use the existing CF_AIG_TOKEN as Cohere BYOK through CF_AIG_BASE; "
+            "clears competing provider/model env values without logging secrets."
+        ),
+    )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument(
         "--save-only",
@@ -530,6 +649,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.cohere_cf_gateway:
+        _configure_cohere_cf_gateway()
     if args.save_only:
         asyncio.run(run_save_only(args.endpoint))
     elif args.auth_only:

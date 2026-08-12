@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -16,6 +17,68 @@ assert _HARNESS_SPEC is not None and _HARNESS_SPEC.loader is not None
 _HARNESS = module_from_spec(_HARNESS_SPEC)
 sys.modules[_HARNESS_SPEC.name] = _HARNESS
 _HARNESS_SPEC.loader.exec_module(_HARNESS)
+
+
+def test_configure_cohere_cf_gateway_uses_existing_gateway_token(monkeypatch):
+    for name in (
+        "JINA_AI_API_KEY",
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "XAI_API_KEY",
+        "COHERE_API_KEY",
+        "EMBEDDING_MODELS",
+        "EMBEDDING_API_BASE",
+        "RERANK_MODELS",
+        "RERANK_API_BASE",
+        "LLM_MODELS",
+        "LLM_API_BASE",
+    ):
+        monkeypatch.setenv(name, "stale")
+    monkeypatch.setenv(
+        "CF_AIG_BASE",
+        "https://gateway.example/v1/account/llm-main/",
+    )
+    monkeypatch.setenv("CF_AIG_TOKEN", "gateway-token")
+
+    _HARNESS._configure_cohere_cf_gateway()
+
+    assert os.environ["COHERE_API_KEY"] == "gateway-token"
+    assert os.environ["EMBEDDING_MODELS"] == "cohere/embed-v4.0"
+    assert (
+        os.environ["EMBEDDING_API_BASE"]
+        == "https://gateway.example/v1/account/llm-main/cohere/v2/embed"
+    )
+    assert os.environ["RERANK_MODELS"] == "cohere/rerank-v4.0-fast"
+    assert (
+        os.environ["RERANK_API_BASE"]
+        == "https://gateway.example/v1/account/llm-main/cohere"
+    )
+    assert not os.environ.get("JINA_AI_API_KEY")
+
+
+def test_assert_rerank_payload_requires_semantic_and_reranked_flags():
+    payload = {
+        "semantic": True,
+        "reranked": True,
+        "count": 3,
+        "results": [
+            {"id": "memory-1"},
+            {"id": "memory-2"},
+            {"id": "memory-3"},
+        ],
+    }
+
+    _HARNESS._assert_rerank_payload(
+        json.dumps(payload),
+        ["memory-1", "memory-2", "memory-3"],
+    )
+
+    payload["reranked"] = False
+    with pytest.raises(AssertionError, match="reranked"):
+        _HARNESS._assert_rerank_payload(
+            json.dumps(payload),
+            ["memory-1", "memory-2", "memory-3"],
+        )
 
 
 class _FakeSession:
