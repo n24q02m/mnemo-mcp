@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from mcp_core.storage.backends import backend_from_env
+from mcp_core.storage.per_plugin_store import PerPluginStore
 
 SERVER_NAME = "mnemo-mcp"
 
@@ -111,8 +113,9 @@ def get_current_sub() -> str | None:
 def credentials_for_current_request() -> dict[str, str]:
     """Return the credential dict for the current request.
 
-    HTTP multi-user mode (``_current_sub`` set): load from
-    ``$MNEMO_DATA_DIR/subs/<sub>/config.json``.
+    HTTP multi-user mode (``_current_sub`` set): load through the configured
+    ``PerPluginStore("mnemo", sub=sub)`` backend, falling back to
+    ``$MNEMO_DATA_DIR/subs/<sub>/config.json`` when no backend is configured.
     Stdio + single-user HTTP (``_current_sub`` None): fall back to
     ``os.environ`` filtered to ``CLOUD_KEYS`` so callers never see unrelated
     process env.
@@ -120,8 +123,7 @@ def credentials_for_current_request() -> dict[str, str]:
     sub = _current_sub.get()
     if sub is None:
         return {k: v for k, v in os.environ.items() if k in CLOUD_KEYS and v}
-    p = _sub_data_dir(sub) / "config.json"
-    return json.loads(p.read_text()) if p.exists() else {}
+    return read_for_sub(sub)
 
 
 def detect_llm_provider_key() -> str | None:
@@ -425,8 +427,25 @@ def _sub_data_dir(sub: str) -> Path:
     return d
 
 
+def _per_sub_store(sub: str) -> PerPluginStore | None:
+    """Return the configured persistent store for a remote subject.
+
+    The explicit storage-backend switch is used by deployed multi-user
+    instances (notably Cloudflare KV). Keeping the unset-env branch preserves
+    the legacy local filesystem seam used by local tests and development.
+    """
+    if not os.environ.get("MCP_STORAGE_BACKEND"):
+        return None
+    return PerPluginStore("mnemo", sub=sub, backend=backend_from_env())
+
+
 def store_for_sub(sub: str, config: dict[str, str]) -> None:
-    """Persist a config dict for a single JWT subject (multi-user remote mode)."""
+    """Persist one JWT subject through the configured backend or local fallback."""
+    store = _per_sub_store(sub)
+    if store is not None:
+        store.save(config)
+        return
+
     import stat
 
     path = _sub_data_dir(sub) / "config.json"
@@ -447,12 +466,23 @@ def store_for_sub(sub: str, config: dict[str, str]) -> None:
         f.write(config_json)
 
 
+def read_for_sub(sub: str) -> dict[str, str]:
+    """Load one JWT subject from the configured backend or local fallback."""
+    store = _per_sub_store(sub)
+    if store is not None:
+        return store.load() or {}
+
+    path = _sub_data_dir(sub) / "config.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def save_credentials(config: dict[str, str], context: dict[str, str]) -> dict | None:
     """Save credentials from OAuth form to config.enc and apply to environment.
 
     ``context`` carries the per-authorize ``sub``. In multi-user remote mode
-    (``PUBLIC_URL`` set), credentials are scoped per-subject under
-    ``$MNEMO_DATA_DIR/subs/<sub>/config.json`` and we skip the shared
+    (``PUBLIC_URL`` set), credentials are scoped per-subject through
+    ``PerPluginStore("mnemo", sub=sub)`` and its configured backend, with the
+    local filesystem retained as a development fallback. We skip the shared
     single-user state machine + GDrive device-code flow (each subject runs
     their own OAuth via the relay form). In single-user local mode, the
     SQLite memory DB and optional API keys live in one shared ``config.enc``
