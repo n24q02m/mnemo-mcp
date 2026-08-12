@@ -11,8 +11,10 @@ MCP Interface:
 import asyncio
 import difflib
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import sys
 import typing
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -38,6 +40,11 @@ __version__ = _pkgver("mnemo-mcp")
 # has an explicit dimension contract.
 _DEFAULT_EMBEDDING_DIMS = 768
 _DEFAULT_CF_EMBEDDING_DIMS = 1536
+
+# Request-scoped backend caches only need a process-local fingerprint to keep
+# raw provider credentials out of cache keys. A keyed digest also prevents
+# password-like API keys from flowing directly into a password-hash pattern.
+_BACKEND_CACHE_KEY_SECRET = secrets.token_bytes(32)
 
 
 def _default_embedding_dims() -> int:
@@ -421,7 +428,11 @@ def _backend_cache_key(
     api_key: str,
 ) -> tuple[str, str, str | None, str]:
     """Build a cache key without retaining the raw credential in the key."""
-    key_digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    key_digest = hmac.new(
+        _BACKEND_CACHE_KEY_SECRET,
+        api_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
     return task, model, api_base, key_digest
 
 

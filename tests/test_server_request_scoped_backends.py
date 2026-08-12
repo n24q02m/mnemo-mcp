@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from types import SimpleNamespace
 from typing import cast
 
@@ -7,6 +9,7 @@ from mcp.server.fastmcp import Context
 
 from mnemo_mcp.credential_state import _current_sub, store_for_sub
 from mnemo_mcp.server import (
+    _backend_cache_key,
     _get_request_embedding,
     _get_request_reranker,
 )
@@ -18,6 +21,25 @@ def _ctx() -> SimpleNamespace:
 
 def _typed_ctx() -> Context:
     return cast(Context, _ctx())
+
+
+def test_backend_cache_key_uses_keyed_fingerprint(monkeypatch):
+    import mnemo_mcp.server as server
+
+    cache_secret = b"cache-test-secret"
+    monkeypatch.setattr(server, "_BACKEND_CACHE_KEY_SECRET", cache_secret)
+
+    key = _backend_cache_key("embedding", "cohere/embed-v4.0", None, "api-key")
+
+    assert (
+        key[-1]
+        == hmac.new(
+            cache_secret,
+            b"api-key",
+            hashlib.sha256,
+        ).hexdigest()
+    )
+    assert "api-key" not in repr(key)
 
 
 def test_embedding_backend_is_scoped_to_current_sub(tmp_path, monkeypatch):
