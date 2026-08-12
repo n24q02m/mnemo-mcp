@@ -10,10 +10,8 @@ MCP Interface:
 
 import asyncio
 import difflib
-import hashlib
 import json
 import os
-import secrets
 import sys
 import typing
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -39,12 +37,6 @@ __version__ = _pkgver("mnemo-mcp")
 # has an explicit dimension contract.
 _DEFAULT_EMBEDDING_DIMS = 768
 _DEFAULT_CF_EMBEDDING_DIMS = 1536
-
-# Request-scoped backend caches only need a process-local fingerprint to keep
-# raw provider credentials out of cache keys. A keyed BLAKE2b digest also
-# prevents password-like API keys from flowing directly into a password-hash
-# pattern.
-_BACKEND_CACHE_KEY_SECRET = secrets.token_bytes(32)
 
 
 def _default_embedding_dims() -> int:
@@ -425,15 +417,10 @@ def _backend_cache_key(
     task: str,
     model: str,
     api_base: str | None,
-    api_key: str,
+    subject: str,
 ) -> tuple[str, str, str | None, str]:
-    """Build a cache key without retaining the raw credential in the key."""
-    key_digest = hashlib.blake2b(
-        api_key.encode("utf-8"),
-        key=_BACKEND_CACHE_KEY_SECRET,
-        digest_size=32,
-    ).hexdigest()
-    return task, model, api_base, key_digest
+    """Build a cache key from non-secret request configuration."""
+    return task, model, api_base, subject
 
 
 def _get_request_embedding(
@@ -455,7 +442,8 @@ def _get_request_embedding(
         model_for_task,
     )
 
-    if get_current_sub() is None:
+    subject = get_current_sub()
+    if subject is None:
         from mnemo_mcp.embedder import get_backend
 
         return global_model, get_backend()
@@ -471,9 +459,9 @@ def _get_request_embedding(
 
     api_base = api_base_for_task("EMBEDDING_API_BASE")
     cache = _request_backend_cache(ctx, "request_embedding_backends")
-    cache_key = _backend_cache_key("embedding", model, api_base, api_key)
+    cache_key = _backend_cache_key("embedding", model, api_base, subject)
     backend = cache.get(cache_key)
-    if backend is None:
+    if backend is None or backend.api_key != api_key:
         from mnemo_mcp.embedder import CloudEmbeddingBackend
 
         backend = CloudEmbeddingBackend(
@@ -494,7 +482,8 @@ def _get_request_reranker(ctx: Context | None):
         model_for_task,
     )
 
-    if get_current_sub() is None:
+    subject = get_current_sub()
+    if subject is None:
         from mnemo_mcp.reranker import get_reranker
 
         return get_reranker()
@@ -509,9 +498,9 @@ def _get_request_reranker(ctx: Context | None):
 
     api_base = api_base_for_task("RERANK_API_BASE")
     cache = _request_backend_cache(ctx, "request_rerankers")
-    cache_key = _backend_cache_key("rerank", model, api_base, api_key)
+    cache_key = _backend_cache_key("rerank", model, api_base, subject)
     backend = cache.get(cache_key)
-    if backend is None:
+    if backend is None or backend.api_key != api_key:
         from mnemo_mcp.reranker import CloudReranker
 
         backend = CloudReranker(

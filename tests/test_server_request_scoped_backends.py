@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from types import SimpleNamespace
 from typing import cast
 
@@ -22,23 +21,12 @@ def _typed_ctx() -> Context:
     return cast(Context, _ctx())
 
 
-def test_backend_cache_key_uses_keyed_fingerprint(monkeypatch):
-    import mnemo_mcp.server as server
+def test_backend_cache_key_is_subject_scoped_without_secret():
+    key = _backend_cache_key("embedding", "cohere/embed-v4.0", None, "alice")
 
-    cache_secret = b"cache-test-secret"
-    monkeypatch.setattr(server, "_BACKEND_CACHE_KEY_SECRET", cache_secret)
-
-    key = _backend_cache_key("embedding", "cohere/embed-v4.0", None, "api-key")
-
-    assert (
-        key[-1]
-        == hashlib.blake2b(
-            b"api-key",
-            key=cache_secret,
-            digest_size=32,
-        ).hexdigest()
-    )
+    assert key == ("embedding", "cohere/embed-v4.0", None, "alice")
     assert "api-key" not in repr(key)
+    assert key != _backend_cache_key("embedding", "cohere/embed-v4.0", None, "bob")
 
 
 def test_embedding_backend_is_scoped_to_current_sub(tmp_path, monkeypatch):
@@ -78,6 +66,38 @@ def test_embedding_backend_does_not_fall_back_to_global_sub_config(
 
     assert model is None
     assert backend is None
+
+
+def test_embedding_backend_refreshes_after_credential_rotation(tmp_path, monkeypatch):
+    monkeypatch.setenv("MNEMO_DATA_DIR", str(tmp_path))
+    store_for_sub(
+        "alice",
+        {
+            "EMBEDDING_MODELS": "cohere/embed-v4.0",
+            "EMBEDDING_API_BASE": "https://alice.example/embed",
+            "COHERE_API_KEY": "old-key",
+        },
+    )
+
+    ctx = _typed_ctx()
+    token = _current_sub.set("alice")
+    try:
+        _, first = _get_request_embedding(ctx, "global-model", 768)
+        store_for_sub(
+            "alice",
+            {
+                "EMBEDDING_MODELS": "cohere/embed-v4.0",
+                "EMBEDDING_API_BASE": "https://alice.example/embed",
+                "COHERE_API_KEY": "rotated-key",
+            },
+        )
+        _, second = _get_request_embedding(ctx, "global-model", 768)
+    finally:
+        _current_sub.reset(token)
+
+    assert first is not second
+    assert second is not None
+    assert second.api_key == "rotated-key"
 
 
 def test_reranker_backend_is_scoped_to_current_sub(tmp_path, monkeypatch):
