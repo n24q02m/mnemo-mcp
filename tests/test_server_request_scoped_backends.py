@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 from types import SimpleNamespace
 from typing import cast
 
@@ -33,10 +32,10 @@ def test_backend_cache_key_uses_keyed_fingerprint(monkeypatch):
 
     assert (
         key[-1]
-        == hmac.new(
-            cache_secret,
+        == hashlib.blake2b(
             b"api-key",
-            hashlib.sha256,
+            key=cache_secret,
+            digest_size=32,
         ).hexdigest()
     )
     assert "api-key" not in repr(key)

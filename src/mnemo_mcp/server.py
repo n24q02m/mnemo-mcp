@@ -11,7 +11,6 @@ MCP Interface:
 import asyncio
 import difflib
 import hashlib
-import hmac
 import json
 import os
 import secrets
@@ -42,8 +41,9 @@ _DEFAULT_EMBEDDING_DIMS = 768
 _DEFAULT_CF_EMBEDDING_DIMS = 1536
 
 # Request-scoped backend caches only need a process-local fingerprint to keep
-# raw provider credentials out of cache keys. A keyed digest also prevents
-# password-like API keys from flowing directly into a password-hash pattern.
+# raw provider credentials out of cache keys. A keyed BLAKE2b digest also
+# prevents password-like API keys from flowing directly into a password-hash
+# pattern.
 _BACKEND_CACHE_KEY_SECRET = secrets.token_bytes(32)
 
 
@@ -428,10 +428,10 @@ def _backend_cache_key(
     api_key: str,
 ) -> tuple[str, str, str | None, str]:
     """Build a cache key without retaining the raw credential in the key."""
-    key_digest = hmac.new(
-        _BACKEND_CACHE_KEY_SECRET,
+    key_digest = hashlib.blake2b(
         api_key.encode("utf-8"),
-        hashlib.sha256,
+        key=_BACKEND_CACHE_KEY_SECRET,
+        digest_size=32,
     ).hexdigest()
     return task, model, api_base, key_digest
 
