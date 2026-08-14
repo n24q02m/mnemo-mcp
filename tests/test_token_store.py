@@ -137,15 +137,14 @@ class TestSaveToken:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
             patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+            pytest.raises(OSError, match="Permission denied for dir"),
         ):
             m.get_data_dir.return_value = token_dir.parent
-            # This should ignore the OSError from token_dir.chmod
             save_token("drive", token)
 
-        saved = json.loads((token_dir / "drive.json").read_text())
-        assert saved["access_token"] == "abc"
+        assert not (token_dir / "drive.json").exists()
 
     def test_save_fchmod_oserror_aborts_the_write(self, token_dir):
         """A permission failure must abort the save, not fall through to it.
@@ -157,9 +156,9 @@ class TestSaveToken:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
             patch(
-                "mnemo_mcp.token_store.os.fchmod",
+                "mnemo_mcp.secure_file.os.fchmod",
                 side_effect=OSError("Permission denied"),
             ),
             pytest.raises(OSError, match="Permission denied"),
@@ -167,7 +166,7 @@ class TestSaveToken:
             m.get_data_dir.return_value = token_dir.parent
             save_token("drive", {"access_token": "fchmod_fail"})
 
-        assert not (token_dir / "drive.json").read_text()
+        assert not (token_dir / "drive.json").exists()
 
     def test_save_fchmod_oserror_keeps_the_previous_token(self, token_dir):
         """The truncate happens only after the permission check passes.
@@ -181,9 +180,9 @@ class TestSaveToken:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
             patch(
-                "mnemo_mcp.token_store.os.fchmod",
+                "mnemo_mcp.secure_file.os.fchmod",
                 side_effect=OSError("Permission denied"),
             ),
             pytest.raises(OSError, match="Permission denied"),
@@ -219,8 +218,9 @@ class TestSaveToken:
         token = {"access_token": "abc"}
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "nt"),
-            patch("mnemo_mcp.token_store.os.fchmod") as mock_fchmod,
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", True),
+            patch("mnemo_mcp.secure_file._set_windows_owner_only"),
+            patch("mnemo_mcp.secure_file.os.fchmod") as mock_fchmod,
         ):
             m.get_data_dir.return_value = token_dir.parent
             # This should skip fchmod completely on Windows
@@ -418,16 +418,16 @@ class TestSubTokenStore:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
             patch(
-                "mnemo_mcp.token_store.os.fchmod", side_effect=OSError("fchmod error")
+                "mnemo_mcp.secure_file.os.fchmod", side_effect=OSError("fchmod error")
             ),
             pytest.raises(OSError, match="fchmod error"),
         ):
             m.get_data_dir.return_value = tmp_path
             save_token_for_sub(sub, provider, {"access_token": "fchmod-fail"})
 
-        assert not get_token_path_for_sub(sub, provider).read_text()
+        assert not get_token_path_for_sub(sub, provider).exists()
 
     def test_save_token_for_sub_dir_chmod_oserror(self, tmp_path):
         from mnemo_mcp.token_store import save_token_for_sub
@@ -444,8 +444,9 @@ class TestSubTokenStore:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "posix"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
             patch.object(Path, "chmod", side_effect=mock_chmod, autospec=True),
+            pytest.raises(OSError, match="Dir chmod fail"),
         ):
             m.get_data_dir.return_value = tmp_path
             save_token_for_sub(sub, provider, token)
@@ -477,7 +478,8 @@ class TestSubTokenStore:
 
         with (
             patch("mnemo_mcp.token_store.settings") as m,
-            patch("mnemo_mcp.token_store.os.name", "nt"),
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", True),
+            patch("mnemo_mcp.secure_file._set_windows_owner_only"),
             patch.object(Path, "chmod") as mock_chmod,
         ):
             m.get_data_dir.return_value = tmp_path
