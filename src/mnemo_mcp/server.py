@@ -2263,8 +2263,8 @@ async def _handle_config_setup_status() -> dict[str, typing.Any]:
     from mcp_core.storage.per_plugin_store import PerPluginStore
 
     from mnemo_mcp.credential_state import (
-        ALL_CONFIG_KEYS,
         CLOUD_KEYS,
+        CONFIGURED_KEYS,
         CredentialState,
         credentials_for_current_request,
         get_current_sub,
@@ -2279,13 +2279,13 @@ async def _handle_config_setup_status() -> dict[str, typing.Any]:
     if get_current_sub() is not None:
         _per_sub = credentials_for_current_request()
         _env_keys: list[str] = []
-        _store_keys = [k for k in ALL_CONFIG_KEYS if _per_sub.get(k)]
+        _store_keys = [k for k in CONFIGURED_KEYS if _per_sub.get(k)]
     else:
         # Derive providers_configured from live PerPluginStore load + env
         # so status is accurate even if module-level _state is stale.
         _saved = PerPluginStore("mnemo").load() or {}
-        _env_keys = [k for k in ALL_CONFIG_KEYS if os.environ.get(k)]
-        _store_keys = [k for k in ALL_CONFIG_KEYS if _saved.get(k)]
+        _env_keys = [k for k in CONFIGURED_KEYS if os.environ.get(k)]
+        _store_keys = [k for k in CONFIGURED_KEYS if _saved.get(k)]
     _providers = list(dict.fromkeys(_env_keys + _store_keys))
     _state = get_state()
 

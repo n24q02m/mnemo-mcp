@@ -16,13 +16,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
-import stat
 from pathlib import Path
 
 from loguru import logger
 
 from mnemo_mcp.config import settings
+from mnemo_mcp.secure_file import ensure_owner_only_directory, write_owner_only
 
 
 def _get_token_dir() -> Path:
@@ -82,41 +81,12 @@ def save_token(provider: str, token: dict) -> None:
     File permissions: 0600 (owner read/write only)
     Directory permissions: 0700 (owner read/write/execute only)
     """
-    token_dir = _get_token_dir()
-    token_dir.mkdir(parents=True, exist_ok=True)
-
-    # Secure directory permissions (Unix only)
-    if os.name != "nt":
-        try:
-            token_dir.chmod(stat.S_IRWXU)  # 0700
-        except OSError:
-            pass
-
-    path = get_token_path(provider)
+    data_dir = settings.get_data_dir()
+    ensure_owner_only_directory(data_dir)
+    token_dir = ensure_owner_only_directory(data_dir / "tokens")
+    path = token_dir / f"{provider}.json"
     token_json = json.dumps(token, indent=2)
-
-    # Prevent TOCTOU vulnerability by setting permissions on creation
-    flags = os.O_CREAT | os.O_WRONLY
-    mode = stat.S_IRUSR | stat.S_IWUSR  # 0600
-    fd = os.open(path, flags, mode)
-    try:
-        if os.name != "nt":
-            # O_CREAT applies `mode` only to a file this call creates; an
-            # existing token file keeps whatever permissions it already had,
-            # so narrow it explicitly. Letting the failure propagate is the
-            # point -- swallowing it would write the token into a file we
-            # know we cannot restrict, which is the exposure this function
-            # exists to prevent. Callers surface it (credential_state's
-            # device-code poller reports "save_token failed" to the browser).
-            os.fchmod(fd, mode)
-        # Truncate only after the permission check passes, so a failure
-        # above leaves the previous token intact instead of destroying it.
-        os.ftruncate(fd, 0)
-    except BaseException:
-        os.close(fd)
-        raise
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(token_json)
+    write_owner_only(path, token_json.encode("utf-8"))
 
     logger.info(f"Token saved: {path}")
 
@@ -152,32 +122,16 @@ def save_token_for_sub(sub: str, provider: str, token: dict) -> None:
     Same 0600 / 0700 hardening as :func:`save_token`. Token lands at
     ``$MNEMO_DATA_DIR/subs/<sub>/tokens/<provider>.json``.
     """
-    token_dir = _get_token_dir_for_sub(sub)
-    token_dir.mkdir(parents=True, exist_ok=True)
-
-    if os.name != "nt":
-        try:
-            token_dir.chmod(stat.S_IRWXU)
-        except OSError:
-            pass
-
-    path = get_token_path_for_sub(sub, provider)
+    data_dir = settings.get_data_dir()
+    ensure_owner_only_directory(data_dir)
+    subs_dir = ensure_owner_only_directory(data_dir / "subs")
+    sub_dir = ensure_owner_only_directory(
+        subs_dir / hashlib.sha256(sub.encode("utf-8")).hexdigest()
+    )
+    token_dir = ensure_owner_only_directory(sub_dir / "tokens")
+    path = token_dir / f"{provider}.json"
     token_json = json.dumps(token, indent=2)
-
-    # Same open -> restrict -> truncate -> write order as :func:`save_token`;
-    # see the comment there for why a chmod failure must not be swallowed.
-    flags = os.O_CREAT | os.O_WRONLY
-    mode = stat.S_IRUSR | stat.S_IWUSR
-    fd = os.open(path, flags, mode)
-    try:
-        if os.name != "nt":
-            os.fchmod(fd, mode)
-        os.ftruncate(fd, 0)
-    except BaseException:
-        os.close(fd)
-        raise
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(token_json)
+    write_owner_only(path, token_json.encode("utf-8"))
 
     logger.info(f"Token saved (sub={sub}): {path}")
 

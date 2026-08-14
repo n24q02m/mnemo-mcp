@@ -95,7 +95,7 @@ class FakeD1Worker:
 
 
 @pytest.fixture
-def d1_conn(tmp_path) -> sqlite3.Connection:
+def d1_conn(tmp_path) -> Generator[sqlite3.Connection]:
     """A SQLite database carrying the real D1 schema.
 
     ``isolation_level=None`` puts pysqlite in autocommit, which is how D1
@@ -114,7 +114,10 @@ def d1_conn(tmp_path) -> sqlite3.Connection:
     conn.executescript(_MIGRATION.read_text(encoding="utf-8"))
     conn.executescript(_MIGRATION_2.read_text(encoding="utf-8"))
     conn.executescript(_MIGRATION_3.read_text(encoding="utf-8"))
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @pytest.fixture

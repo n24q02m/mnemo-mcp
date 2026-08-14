@@ -85,7 +85,7 @@ class TestSaveTokenForSub:
         assert json.loads(path_a.read_text(encoding="utf-8")) == {"access_token": "A"}
         assert json.loads(path_b.read_text(encoding="utf-8")) == {"access_token": "B"}
 
-    def test_chmod_dir_oserror_swallowed(self, data_dir):
+    def test_chmod_dir_oserror_aborts_save(self, data_dir):
         from mnemo_mcp.token_store import save_token_for_sub
 
         original_chmod = Path.chmod
@@ -95,9 +95,15 @@ class TestSaveTokenForSub:
                 raise OSError("readonly fs")
             return original_chmod(self, mode)
 
-        with patch.object(Path, "chmod", mock_chmod):
-            # Must not raise.
-            save_token_for_sub("user-x", "google_drive", {"access_token": "tok"})
+        with (
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", False),
+            patch.object(Path, "chmod", mock_chmod),
+        ):
+            with pytest.raises(OSError, match="readonly fs"):
+                save_token_for_sub("user-x", "google_drive", {"access_token": "tok"})
+
+        path = data_dir / "subs"
+        assert not list(path.rglob("google_drive.json"))
 
     def test_fchmod_oserror_propagates(self, data_dir):
         """Unlike the directory chmod above, a file chmod failure is fatal.
@@ -206,8 +212,9 @@ class TestNTBranch:
         )
 
         with (
-            patch("mnemo_mcp.token_store.os.name", "nt"),
-            patch("mnemo_mcp.token_store.os.fchmod") as mock_fchmod,
+            patch("mnemo_mcp.secure_file._IS_WINDOWS", True),
+            patch("mnemo_mcp.secure_file._set_windows_owner_only"),
+            patch("mnemo_mcp.secure_file.os.fchmod") as mock_fchmod,
         ):
             save_token_for_sub("nt-user", "google_drive", {"access_token": "ok"})
             mock_fchmod.assert_not_called()

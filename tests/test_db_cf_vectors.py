@@ -202,12 +202,15 @@ class FakeD1Worker:
 
 
 @pytest.fixture
-def fake_worker(tmp_path) -> FakeD1Worker:
+def fake_worker(tmp_path) -> Generator[FakeD1Worker]:
     conn = sqlite3.connect(tmp_path / "d1.sqlite", isolation_level=None)
     conn.executescript(_MIGRATION.read_text(encoding="utf-8"))
     conn.executescript(_MIGRATION_2.read_text(encoding="utf-8"))
     conn.executescript(_MIGRATION_3.read_text(encoding="utf-8"))
-    return FakeD1Worker(conn)
+    try:
+        yield FakeD1Worker(conn)
+    finally:
+        conn.close()
 
 
 @pytest.fixture

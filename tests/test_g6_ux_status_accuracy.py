@@ -127,7 +127,7 @@ class TestSetupStatusLiveDerivedState:
 
         Pre-fix the handler counted only CLOUD_KEYS, so a GDrive-only saved
         config wrongly reported awaiting_setup with an empty providers list.
-        The fix uses ALL_CONFIG_KEYS (incl GDrive) so the status is accurate.
+        The fix uses the configured-key set (including GDrive) so the status is accurate.
         """
         for k in (
             "JINA_AI_API_KEY",
