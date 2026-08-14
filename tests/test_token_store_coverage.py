@@ -73,16 +73,15 @@ class TestTokenStoreCoverage:
             result = load_token_for_sub("sub123", "test_provider")
         assert result is None
 
-    def test_save_token_for_sub_dir_chmod_error_swallowed(
+    def test_save_token_for_sub_dir_chmod_error_propagates(
         self, mock_settings, tmp_path
     ):
         if os.name == "nt":
             pytest.skip("POSIX-only chmod path")
 
-        # The directory mode is defence in depth -- the file's own 0600 still
-        # protects the token, so failing to tighten the directory is tolerated.
         with patch.object(Path, "chmod", side_effect=OSError("chmod denied")):
-            save_token_for_sub("sub1", "test", {"access_token": "abc"})
+            with pytest.raises(OSError, match="chmod denied"):
+                save_token_for_sub("sub1", "test", {"access_token": "abc"})
 
     def test_save_token_for_sub_fchmod_error_propagates(self, mock_settings, tmp_path):
         if os.name == "nt":
