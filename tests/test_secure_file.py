@@ -40,7 +40,7 @@ def test_windows_path_skips_posix_fchmod(tmp_path: Path):
 
     path = tmp_path / "secret.bin"
     with (
-        patch("mnemo_mcp.secure_file.os.name", "nt"),
+        patch("mnemo_mcp.secure_file._IS_WINDOWS", True),
         patch("mnemo_mcp.secure_file.os.fchmod") as mock_fchmod,
     ):
         write_owner_only(path, b"windows-content")

@@ -71,9 +71,13 @@ _TASK_MODEL_KEYS = {
     "llm": "LLM_MODELS",
 }
 
-# All config keys that indicate a valid saved config (includes GDrive and
-# request-scoped model chains).
-ALL_CONFIG_KEYS = [*CLOUD_KEYS, *MODEL_CHAIN_KEYS, "GOOGLE_DRIVE_CLIENT_ID"]
+# Keys that prove a usable provider/configuration is present. Model chains are
+# persisted request configuration, but a model-only value cannot authenticate a
+# cloud provider and must not mark the credential state as configured.
+CONFIGURED_KEYS = [*CLOUD_KEYS, "GOOGLE_DRIVE_CLIENT_ID"]
+
+# Full persisted config, including request-scoped model chains.
+ALL_CONFIG_KEYS = [*CONFIGURED_KEYS, *MODEL_CHAIN_KEYS]
 
 # LLM-provider keys in the same order as the public dispatch priority. The
 # GOOGLE_API_KEY alias is intentionally kept separate from CLOUD_KEYS for
@@ -348,7 +352,7 @@ def resolve_credential_state() -> CredentialState:
             from mcp_core.storage.per_plugin_store import PerPluginStore
 
             saved = PerPluginStore("mnemo").load()
-            if saved and any(saved.get(k) for k in ALL_CONFIG_KEYS):
+            if saved and any(saved.get(k) for k in CONFIGURED_KEYS):
                 # Apply to env vars
                 for key, value in saved.items():
                     if value and key not in os.environ:

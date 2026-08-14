@@ -6,6 +6,8 @@ import os
 import stat
 from pathlib import Path
 
+_IS_WINDOWS = os.name == "nt"
+
 
 def write_owner_only(path: str | os.PathLike[str], content: bytes) -> None:
     """Write bytes to a 0600 file without truncating before permission checks.
@@ -22,7 +24,7 @@ def write_owner_only(path: str | os.PathLike[str], content: bytes) -> None:
     fd = os.open(file_path, os.O_CREAT | os.O_WRONLY, mode)
     handed_to_file = False
     try:
-        if os.name != "nt":
+        if not _IS_WINDOWS:
             os.fchmod(fd, mode)
         os.ftruncate(fd, 0)
         with os.fdopen(fd, "wb") as stream:
