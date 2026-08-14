@@ -1547,7 +1547,10 @@ class MemoryDB:
         ).fetchall()
 
         total = sum(r["cnt"] for r in categories)
-        last_updated = max((r["max_updated"] for r in categories if r["max_updated"] is not None), default=None)
+        last_updated = max(
+            (r["max_updated"] for r in categories if r["max_updated"] is not None),
+            default=None,
+        )
 
         return {
             "total_memories": total,
