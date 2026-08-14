@@ -35,7 +35,9 @@ def _reject_reparse_path(path: Path) -> None:
             )
 
 
-def _set_windows_owner_only(path: Path, *, directory: bool) -> None:
+def _set_windows_owner_only(  # pragma: no cover - chỉ chạy trên Windows, CI kiểm chứng
+    path: Path, *, directory: bool
+) -> None:
     """Replace inherited Windows ACLs with a DACL for the current user."""
     try:
         import win32api
@@ -92,7 +94,7 @@ def ensure_owner_only_directory(path: str | os.PathLike[str]) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     _reject_reparse_path(directory)
 
-    if _IS_WINDOWS:
+    if _IS_WINDOWS:  # pragma: no cover - nhánh Windows được CI kiểm chứng
         _set_windows_owner_only(directory, directory=True)
     else:
         directory.chmod(_OWNER_DIRECTORY_MODE)
@@ -115,7 +117,7 @@ def write_owner_only(path: str | os.PathLike[str], content: bytes) -> None:
     )
     temp_path = Path(temp_name)
     try:
-        if _IS_WINDOWS:
+        if _IS_WINDOWS:  # pragma: no cover - nhánh Windows được CI kiểm chứng
             _set_windows_owner_only(temp_path, directory=False)
         else:
             os.fchmod(temp_fd, _OWNER_FILE_MODE)
