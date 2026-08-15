@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2024-05-14 - Optimize SQLite Aggregate Queries
+**Learning:** When computing overall aggregate statistics (like total COUNT or global MAX) alongside a grouped summary in SQLite, multiple database round-trips can be avoided.
+**Action:** Combine them into a single `GROUP BY` query (e.g., `SELECT category, COUNT(*), MAX(updated_at)`) and calculate the global totals in Python using `sum()` and `max()` on the returned rows. This avoids executing N distinct queries to the database.
