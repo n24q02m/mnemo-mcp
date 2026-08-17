@@ -324,6 +324,17 @@ class TestStats:
         s = tmp_db.stats()
         assert s["last_updated"] is not None
 
+    def test_preserves_empty_imported_updated_at(self, tmp_db: MemoryDB):
+        result = tmp_db.import_jsonl(
+            json.dumps(
+                {"id": "empty-updated-at", "content": "imported", "updated_at": ""}
+            ),
+            mode="merge",
+        )
+
+        assert result["imported"] == 1
+        assert tmp_db.stats()["last_updated"] == ""
+
     def test_categories_count(self, tmp_db: MemoryDB):
         tmp_db.add("a", category="x")
         tmp_db.add("b", category="x")

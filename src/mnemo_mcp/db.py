@@ -1545,7 +1545,11 @@ class MemoryDB:
 
         total = sum(row["cnt"] for row in categories)
         last_updated = max(
-            (row["max_updated"] for row in categories if row["max_updated"]),
+            (
+                row["max_updated"]
+                for row in categories
+                if row["max_updated"] is not None
+            ),
             default=None,
         )
 
