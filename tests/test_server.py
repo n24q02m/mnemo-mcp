@@ -87,7 +87,7 @@ class TestMemoryAdd:
             ctx=ctx,
         )
         assert "error" in result
-        assert "exceeds limit" in result["error"]
+        assert "Validation error" in result["error"]
 
 
 class TestMemorySearch:
@@ -218,7 +218,7 @@ class TestMemoryUpdate:
             ctx=ctx,
         )
         assert "error" in result
-        assert "exceeds limit" in result["error"]
+        assert "Validation error" in result["error"]
         # Original content preserved
         mem = db.get(mid)
         assert mem is not None

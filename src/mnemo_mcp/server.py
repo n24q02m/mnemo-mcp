@@ -712,8 +712,18 @@ async def _handle_add(
             embedding=embedding,
         )
     except ValueError as e:
+        # Not using logger.exception here to avoid spamming the logs with
+        # expected client-side validation errors (e.g. content exceeds limit).
+        # We also return a slightly more descriptive static string based on
+        # the error message without leaking sensitive backend details.
+        msg = str(e)
+        if "exceeds" in msg.lower():
+            err_str = "Validation error: content exceeds limit"
+        else:
+            err_str = "Validation error"
+
         return {
-            "error": str(e),
+            "error": err_str,
             "suggestion": "Ensure input parameters meet validation rules.",
         }
     except Exception:
@@ -991,8 +1001,14 @@ async def _handle_update(
             embedding=embedding,
         )
     except ValueError as e:
+        msg = str(e)
+        if "exceeds" in msg.lower():
+            err_str = "Validation error: content exceeds limit"
+        else:
+            err_str = "Validation error"
+
         return {
-            "error": str(e),
+            "error": err_str,
             "suggestion": "Check input parameters for invalid types or values.",
         }
     except Exception:
@@ -1208,15 +1224,14 @@ async def _handle_capture(
             auto=auto,
         )
     except ValueError as e:
-        msg = str(e)
-        if "context_type" in msg:
+        if "context_type" in str(e):
             closest = (
                 difflib.get_close_matches(str(context_type), list(CONTEXT_TYPES), n=1)
                 if context_type is not None
                 else []
             )
             resp = {
-                "error": msg,
+                "error": f"Invalid context_type: {context_type}",
                 "valid_context_types": sorted(CONTEXT_TYPES),
             }
             if closest:
@@ -1226,7 +1241,10 @@ async def _handle_capture(
                     f"Pick a context_type from {sorted(CONTEXT_TYPES)}."
                 )
             return resp
-        return {"error": msg, "suggestion": "Check payload length and constraints."}
+        return {
+            "error": "Validation error",
+            "suggestion": "Check payload length and constraints.",
+        }
     except Exception:
         logger.exception("Unexpected error in _handle_capture")
         return {
@@ -2469,8 +2487,13 @@ async def _handle_config_sync_now(
         result = await sync_now(db, target, passphrase)
         return {"backend": target, **result}
     except KeyError as e:
+        # Avoid logger.exception spam for standard missing configuration keys.
+        # Log it as a normal warning and return a clean, static message.
+        logger.warning(
+            f"Configuration error in _handle_config_sync_now: missing key {e}"
+        )
         return {
-            "error": str(e),
+            "error": "Configuration error",
             "suggestion": "Check if backend configuration is complete.",
         }
     except Exception:
@@ -2530,8 +2553,11 @@ async def _handle_config_import_passport(
         backend = get_backend(target)
         bundle = await backend.pull(sequence=None)
     except KeyError as e:
+        logger.warning(
+            f"Configuration error in _handle_config_import_passport: missing key {e}"
+        )
         return {
-            "error": str(e),
+            "error": "Configuration error",
             "suggestion": "Ensure the specified backend is properly configured.",
         }
     except Exception:
