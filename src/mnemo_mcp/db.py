@@ -1538,23 +1538,24 @@ class MemoryDB:
         (``valid_to IS NULL``) -- superseded/soft-deleted history is not
         double-counted into totals or category breakdowns.
         """
-        total = self._conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
-
+        # Combine total, category counts, and max updated_at into a single database roundtrip.
+        # This speeds up the stats endpoint by calculating aggregates in Python instead of multiple queries.
         categories = self._conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM memories "
-            "WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC"
+            "SELECT category, COUNT(*) as cnt, MAX(updated_at) as max_updated_at "
+            "FROM memories WHERE valid_to IS NULL GROUP BY category ORDER BY cnt DESC"
         ).fetchall()
 
-        last_updated = self._conn.execute(
-            "SELECT MAX(updated_at) FROM memories WHERE valid_to IS NULL"
-        ).fetchone()[0]
-
         return {
-            "total_memories": total,
+            "total_memories": sum(r["cnt"] for r in categories),
             "categories": {r["category"]: r["cnt"] for r in categories},
-            "last_updated": last_updated,
+            "last_updated": max(
+                (
+                    r["max_updated_at"]
+                    for r in categories
+                    if r["max_updated_at"] is not None
+                ),
+                default=None,
+            ),
             "vec_enabled": self._vec_enabled,
             "db_path": str(self._db_path),
         }
