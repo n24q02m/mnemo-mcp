@@ -937,9 +937,26 @@ async def _handle_list(
     }
     if len(results) == 0:
         if category:
-            response["suggestion"] = (
-                f"No memories found in category '{category}'. Use action='list' without a category to see all, or action='add' to create some!"
+            valid_categories = [
+                row[0]
+                for row in db._conn.execute(
+                    "SELECT DISTINCT category FROM memories WHERE category IS NOT NULL"
+                ).fetchall()
+            ]
+            closest = (
+                difflib.get_close_matches(str(category), valid_categories, n=1)
+                if valid_categories and category is not None
+                else []
             )
+
+            if closest:
+                response["suggestion"] = (
+                    f"No memories found in category '{category}'. Did you mean '{closest[0]}'?"
+                )
+            else:
+                response["suggestion"] = (
+                    f"No memories found in category '{category}'. Use action='list' without a category to see all, or action='add' to create some!"
+                )
         else:
             response["suggestion"] = (
                 "No memories found. Use action='add' to create some!"

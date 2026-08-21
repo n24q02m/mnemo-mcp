@@ -996,3 +996,28 @@ class TestSpecializedTools:
             mock_handle.return_value = json.dumps({"status": "consolidated"})
             await consolidate_memories(category="test", ctx=ctx)
             mock_handle.assert_called_once()
+
+
+class TestMemoryListFuzzy:
+    async def test_list_fuzzy_suggestion(self, ctx_with_db):
+        from mnemo_mcp.server import memory
+
+        ctx, db = ctx_with_db
+        db.add("content1", category="work")
+        db.add("content2", category="personal")
+
+        # Test exact match not returning suggestion (assuming results > 0)
+        result = await memory(action="list", category="work", ctx=ctx)
+        assert result["count"] == 1
+        assert "suggestion" not in result
+
+        # Test fuzzy match
+        result = await memory(action="list", category="wor", ctx=ctx)
+        assert result["count"] == 0
+        assert "Did you mean 'work'?" in result["suggestion"]
+
+        # Test no fuzzy match
+        result = await memory(action="list", category="zzzzzzz", ctx=ctx)
+        assert result["count"] == 0
+        assert "Did you mean" not in result["suggestion"]
+        assert "Use action='list' without a category to see all" in result["suggestion"]
