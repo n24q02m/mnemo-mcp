@@ -44,3 +44,7 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+
+## 2026-08-21 - Thread-safe SQLite execution in asyncio
+**Learning:** Wrapping SQLite connection calls like `db._conn.execute(...)` inside `asyncio.to_thread(...)` triggers `sqlite3.ProgrammingError` due to thread locality rules in Python's sqlite3 module.
+**Action:** When executing lightweight read queries on an existing connection within an async context, do so directly on the event loop (e.g., `valid_categories = [row[0] for row in db._conn.execute(...)]`) rather than spawning a thread.
