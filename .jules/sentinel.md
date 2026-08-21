@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-05 - Prevent Information Disclosure in API Error Responses (Validation & Configuration)
+**Vulnerability:** Raw exception strings (`str(e)`) for `ValueError` and `KeyError` exceptions were being returned directly in JSON responses for core tool handlers (`add`, `update`, `capture`, `config_sync_now`, `config_import_passport`). This leaks sensitive internal state or configuration keys.
+**Learning:** Even seemingly benign exceptions like `ValueError` or `KeyError` can inadvertently expose internal architecture or configuration requirements. We must normalize all user-facing errors into a static, predictable set of messages while retaining specific fallback logic (like 'exceeds limit') for usability without exposing raw exception data.
+**Prevention:** Avoid assigning `as e` and passing `str(e)` to the client payload. Use static strings and ensure tests assert against the static strings rather than dynamically generated error text.
