@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-21 - Prevent Information Disclosure in Backend Sync Configuration Error Responses
+**Vulnerability:** Raw exception strings of `KeyError` (e.g., exposing the missing dictionary key which might contain configuration details) were returned directly in the JSON response of tool handlers (`sync_now`, `import_passport`) when a backend configuration was incomplete or missing.
+**Learning:** Returning dynamically generated exception strings for dictionary key misses (`str(e)` on `KeyError`) can leak internal implementation details or unexpected application state to the client, creating an Information Disclosure vulnerability.
+**Prevention:** Catch exceptions and return generic, statically defined error messages (e.g., `"backend configuration incomplete"`) in the JSON payload exposed to the client to avoid leaking `str(e)`.
