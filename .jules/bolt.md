@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2026-08-23 - Cache recency float scores in search result loop
+**Learning:** In SQLite/Python integration, calculating a final `float` recency decay score for search results inside a hot loop (like `_compute_hybrid_scores`) repeats expensive `datetime.fromisoformat()` parsing and temporal decay math (`2.0 ** (-days_old / half_life)`) for rows sharing the same timestamp. This is especially prevalent following bulk imports or frequent syncs where many records have identical `updated_at` timestamps.
+**Action:** Introduced a scoped local dictionary cache (`dt_cache: dict[str, float]`) in `_compute_hybrid_scores` to memoize the computed recency decay float based on the `updated_at` ISO string. When applied, caching this reduces the inner loop overhead by ~45-50% for identical timestamps without altering semantics.

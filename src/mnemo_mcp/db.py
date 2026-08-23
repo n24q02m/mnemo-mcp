@@ -1197,7 +1197,9 @@ class MemoryDB:
 
         return results
 
-    def _calc_recency(self, updated_at: str, now: datetime) -> float:
+    def _calc_recency(
+        self, updated_at: str, now: datetime, _dt_cache: dict[str, float] | None = None
+    ) -> float:
         """Calculate recency boost using configurable half-life.
 
         Phase 1 retrieval polish: spec section 4.2 calls for an exponential
@@ -1207,6 +1209,14 @@ class MemoryDB:
         decay toward 0 without hitting the boundary.
         """
         try:
+            if _dt_cache is not None:
+                recency = _dt_cache.get(updated_at)
+                if recency is None:
+                    updated = datetime.fromisoformat(updated_at)
+                    days_old = (now - updated).total_seconds() / 86400
+                    recency = 2.0 ** (-days_old / self._recency_half_life)
+                    _dt_cache[updated_at] = recency
+                return recency
             updated = datetime.fromisoformat(updated_at)
             days_old = (now - updated).total_seconds() / 86400
             return 2.0 ** (-days_old / self._recency_half_life)
@@ -1251,6 +1261,7 @@ class MemoryDB:
         now = datetime.now(UTC)
         scored = []
         has_vec = any(m.get("vec_score", 0.0) > 0 for m in results.values())
+        dt_cache: dict[str, float] = {}
 
         if has_vec:
             k = 60
@@ -1269,7 +1280,7 @@ class MemoryDB:
                 vr = vec_rank.get(mid, len(all_ids))
                 rrf = 1.0 / (k + fr) + 1.0 / (k + vr)
 
-                recency = self._calc_recency(mem.get("updated_at", ""), now)
+                recency = self._calc_recency(mem.get("updated_at", ""), now, dt_cache)
                 freq = self._calc_frequency(mem.get("access_count", 0))
 
                 rrf_norm = rrf * (k + 1) / 2.0
@@ -1283,7 +1294,7 @@ class MemoryDB:
         else:
             for mem in results.values():
                 fts = mem.get("fts_score", 0.0)
-                recency = self._calc_recency(mem.get("updated_at", ""), now)
+                recency = self._calc_recency(mem.get("updated_at", ""), now, dt_cache)
                 freq = self._calc_frequency(mem.get("access_count", 0))
 
                 base = fts * 0.6 + recency * 0.3 + freq * 0.1
