@@ -44,3 +44,7 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+
+## 2026-08-23 - Add suggestions to missing errors in backend MCP
+**Learning:** In backend MCP servers where no UI is present, the API error response *is* the UX surface. Missing a `suggestion` key in structured dictionary error responses (such as "No embedding backend is configured") leaves the caller without actionable next steps. This degrades Developer Experience (DX) because the caller has to guess how to fix the issue.
+**Action:** When auditing or implementing API endpoints that return a structured dictionary containing an `error` key, always ensure that a corresponding `suggestion` key is provided to guide the caller on how to resolve the issue.
