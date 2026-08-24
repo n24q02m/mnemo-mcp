@@ -2062,6 +2062,7 @@ async def _handle_config_backfill(
         return {
             "status": "unavailable",
             "error": "No embedding backend is configured for the current subject.",
+            "suggestion": "Ensure API keys are set for the embedding model in your setup or environment.",
             "scanned": 0,
             "embedded": 0,
             "skipped": 0,
@@ -2546,6 +2547,7 @@ async def _handle_config_import_passport(
             "status": "no_passport",
             "backend": target,
             "message": "No passport bundle found on backend.",
+            "suggestion": "Ensure the passport was exported to the correct backend or check backend settings.",
         }
 
     try:

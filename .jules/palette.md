@@ -44,3 +44,7 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+
+## 2026-07-28 - Missing suggestions in config backfill and import_passport
+**Learning:** Found API response structures in `_handle_config_backfill` (when embedding model is unavailable) and `_handle_config_import_passport` (when no passport is found) that returned errors or statuses without a `suggestion`. This degrades Developer Experience (DX) because callers do not receive actionable next steps.
+**Action:** Always include a `suggestion` key when returning a structured JSON error or status (like `no_passport`) to guide the developer or agent on how to proceed.
