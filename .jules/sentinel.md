@@ -52,3 +52,9 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-24 - Prevent Information Disclosure in Backend Configuration Errors
+**Commit:** To be determined
+**Vulnerability:** A `KeyError` string from missing backend configurations in `_handle_config_sync_now` and `_handle_config_import_passport` was returned directly to the user in the JSON response as `{"error": str(e)}`.
+**Learning:** Returning `KeyError` string values directly to clients can expose internal system variables or keys, indicating what backend settings the system relies on. This provides attackers with a deeper understanding of internal configurations or required inputs that were previously unauthenticated or obscure.
+**Prevention:** Catch `KeyError` without exposing `str(e)`, use `logger.exception` to securely record the traceback serverside, and respond to the client with generic error messages such as `"configuration incomplete"`.
