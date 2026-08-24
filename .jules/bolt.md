@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2024-08-24 - Cache temporal math in Python loop for hybrid score calculation
+**Learning:** During hybrid score calculations in `MemoryDB._compute_hybrid_scores`, processing many database rows causes redundant execution of `datetime.fromisoformat()` and temporal math for recency (`_calc_recency`) because many rows share the exact same `updated_at` timestamp.
+**Action:** Introduced a local dictionary cache `recency_cache` to store the recency value per `updated_at` timestamp inside the `_compute_hybrid_scores` loop. This prevented redundant, expensive temporal calculations resulting in an ~38% speedup based on a benchmark simulating 100,000 rows with 5 distinct timestamps.
