@@ -41,3 +41,7 @@ The proposed entry was headed `## $(date +%Y-%m-%d)`, a literal shell command wr
 
 ### 2026-08-01 - Unmeasured speedup figures on `update` (#1029)
 Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into #1038. The Impact section claimed the removed `SELECT` was a throughput win, with no harness in the diff. Measured here at 4500 samples x 4 runs per branch: the `SELECT` is 12.6us inside a ~350us call, and the spread within a single branch (297-383us) is wider than the difference between branches (~2us median-of-medians). The change was worth making for atomicity, and #1038 stands on that argument alone. A profile that says a statement is removable does not say the removal is measurable.
+
+## 2026-08-25 - Cache redundant datetime parsing in tight loops
+**Learning:** In SQLite, processing database rows in a tight loop where many records likely share the exact same timestamp (e.g., bulk inserts, updates, or hybrid score computations) can result in redundant, expensive calculations if strings are parsed repeatedly. Specifically, repeatedly calling `datetime.fromisoformat()` on the same timestamp string across thousands of rows causes measurable performance degradation.
+**Action:** Introduced a local dictionary cache (`recency_cache`) within `_compute_hybrid_scores` for `_calc_recency` to store the parsed temporal math (recency decay float). This prevents redundant parsing of `updated_at` strings and subsequent calculations for rows that share the same timestamp.
