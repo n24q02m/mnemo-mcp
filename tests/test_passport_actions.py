@@ -182,6 +182,46 @@ async def test_export_passport_requires_passphrase(
 # ---------------------------------------------------------------------------
 
 
+async def test_import_passport_invalid_source_fuzzy_suggestion(
+    isolated_db: MemoryDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYNC_PASSPHRASE", "test-pass")
+    from mnemo_mcp import sync as sync_pkg
+    from mnemo_mcp.sync.base import SyncBackend
+
+    class DummyBackend(SyncBackend):
+        name = "dummy"
+
+        async def push(self, bundle: bytes, sequence: int) -> None:
+            pass
+
+        async def pull(self, sequence=None) -> bytes | None:
+            return b""
+
+        async def last_remote_sequence(self) -> int:
+            return 0
+
+        async def health_check(self) -> bool:
+            return True
+
+    # We must register some backends so `list_backends()` returns them
+    sync_pkg.register("s3", DummyBackend())
+
+    try:
+        ctx = _make_ctx(isolated_db)
+        raw = await _handle_config_import_passport(ctx, source="s4")
+
+        assert "error" in raw
+        assert "Unknown sync backend" in raw["error"]
+        assert "suggestion" in raw
+        assert (
+            "Did you mean 's3'?" in raw["suggestion"]
+            or "Available backends are: " in raw["suggestion"]
+        )
+    finally:
+        sync_pkg.reset_registry()
+
+
 async def test_import_passport_requires_passphrase(
     isolated_db: MemoryDB,
 ) -> None:

@@ -2530,10 +2530,24 @@ async def _handle_config_import_passport(
         backend = get_backend(target)
         bundle = await backend.pull(sequence=None)
     except KeyError as e:
-        return {
+        from mnemo_mcp.sync import list_backends
+
+        valid_backends = list_backends()
+        closest = (
+            difflib.get_close_matches(str(target), valid_backends, n=1)
+            if target is not None
+            else []
+        )
+        resp = {
             "error": str(e),
-            "suggestion": "Ensure the specified backend is properly configured.",
         }
+        if closest:
+            resp["suggestion"] = f"Did you mean '{closest[0]}'?"
+        else:
+            resp["suggestion"] = (
+                f"Ensure the specified backend is properly configured. Available backends are: {', '.join(valid_backends)}."
+            )
+        return resp
     except Exception:
         logger.exception("import_passport: backend pull failed")
         return {

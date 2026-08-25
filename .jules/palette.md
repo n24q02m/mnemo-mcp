@@ -44,3 +44,6 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+## 2026-08-25 - [DX] Fuzzy matching for missing backends on config passport import
+**Learning:** Returning a raw unhandled exception or an empty error when an invalid backend source is provided leaves the developer guessing what went wrong, which degrades Developer Experience (DX). In backend MCP servers, applying a "Did you mean 'X'?" or listing valid values helps.
+**Action:** When `_handle_config_import_passport` encounters an unknown backend via `get_backend`, use `difflib.get_close_matches` and `mnemo_mcp.sync.list_backends()` to give a clear `suggestion` inside the error response.
