@@ -62,6 +62,9 @@ KNOWN_OMITTED_PREFIXES = (
     "sync_state",
     "memory_audit",
     "memory_entities_vec",
+    # Wave A Task 6 mirrors enterprise_audit into the D1 migration; until
+    # then the SQLite-only table is a known, temporary omission.
+    "enterprise_audit",
 )
 
 
