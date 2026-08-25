@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-25 - Prevent Information Disclosure via KeyError
+**Vulnerability:** Catching `KeyError` exceptions and directly returning `str(e)` in JSON API responses exposed internal configuration details, such as the exact names of unconfigured keys or lists of registered backend services.
+**Learning:** Even specific exception types like `KeyError` can leak sensitive internals if their string representation is passed to the client. This is a form of information disclosure.
+**Prevention:** Catch the `KeyError` without binding it to a variable, log it securely using `logger.exception()`, and return a static, generic error message (e.g., "configuration incomplete") in the response payload.

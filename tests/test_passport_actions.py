@@ -131,7 +131,18 @@ async def test_sync_now_unknown_backend(
     raw = await _handle_config_sync_now(ctx, backend="nonexistent")
     payload = raw
     assert "error" in payload
-    assert "nonexistent" in payload["error"]
+    assert "configuration incomplete" in payload["error"]
+
+
+async def test_import_passport_unknown_backend(
+    isolated_db: MemoryDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SYNC_PASSPHRASE", "test-pass")
+    ctx = _make_ctx(isolated_db)
+    raw = await _handle_config_import_passport(ctx, source="nonexistent")
+    payload = raw
+    assert "error" in payload
+    assert "configuration incomplete" in payload["error"]
 
 
 # ---------------------------------------------------------------------------
