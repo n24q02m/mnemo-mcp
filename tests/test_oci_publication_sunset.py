@@ -98,7 +98,7 @@ def test_public_docs_drop_image_aliases_but_keep_source_and_cf_paths():
     assert "mnemo-mcp:local --http" in passport
 
     assert "registry.cloudflare.com/<YOUR_ACCOUNT_ID>/mnemo-mcp:local" in wrangler
-    assert "registry.cloudflare.com" in worker
+    assert re.search(r"registry\.cloudflare\.com", worker)
     expected_release_claim = (
         "PyPI + GitHub Release; eligible stable releases -> MCP Registry + marketplace"
     )
