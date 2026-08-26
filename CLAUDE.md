@@ -84,11 +84,11 @@ Khong co prefix (khac voi cac project khac):
 
   For any other litellm provider (used via env passthrough), see https://docs.litellm.ai/docs/providers/<provider> for its `<PROVIDER>_API_KEY` name.
 - Custom endpoint (SSRF-guarded): `LLM_API_BASE`, `EMBEDDING_API_BASE`, `RERANK_API_BASE`
-- `EMBEDDING_DIMS` -- default 768 (0 = auto)
+- `EMBEDDING_DIMS` -- local default 768 when `0 = auto`; the hosted Cloudflare profile uses 1536 for the active Vectorize index.
 - Deprecated (honored mot release voi warning): singular `EMBEDDING_MODEL`/`RERANK_MODEL` + `EMBEDDING_BACKEND`/`RERANK_BACKEND` (backend gio suy ra tu chain rong hay khong). Router auto-detect cu "Jina > Gemini > OpenAI > Cohere" da bo.
-- `SYNC_ENABLED` -- `true`/`false`, default true
-- `GOOGLE_DRIVE_CLIENT_ID` -- OAuth client ID (required for sync)
-- `SYNC_FOLDER` -- Google Drive folder name (default: `mnemo-mcp`)
+- `SYNC_ENABLED` -- `true`/`false`, default true for local/self-host; the production Cloudflare deployment pins `false`.
+- `GOOGLE_DRIVE_CLIENT_ID` -- OAuth client ID for optional local/self-host passport sync
+- `SYNC_FOLDER` -- Google Drive folder name for optional local/self-host sync (default: `mnemo-mcp`)
 - `SYNC_INTERVAL` -- seconds (0 = manual only, default: 300)
 - `RERANK_ENABLED` -- `true`/`false`, default true
 - `RERANK_TOP_N` -- so ket qua rerank giu lai (default: 10)
@@ -136,12 +136,28 @@ CLI: `mnemo-mcp audit verify --tenant T [--db-path P]` â€” exit 0 ok / 1 chain Ä
 ## Embedding architecture
 
 1. **Cloud** (`EMBEDDING_MODELS` chain) -- thu lan luot theo thu tu, fallback qua litellm.
-2. **Local** -- Qwen3-Embedding-0.6B ONNX, dung khi chain rong, zero config, luon available
-- Tat ca embeddings luu tai 768 dims. Doi embedding MODEL = doi vector space -> B2 identity guard chan boot (set REINDEX_ON_MODEL_CHANGE=true de re-embed). 768-dim chung chi giu table khong vo; KHONG cho mix vector 2 model khac nhau (cung dims van rac search).
+2. **Local** -- Qwen3-Embedding-0.6B ONNX, dung khi chain rong, zero config, luon available.
+
+Local SQLite uses the local default width (768 unless a provider reports another
+dimension). The hosted Cloudflare profile is pinned to the active 1536-dimension
+Vectorize index; `REINDEX_ON_MODEL_CHANGE=true` clears stale vector state before
+the next embedding pass. Never mix vectors from different model identities.
+
+## Storage authority and sync boundary
+
+- **Cloudflare deployed mode**: D1 is authoritative for memory rows and FTS5,
+  Vectorize is authoritative for dense vectors, and KV stores encrypted
+  per-sub credentials. `SYNC_ENABLED=false` disables legacy DB-file Google Drive
+  sync on the production deployment.
+- **Local/self-host mode**: SQLite remains local authority and passport sync
+  (Google Drive Device Code OAuth or S3-compatible storage) is opt-in.
+- Drive inventory/cleanup is an independent safety lane: exact root, recursive
+  manifest, durable backup/restore proof, and exact-ID post-verify are required
+  before any mutation.
 
 ## CD Pipeline
 
-PSR v10 (workflow_dispatch) -> PyPI + Docker (amd64+arm64) + GHCR + MCP Registry.
+PSR v10 (workflow_dispatch) -> PyPI + GitHub Release; eligible stable releases -> MCP Registry + marketplace; Cloudflare deploy builds/pushes the internal image.
 
 ## Luu y
 
