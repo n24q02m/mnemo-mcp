@@ -52,3 +52,8 @@ recur. Its ledger entry was dated `2025-02-14`, more than a year off, and it was
 written at `##` where the entries around it were `###`, which filed a shipped fix
 under "Rejected". Date an entry from the commit that carries it, and check which
 section the heading level puts it in.
+
+## 2026-08-26 - Prevent Information Disclosure in Backend Config Error Responses
+**Vulnerability:** Raw exception strings (`str(e)`) mapping to missing configuration keys were returned directly in the JSON response of `_handle_config_sync_now` and `_handle_config_import_passport` when catching `KeyError`.
+**Learning:** Returning dictionary key error messages to the client exposes the internal name and configuration structure of backend integrations, continuing a pattern of information disclosure previously addressed for general exceptions. The principle of not exposing internal workings applies equally to configuration validation errors as it does to runtime exceptions.
+**Prevention:** Replace dynamically generated `str(e)` bindings in error handlers with generic static messages like `"backend configuration incomplete"`, logging the detailed exception context serverside to retain diagnostic information without leaking structure.
