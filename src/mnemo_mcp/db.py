@@ -1252,6 +1252,11 @@ class MemoryDB:
         scored = []
         has_vec = any(m.get("vec_score", 0.0) > 0 for m in results.values())
 
+        # Bolt Performance Optimization:
+        # Dictionary cache for temporal math to avoid redundant datetime.fromisoformat calls
+        # for rows that share the same exact updated_at timestamp.
+        recency_cache: dict[str, float] = {}
+
         if has_vec:
             k = 60
             all_ids = list(results.keys())
@@ -1269,7 +1274,11 @@ class MemoryDB:
                 vr = vec_rank.get(mid, len(all_ids))
                 rrf = 1.0 / (k + fr) + 1.0 / (k + vr)
 
-                recency = self._calc_recency(mem.get("updated_at", ""), now)
+                updated_at = mem.get("updated_at", "")
+                if updated_at not in recency_cache:
+                    recency_cache[updated_at] = self._calc_recency(updated_at, now)
+                recency = recency_cache[updated_at]
+
                 freq = self._calc_frequency(mem.get("access_count", 0))
 
                 rrf_norm = rrf * (k + 1) / 2.0
@@ -1283,7 +1292,12 @@ class MemoryDB:
         else:
             for mem in results.values():
                 fts = mem.get("fts_score", 0.0)
-                recency = self._calc_recency(mem.get("updated_at", ""), now)
+
+                updated_at = mem.get("updated_at", "")
+                if updated_at not in recency_cache:
+                    recency_cache[updated_at] = self._calc_recency(updated_at, now)
+                recency = recency_cache[updated_at]
+
                 freq = self._calc_frequency(mem.get("access_count", 0))
 
                 base = fts * 0.6 + recency * 0.3 + freq * 0.1
