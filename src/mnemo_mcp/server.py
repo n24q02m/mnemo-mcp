@@ -2470,9 +2470,20 @@ async def _handle_config_sync_now(
         result = await sync_now(db, target, passphrase)
         return {"backend": target, **result}
     except KeyError as e:
+        from mnemo_mcp.sync import list_backends
+
+        closest = (
+            difflib.get_close_matches(str(target), list_backends(), n=1)
+            if target is not None
+            else []
+        )
+        if closest:
+            suggestion = f"Did you mean '{closest[0]}'?"
+        else:
+            suggestion = f"Check if backend configuration is complete. Available backends: {', '.join(list_backends())}."
         return {
             "error": str(e),
-            "suggestion": "Check if backend configuration is complete.",
+            "suggestion": suggestion,
         }
     except Exception:
         logger.exception("sync_now failed")
@@ -2531,9 +2542,20 @@ async def _handle_config_import_passport(
         backend = get_backend(target)
         bundle = await backend.pull(sequence=None)
     except KeyError as e:
+        from mnemo_mcp.sync import list_backends
+
+        closest = (
+            difflib.get_close_matches(str(target), list_backends(), n=1)
+            if target is not None
+            else []
+        )
+        if closest:
+            suggestion = f"Did you mean '{closest[0]}'?"
+        else:
+            suggestion = f"Ensure the specified backend is properly configured. Available backends: {', '.join(list_backends())}."
         return {
             "error": str(e),
-            "suggestion": "Ensure the specified backend is properly configured.",
+            "suggestion": suggestion,
         }
     except Exception:
         logger.exception("import_passport: backend pull failed")

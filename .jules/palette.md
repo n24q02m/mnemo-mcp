@@ -44,3 +44,6 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+## 2026-08-27 - Backend error fallback suggestions for missing targets
+**Learning:** Returning a raw "KeyError: 'backend'" message from `import_passport` and `sync_now` when an invalid backend target is supplied leaves developers without actionable feedback.
+**Action:** Use `difflib.get_close_matches` combined with a fallback list of available backends from `list_backends` when handling invalid target backends to catch typos and provide actionable error `suggestion`s.
