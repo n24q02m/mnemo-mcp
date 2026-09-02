@@ -48,7 +48,7 @@ dependencies = [
     # silently discards them and all 14 annotated tools in server.py lose
     # their hints. Cap at <4 until mcp-core itself moves to fastmcp 4 and
     # this repo's annotations are ported.
-    "fastmcp>=3.4.7,<4",
+    "fastmcp>=4.0.1,<5",
     # Pin Pygments to fix ReDoS (CVE in <2.20.0)
     "Pygments>=2.21.0",
     "alembic>=1.19.1",
