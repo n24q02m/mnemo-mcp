@@ -44,3 +44,7 @@ reviewable surface here is -- the `error`, `suggestion` and `note` strings in
 `src/mnemo_mcp/server.py` and the tool docs under `src/mnemo_mcp/docs/` -- and
 that a decision to change nothing belongs in this file as an entry. Read this
 file before opening anything against this repository.
+
+## 2026-09-04 - Saturated Error Surface Skip
+**Learning:** Reviewed `src/mnemo_mcp/server.py` for missing `suggestion` keys in JSON error responses. All error paths (including invalid configurations, topics, actions, and temporal/graph queries) already return actionable suggestions or apply fuzzy matching via `difflib.get_close_matches`. There is no missing DX surface to improve today.
+**Action:** Record a skip in the journal and stop without creating a PR, as instructed for repositories with no UI when the API response surface is completely healthy.
