@@ -199,6 +199,10 @@ def _clear_provider_environment(monkeypatch):
         "EMBEDDING_MODELS",
         "RERANK_MODELS",
         "LLM_MODELS",
+        "MEMORY_DB_BACKEND",
+        "SYNC_ENABLED",
+        "SYNC_S3_BUCKET",
+        "PUBLIC_URL",
         "OPENAI_API_KEY",
         "OPENAI_API_BASE",
         "OPENROUTER_API_KEY",
@@ -215,6 +219,11 @@ def _clear_provider_environment(monkeypatch):
         "GEMINI_API_BASE",
     ):
         monkeypatch.delenv(key, raising=False)
+
+    from mnemo_mcp.config import settings
+
+    settings.sync_enabled = True
+    settings.sync_s3_bucket = ""
 
 
 @pytest.fixture(autouse=True)

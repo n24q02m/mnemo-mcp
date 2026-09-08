@@ -113,17 +113,18 @@ def resolve_active_backend() -> str:
     """
     import os
 
-    settings = globals()["settings"]
+    settings = _gdrive_module.settings
+    configured_bucket = settings.sync_s3_bucket
+    bucket_from_settings = (
+        configured_bucket.strip() if isinstance(configured_bucket, str) else ""
+    )
 
     if (
         os.environ.get("MEMORY_DB_BACKEND", "").strip().lower() == "cf-d1"
         or not settings.sync_enabled
     ):
         return "disabled"
-    if (
-        os.environ.get("SYNC_S3_BUCKET", "").strip()
-        or (settings.sync_s3_bucket or "").strip()
-    ):
+    if os.environ.get("SYNC_S3_BUCKET", "").strip() or bucket_from_settings:
         return "s3"
     return "gdrive"
 

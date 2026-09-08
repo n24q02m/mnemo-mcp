@@ -72,9 +72,9 @@ def test_settings_field_alone_returns_s3(monkeypatch: pytest.MonkeyPatch) -> Non
     import mnemo_mcp.config as config_mod
     from mnemo_mcp.config import Settings
 
-    monkeypatch.setattr(
-        config_mod, "settings", Settings(sync_s3_bucket="persisted-bucket")
-    )
+    persisted = Settings(sync_s3_bucket="persisted-bucket")
+    monkeypatch.setattr(config_mod, "settings", persisted)
+    monkeypatch.setattr("mnemo_mcp.sync.gdrive.settings", persisted)
     assert resolve_active_backend() == "s3"
 
 

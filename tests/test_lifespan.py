@@ -135,6 +135,7 @@ async def test_lifespan_happy_path_cloud(
 @pytest.mark.asyncio
 async def test_lifespan_sync_enabled(mock_settings, mock_db, mock_embedder, mock_sync):
     """Test auto-sync startup."""
+    mock_settings.google_drive_client_id = "client123"
     mock_settings.sync_enabled = True
     mock_settings.sync_folder = "folder"
     mock_settings.sync_interval = 60
