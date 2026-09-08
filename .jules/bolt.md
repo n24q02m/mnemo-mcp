@@ -64,3 +64,7 @@ Same failure as the 2026-07-25 entry above, on the PR whose idea was taken into 
 ## 2026-09-02 - Avoid redundant boundary enforcement in tight loops
 **Learning:** In tight loops processing database rows (like `_compute_hybrid_scores`), enforcing boundary constraints (e.g., `min(1.0, max(0.0, ...))`) on values that are already constrained by the database schema or insertion logic adds significant overhead per iteration due to repeated Python built-in function calls.
 **Action:** Replaced `max(0.0, min(1.0, float(mem.get("importance") or 0.0)))` with a simple conditional float cast in `_compute_hybrid_scores`. This provides an ~87% speedup on this specific calculation in the loop since the importance values are already guaranteed to be within `[0.0, 1.0]`.
+
+## 2026-09-02 - Missing check_same_thread=False in D1 SQLite test fixtures causes lockups
+**Learning:** SQLite connections instantiated within tests using `sqlite3.connect` and passed as mocks (`FakeD1Worker`) that are later invoked from `asyncio.to_thread` will hang or lock up under Windows GitHub Actions if they lack `check_same_thread=False`.
+**Action:** When fixing test flakes, added `check_same_thread=False` to all missing SQLite connection fixtures (in `tests/test_d1_isolation.py`, `tests/test_column_fidelity.py`, `tests/test_d1_migrations.py`, etc.).
