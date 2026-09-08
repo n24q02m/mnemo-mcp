@@ -113,7 +113,7 @@ def resolve_active_backend() -> str:
     """
     import os
 
-    from mnemo_mcp.config import settings
+    settings = globals()["settings"]
 
     if (
         os.environ.get("MEMORY_DB_BACKEND", "").strip().lower() == "cf-d1"

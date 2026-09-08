@@ -41,6 +41,7 @@ def mock_settings():
         m.resolve_embedding_dims.return_value = 0
         m.resolve_embedding_backend.return_value = "cloud"
         m.sync_enabled = False
+        m.google_drive_client_id = ""
         m.get_db_path.return_value = "test.db"
         m.resolve_local_embedding_model.return_value = "local-model"
         yield m
