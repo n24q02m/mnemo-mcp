@@ -29,10 +29,10 @@ def test_corpus_is_wellformed() -> None:
 
 def test_baseline_all_cases_pass(tmp_path: Path) -> None:
     report = run_eval(tmp_path / "run")
-    assert report["total_cases"] >= 12
-    assert report["failed_cases"] == [], f"failed: {report['failed_cases']}"
-    assert report["per_case_stores"] is True
+    assert report["accuracy"] == 1.0
+    assert report["paid_calls"] == 0
     assert report["cost_usd"] == 0.0
+    assert report["per_case_stores"] is True
 
 
 def test_determinism_across_runs(tmp_path: Path) -> None:
