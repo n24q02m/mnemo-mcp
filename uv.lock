@@ -77,16 +77,16 @@ wheels = [
 
 [[package]]
 name = "alembic"
-version = "1.19.2"
+version = "1.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mako" },
     { name = "sqlalchemy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/34/10/181eecdd552217d0342492bd6f3b8a96e973083379aace3d3402830ddc03/alembic-1.19.2.tar.gz", hash = "sha256:297950a8a91f6770eb82bfbce9bea55c728b90a5386c6e81430191a319d138b0", size = 2082643, upload-time = "2026-09-04T17:10:11.212Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", hash = "sha256:db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf", size = 2093272, upload-time = "2026-09-11T19:09:11.126Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/cb/9014784dcb0585977ae23b6f43331d0a33c51ac0d692506d12b4f5ee9f3b/alembic-1.19.2-py3-none-any.whl", hash = "sha256:32d553dcd577e6fe5c3c63e91468526d35e4dcecafe865d7db4e9b328fa93cb2", size = 267399, upload-time = "2026-09-04T17:10:12.796Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", hash = "sha256:77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d", size = 268719, upload-time = "2026-09-11T19:09:12.88Z" },
 ]
 
 [[package]]
@@ -533,7 +533,7 @@ server = [
 
 [[package]]
 name = "fastretrieval"
-version = "1.2.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -544,9 +544,9 @@ dependencies = [
     { name = "tokenizers" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/89/acef3ff8502054764c275dc373bb68c8fbe011e9290b0bbdb72ce78c0b5e/fastretrieval-1.2.0.tar.gz", hash = "sha256:4b566df8afc79421248c1ec97a21e1dd4355ccb0c43df29d8e366a2dd43c07dd", size = 323790, upload-time = "2026-08-31T11:23:17.129Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/35/1b0208b062ff19f762c1a94e2eb6fa1ff24dc1320f13063135e53c3d2f12/fastretrieval-1.4.0.tar.gz", hash = "sha256:f3584b20a64fe2a84e2496371ae6a5b19fe46f6811c8b8a89f7922c4b82cbbf8", size = 327929, upload-time = "2026-09-12T07:53:34.732Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/07/264fa767eca0a5a842e8cd26b57d955e631015f31f33702fb329b9bcf701/fastretrieval-1.2.0-py3-none-any.whl", hash = "sha256:7699bdff1f9773c2a1429b3457d179328b685691fb67fc9f3888c67e706b4ebe", size = 144691, upload-time = "2026-08-31T11:23:15.556Z" },
+    { url = "https://files.pythonhosted.org/packages/82/36/ab774756b864b2c4f629609dea1861650fbb53716ffcea2e22743cb2ba5a/fastretrieval-1.4.0-py3-none-any.whl", hash = "sha256:eb03702698de91207acd492d037cd9e582cab11a84a5f17e3b784729b4e3ea86", size = 145564, upload-time = "2026-09-12T07:53:33.064Z" },
 ]
 
 [[package]]
@@ -1086,7 +1086,7 @@ wheels = [
 
 [[package]]
 name = "mnemo-mcp"
-version = "2.13.2"
+version = "2.13.3"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -1125,16 +1125,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.19.1" },
+    { name = "alembic", specifier = ">=1.20.0" },
     { name = "boto3", specifier = ">=1.43.89" },
     { name = "cryptography", specifier = ">=50.0.1" },
     { name = "fastmcp", specifier = ">=3.4.7,<4" },
-    { name = "fastretrieval", specifier = ">=1.2.0,<2" },
+    { name = "fastretrieval", specifier = ">=1.4.0,<2" },
     { name = "httpx" },
     { name = "idna", specifier = ">=3.19" },
     { name = "loguru" },
     { name = "mcp", extras = ["cli"], specifier = "<3" },
-    { name = "n24q02m-mcp-core", extras = ["llm"], specifier = "==1.23.2" },
+    { name = "n24q02m-mcp-core", extras = ["llm"], specifier = "==1.24.2" },
     { name = "pydantic" },
     { name = "pydantic-settings", specifier = ">=2.14.2,<2.15" },
     { name = "pygments", specifier = ">=2.21.0" },
@@ -1226,7 +1226,7 @@ wheels = [
 
 [[package]]
 name = "n24q02m-mcp-core"
-version = "1.23.2"
+version = "1.24.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1236,15 +1236,16 @@ dependencies = [
     { name = "httpcore" },
     { name = "httpx" },
     { name = "loguru" },
+    { name = "mcp" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "starlette" },
     { name = "tomli-w" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/6a/a53c1da697af2e7392d133715965ff1cf7ba4771a857d7c000526a962854/n24q02m_mcp_core-1.23.2.tar.gz", hash = "sha256:ffe32ed36e83015333632837e266746b097344654151aeea18444a24ab663997", size = 368487, upload-time = "2026-08-31T11:13:19.028Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/5e/1790e9121f3ad0dc12e4f5119912da2a55b2e2456eb9e16f89dd9603d12c/n24q02m_mcp_core-1.24.2.tar.gz", hash = "sha256:f33c95373a1c5d3889c0793338a306c051ee703a529052f4167547a08d6f3377", size = 366276, upload-time = "2026-09-12T17:15:42.928Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/6e/4008a61ea2b40ece60d5551ea46cf27d8d0da64083743e71677ea59d2673/n24q02m_mcp_core-1.23.2-py3-none-any.whl", hash = "sha256:8e8d611129e15f7e81133355429c153c1fd05d2604b4286edf850d0642c0720d", size = 198270, upload-time = "2026-08-31T11:13:17.745Z" },
+    { url = "https://files.pythonhosted.org/packages/53/b4/18e88b678cd57de1bfe1f14635ee325868810c67fc23e5a45aaddec62b75/n24q02m_mcp_core-1.24.2-py3-none-any.whl", hash = "sha256:984e26d8422fc13d54dc4f43faebe3baa28282c0bde0e74f324013d5d653f426", size = 198400, upload-time = "2026-09-12T17:15:41.54Z" },
 ]
 
 [package.optional-dependencies]
